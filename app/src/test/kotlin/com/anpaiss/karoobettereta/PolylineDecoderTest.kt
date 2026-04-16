@@ -107,6 +107,63 @@ class PolylineDecoderTest {
         assertTrue(pipeline.remainingSegments().sumOf { it.distanceM } < 1.0)
     }
 
+    // ── interpolateElevations ─────────────────────────────────────────
+
+    @Test
+    fun `interpolateElevations with matching sizes returns same values`() {
+        val coords = listOf(45.0 to 9.0, 45.01 to 9.0, 45.02 to 9.0)
+        val elev   = listOf(100.0, 200.0, 300.0)
+        val result = interpolateElevations(coords, elev)
+        assertApprox(100.0, result[0])
+        assertApprox(200.0, result[1])
+        assertApprox(300.0, result[2])
+    }
+
+    @Test
+    fun `interpolateElevations with double elev points covers full elevation range`() {
+        // 3 coord equidistanti, 5 quote uniformi 0..100 → 0, 50, 100
+        val coords = listOf(45.0 to 9.0, 45.01 to 9.0, 45.02 to 9.0)
+        val elev   = listOf(0.0, 25.0, 50.0, 75.0, 100.0)
+        val result = interpolateElevations(coords, elev)
+        assertEquals(3, result.size)
+        assertApprox(0.0,   result[0], 0.5)
+        assertApprox(50.0,  result[1], 0.5)
+        assertApprox(100.0, result[2], 0.5)
+    }
+
+    @Test
+    fun `interpolateElevations with empty elev returns all zeros`() {
+        val coords = listOf(45.0 to 9.0, 45.01 to 9.0)
+        val result = interpolateElevations(coords, emptyList())
+        assertTrue(result.all { it == 0.0 })
+    }
+
+    @Test
+    fun `interpolateElevations monotone input produces monotone output`() {
+        // 4 coord, 10 quote crescenti → output deve essere crescente
+        val coords = listOf(45.0 to 9.0, 45.01 to 9.0, 45.02 to 9.0, 45.03 to 9.0)
+        val elev   = (0..9).map { it * 10.0 }  // 0,10,20,...,90
+        val result = interpolateElevations(coords, elev)
+        for (i in 1 until result.size) {
+            assertTrue("result[$i]=${result[i]} deve essere >= result[${i-1}]=${result[i-1]}",
+                result[i] >= result[i - 1])
+        }
+    }
+
+    @Test
+    fun `interpolateElevations with fewer elev points than coords interpolates correctly`() {
+        // 5 coord, 3 quote: dovrebbe interpolare negli intervalli mancanti
+        val coords = listOf(45.0 to 9.0, 45.005 to 9.0, 45.01 to 9.0, 45.015 to 9.0, 45.02 to 9.0)
+        val elev   = listOf(0.0, 50.0, 100.0)
+        val result = interpolateElevations(coords, elev)
+        assertApprox(0.0,   result[0], 1.0)
+        assertApprox(100.0, result[4], 1.0)
+        // I punti intermedi devono essere tra i valori estremi
+        assertTrue(result[1] in 0.0..100.0)
+        assertTrue(result[2] in 0.0..100.0)
+        assertTrue(result[3] in 0.0..100.0)
+    }
+
     // ── helper per test ───────────────────────────────────────────────
 
     /** Codifica una lista di delta interi nel formato Google Polyline. */

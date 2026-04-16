@@ -39,8 +39,12 @@ class EtaMasterDataType(
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
+            var lastValidSecs = -1.0
             etaState
-                .map { if (it.remainingSeconds >= 0) it.remainingSeconds.toDouble() else -1.0 }
+                .map { state ->
+                    if (state.remainingSeconds >= 0) lastValidSecs = state.remainingSeconds.toDouble()
+                    lastValidSecs   // -1.0 finché non c'è un valore valido, poi congelato
+                }
                 .distinctUntilChanged()
                 .collect { secs ->
                     emitter.onNext(

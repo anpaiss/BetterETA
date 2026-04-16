@@ -34,8 +34,12 @@ class EtaAbsoluteDataType(
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
+            var lastValidMins = -1L
             etaState
-                .map { if (it.remainingSeconds >= 0) it.remainingSeconds / 60L else -1L }
+                .map { state ->
+                    if (state.remainingSeconds >= 0) lastValidMins = state.remainingSeconds / 60L
+                    lastValidMins   // -1 finché non c'è un valore valido, poi congelato
+                }
                 .distinctUntilChanged()
                 .collect { minsRemaining ->
                     emitter.onNext(
