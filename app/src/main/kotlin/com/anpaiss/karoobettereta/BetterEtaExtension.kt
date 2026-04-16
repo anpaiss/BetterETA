@@ -59,6 +59,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
         listOf(
             EtaAbsoluteDataType(extension, etaState),
             EtaRemainingDataType(extension, etaState),
+            EtaMasterDataType(extension, etaState, speedModel),
         )
     }
 
