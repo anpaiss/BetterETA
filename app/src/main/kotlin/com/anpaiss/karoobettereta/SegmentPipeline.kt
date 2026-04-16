@@ -61,9 +61,11 @@ class SegmentPipeline {
      * Usa la distanza cumulativa precalcolata per trovare la finestra di ricerca
      * corretta nei waypoint originali — evita di confondere l'indice dei segmenti
      * semplificati con l'indice dei waypoint originali.
+     *
+     * @return correzione applicata in metri (0.0 se nessuno snap effettuato)
      */
-    suspend fun snapToLocation(lat: Double, lon: Double) = mutex.withLock {
-        if (waypoints.isEmpty()) return@withLock
+    suspend fun snapToLocation(lat: Double, lon: Double): Double = mutex.withLock {
+        if (waypoints.isEmpty()) return@withLock 0.0
 
         // Binary search: primo waypoint con distanza cumulativa >= traveledM
         val searchStart = lowerBound(waypointCumDist, traveledM)
@@ -76,9 +78,11 @@ class SegmentPipeline {
             if (d < minDist) { minDist = d; bestIdx = i }
         }
 
-        if (bestIdx == -1 || minDist >= 100.0) return@withLock
+        if (bestIdx == -1 || minDist >= 100.0) return@withLock 0.0
 
+        val prevTraveledM = traveledM
         repositionTo(waypointCumDist[bestIdx])
+        kotlin.math.abs(traveledM - prevTraveledM)
     }
 
     /** True se ci sono segmenti rimanenti. */

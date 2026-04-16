@@ -18,21 +18,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-/**
- * Extension principale Karoo BetterETA.
- *
- * Espone due campi dati:
- *   - eta-absolute  → orario di arrivo (HH:mm)
- *   - eta-remaining → tempo rimanente (Xh Ym)
- *
- * Sorgenti dati:
- *   - Percorso attivo: OnNavigationState
- *   - Velocità e pendenza: OnStreamState
- *   - Posizione GPS: OnLocationChanged
- */
 class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     private lateinit var karooSystem: KarooSystemService
+    private lateinit var logger: BetterEtaLogger
 
     internal val etaState = MutableStateFlow(EtaState())
 
@@ -46,16 +35,24 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     @Volatile private var rideState: RideState = RideState.Idle
 
     // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
-    @Volatile private var lastGpsUpdateMs = 0L
+    @Volatile private var lastGpsUpdateMs  = 0L
+    // Stato GPS per logging (evita righe duplicate)
+    @Volatile private var gpsStaleLogged  = false
+    @Volatile private var gpsStaleStartMs = 0L
 
     private val extensionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tickerJob: Job? = null
     private val consumerIds = mutableListOf<String>()
 
+    // Log ETA ogni LOG_INTERVAL_TICKS secondi (non ogni tick)
+    private var logTickCounter = 0
+
     companion object {
-        private const val TICK_MS        = 1000L
-        private const val GPS_TIMEOUT_MS = 10_000L   // 10s senza fix → stale
-        private const val PREFS_NAME     = "better_eta_model"
+        private const val TICK_MS            = 1000L
+        private const val GPS_TIMEOUT_MS     = 10_000L
+        private const val PREFS_NAME         = "better_eta_model"
+        private const val LOG_INTERVAL_TICKS = 60    // 1 riga ETA al minuto
+        private const val SNAP_LOG_THRESHOLD = 50.0  // logga snap solo se > 50m
     }
 
     override val types by lazy {
@@ -67,6 +64,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     override fun onCreate() {
         super.onCreate()
+        logger = BetterEtaLogger(applicationContext)
 
         // Carica il modello addestrato dalla sessione precedente
         loadModel()
@@ -85,6 +83,11 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                     is OnNavigationState.NavigationState.NavigatingToDestination ->
                         decodeRoute(nav.polyline.orEmpty(), nav.elevationPolyline.orEmpty())
                     else -> emptyList()
+                }
+                if (waypoints.isNotEmpty()) {
+                    logger.log("ROUTE", "Caricato: ${waypoints.size} waypoint")
+                } else {
+                    logger.log("ROUTE", "Percorso rimosso / navigazione terminata")
                 }
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
@@ -105,10 +108,13 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                 (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let { gradePctFlow.value = it }
             }
 
-            // ── Posizione GPS (Lat/Lon) per Snap-to-Route ────────────────────────
+            // ── Posizione GPS ─────────────────────────────────────────────────────
             consumerIds += karooSystem.addConsumer({ _ -> }, {}) { event: OnLocationChanged ->
-                locationFlow.value  = event.lat to event.lng
-                lastGpsUpdateMs     = System.currentTimeMillis()
+                if (lastGpsUpdateMs == 0L) {
+                    logger.log("GPS  ", "Primo fix: %.5f, %.5f".format(event.lat, event.lng))
+                }
+                locationFlow.value = event.lat to event.lng
+                lastGpsUpdateMs    = System.currentTimeMillis()
             }
 
             // ── Stato uscita ──────────────────────────────────────────────────────
@@ -116,11 +122,12 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                 RideState.Params, { _ -> }, {}
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
+                    logger.log("RIDE ", "Avviata — model reset")
                     speedModel.reset()
                     extensionScope.launch { pipeline.reset() }
                 }
-                // Fine uscita → salva il modello addestrato
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
+                    logger.log("RIDE ", "Terminata")
                     saveModel()
                 }
                 rideState = state
@@ -142,20 +149,40 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                         continue
                     }
 
-                    // 1. Update Modello
-                    speedModel.update(speedMsFlow.value, gradePctFlow.value)
+                    // 1. Aggiorna modello
+                    val currentSpeedMs  = speedMsFlow.value
+                    val currentGradePct = gradePctFlow.value
+                    speedModel.update(currentSpeedMs, currentGradePct)
 
-                    // 2. Avanzamento stimato + Snap GPS (solo se fix recente)
-                    pipeline.advanceByDistance(speedMsFlow.value * (TICK_MS / 1000.0))
-                    val gpsStale = lastGpsUpdateMs > 0 &&
-                        System.currentTimeMillis() - lastGpsUpdateMs > GPS_TIMEOUT_MS
+                    // 2. Avanzamento stimato
+                    pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
+
+                    // 3. Snap GPS (solo se fix recente)
+                    val now      = System.currentTimeMillis()
+                    val gpsStale = lastGpsUpdateMs > 0 && now - lastGpsUpdateMs > GPS_TIMEOUT_MS
+
                     if (!gpsStale) {
                         locationFlow.value?.let { (lat, lon) ->
-                            pipeline.snapToLocation(lat, lon)
+                            val correction = pipeline.snapToLocation(lat, lon)
+                            if (correction > SNAP_LOG_THRESHOLD) {
+                                logger.log("GPS  ", "Snap: correzione ${correction.toInt()}m")
+                            }
                         }
                     }
 
-                    // 3. Calcolo ETA
+                    // Logging GPS stale / recovery
+                    if (gpsStale && !gpsStaleLogged) {
+                        gpsStaleLogged  = true
+                        gpsStaleStartMs = now
+                        val staleSec = (now - lastGpsUpdateMs) / 1000
+                        logger.log("GPS  ", "Stale da ${staleSec}s — dead-reckoning attivo")
+                    } else if (!gpsStale && gpsStaleLogged) {
+                        gpsStaleLogged = false
+                        val staleDurSec = (now - gpsStaleStartMs) / 1000
+                        logger.log("GPS  ", "Recuperato dopo ${staleDurSec}s")
+                    }
+
+                    // 4. Calcolo ETA
                     val remainingSec = etaEngine.computeRemainingSeconds()
                     etaState.value = EtaState(
                         remainingSeconds = remainingSec,
@@ -163,12 +190,20 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                         gpsStale         = gpsStale,
                         status           = if (remainingSec > 0) "OK" else "Calcolo...",
                     )
+
+                    // 5. Log periodico ETA
+                    logTickCounter++
+                    if (logTickCounter >= LOG_INTERVAL_TICKS) {
+                        logTickCounter = 0
+                        logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale)
+                    }
                 }
             }
         }
     }
 
     override fun onDestroy() {
+        logger.log("SYS  ", "=== BetterETA fermato ===")
         saveModel()
         tickerJob?.cancel()
         tickerJob = null
@@ -179,22 +214,42 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
         super.onDestroy()
     }
 
+    // ── logging ──────────────────────────────────────────────────────────
+
+    private fun logEtaSnapshot(remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean) {
+        if (remainingSec <= 0L) return
+        val h   = remainingSec / 3600
+        val m   = (remainingSec % 3600) / 60
+        val gps = if (gpsStale) " [GPS stale]" else ""
+        logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | " +
+            "speed=%.1fm/s grade=%.1f%%%s".format(speedMs, gradePct, gps))
+    }
+
     // ── persistenza modello ──────────────────────────────────────────────
 
     private fun saveModel() {
         val snap  = speedModel.snapshot()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().apply {
-            putFloat("overall_ema",     snap.overallEma.toFloat())
-            putInt("overall_samples",   snap.overallSamples)
+            putFloat("overall_ema",   snap.overallEma.toFloat())
+            putInt("overall_samples", snap.overallSamples)
             snap.bucketEmas.forEachIndexed   { i, v -> putFloat("b${i}_ema", v.toFloat()) }
             snap.bucketCounts.forEachIndexed { i, c -> putInt("b${i}_cnt", c) }
         }.apply()
+
+        val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
+            "b$i=%.1fm/s(n=${snap.bucketCounts[i]})".format(v)
+        }.joinToString(" ")
+        logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s"
+            .format(snap.overallEma, snap.overallSamples, bucketStr))
     }
 
     private fun loadModel() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getInt("overall_samples", 0) == 0) return  // nessun dato salvato
+        if (prefs.getInt("overall_samples", 0) == 0) {
+            logger.log("MODEL", "Nessun modello salvato — si parte da zero")
+            return
+        }
         val snap = AdaptiveSpeedModel.Snapshot(
             overallEma     = prefs.getFloat("overall_ema", 0f).toDouble(),
             overallSamples = prefs.getInt("overall_samples", 0),
@@ -202,6 +257,12 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             bucketCounts   = (0..4).map { prefs.getInt("b${it}_cnt", 0) },
         )
         speedModel.restore(snap)
+
+        val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
+            "b$i=%.1fm/s(n=${snap.bucketCounts[i]})".format(v)
+        }.joinToString(" ")
+        logger.log("MODEL", "Ripristinato: overall=%.2fm/s n=%d | %s"
+            .format(snap.overallEma, snap.overallSamples, bucketStr))
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
