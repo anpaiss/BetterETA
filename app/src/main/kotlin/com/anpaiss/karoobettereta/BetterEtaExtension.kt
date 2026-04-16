@@ -77,20 +77,33 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             consumerIds += karooSystem.addConsumer(
                 OnNavigationState.Params, { _ -> }, {}
             ) { event: OnNavigationState ->
-                val waypoints = when (val nav = event.state) {
+                val nav = event.state
+                logger.log("ROUTE", "Stato ricevuto: ${nav::class.simpleName}")
+
+                val waypoints = when (nav) {
                     is OnNavigationState.NavigationState.NavigatingRoute ->
-                        decodeRoute(nav.routePolyline.orEmpty(), nav.routeElevationPolyline.orEmpty())
+                        decodeRoute(
+                            nav.routePolyline.orEmpty(),
+                            nav.routeElevationPolyline.orEmpty(),
+                            "NavigatingRoute",
+                        )
                     is OnNavigationState.NavigationState.NavigatingToDestination ->
-                        decodeRoute(nav.polyline.orEmpty(), nav.elevationPolyline.orEmpty())
-                    else -> emptyList()
-                }
-                if (waypoints.isNotEmpty()) {
-                    logger.log("ROUTE", "Caricato: ${waypoints.size} waypoint")
-                } else {
-                    logger.log("ROUTE", "Percorso rimosso / navigazione terminata")
+                        decodeRoute(
+                            nav.polyline.orEmpty(),
+                            nav.elevationPolyline.orEmpty(),
+                            "NavigatingToDestination",
+                        )
+                    else -> {
+                        logger.log("ROUTE", "Stato non gestito → nessun percorso caricato")
+                        emptyList()
+                    }
                 }
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
+                    val segCount = pipeline.remainingSegments().size
+                    if (waypoints.isNotEmpty()) {
+                        logger.log("ROUTE", "Pipeline: ${waypoints.size} wp → $segCount segmenti")
+                    }
                 }
             }
 
@@ -267,9 +280,26 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     // ── helpers ──────────────────────────────────────────────────────────
 
-    private fun decodeRoute(polyline: String, elevPolyline: String): List<RouteWaypoint> {
+    private fun decodeRoute(polyline: String, elevPolyline: String, source: String): List<RouteWaypoint> {
+        if (polyline.isBlank()) {
+            logger.log("ROUTE", "WARN [$source] polyline vuota — nessun waypoint")
+            return emptyList()
+        }
+
         val coords = PolylineDecoder.decodeLatLng(polyline)
-        val elev   = PolylineDecoder.decodeElevations(elevPolyline)
+        if (coords.isEmpty()) {
+            logger.log("ROUTE", "WARN [$source] decodeLatLng ha restituito 0 punti " +
+                "(polyline ${polyline.length} char, inizio: '${polyline.take(20)}')")
+            return emptyList()
+        }
+
+        val elev = PolylineDecoder.decodeElevations(elevPolyline)
+        if (elev.isEmpty()) {
+            logger.log("ROUTE", "WARN [$source] elevazione vuota — pendenza sarà 0% ovunque")
+        } else if (elev.size != coords.size) {
+            logger.log("ROUTE", "WARN [$source] mismatch: ${coords.size} coord, ${elev.size} quote")
+        }
+
         return coords.mapIndexed { i, (lat, lng) ->
             RouteWaypoint(lat = lat, lon = lng, elevationM = elev.getOrElse(i) { 0.0 })
         }
