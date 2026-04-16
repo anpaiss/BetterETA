@@ -235,7 +235,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             putInt("overall_samples", snap.overallSamples)
             snap.bucketEmas.forEachIndexed   { i, v -> putFloat("b${i}_ema", v.toFloat()) }
             snap.bucketCounts.forEachIndexed { i, c -> putInt("b${i}_cnt", c) }
-        }.apply()
+        }.commit()  // sincrono: garantisce scrittura su disco prima che il processo venga ucciso
 
         val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
             "b$i=%.1fm/s(n=${snap.bucketCounts[i]})".format(v)
