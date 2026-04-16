@@ -34,11 +34,18 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     private val locationFlow = MutableStateFlow<Pair<Double, Double>?>(null)
     @Volatile private var rideState: RideState = RideState.Idle
 
+    // Polyline dell'ultimo percorso caricato: se il Karoo riemette lo stesso percorso
+    // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
+    @Volatile private var lastRoutePolyline: String = ""
+
     // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
     @Volatile private var lastGpsUpdateMs  = 0L
     // Stato GPS per logging (evita righe duplicate)
     @Volatile private var gpsStaleLogged  = false
     @Volatile private var gpsStaleStartMs = 0L
+
+    // Timestamp di inizio della ride corrente/ultima (0 = mai avviata)
+    @Volatile private var rideStartMs = 0L
 
     private val extensionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tickerJob: Job? = null
@@ -48,11 +55,12 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     private var logTickCounter = 0
 
     companion object {
-        private const val TICK_MS            = 1000L
-        private const val GPS_TIMEOUT_MS     = 10_000L
-        private const val PREFS_NAME         = "better_eta_model"
-        private const val LOG_INTERVAL_TICKS = 60    // 1 riga ETA al minuto
-        private const val SNAP_LOG_THRESHOLD = 50.0  // logga snap solo se > 50m
+        private const val TICK_MS              = 1000L
+        private const val GPS_TIMEOUT_MS       = 10_000L
+        private const val PREFS_NAME           = "better_eta_model"
+        private const val LOG_INTERVAL_TICKS   = 60       // 1 riga ETA al minuto
+        private const val SNAP_LOG_THRESHOLD   = 50.0     // logga snap solo se > 50m
+        private const val MIN_RIDE_FOR_RESET_MS = 60_000L // ride < 60s non resetta il modello
     }
 
     override val types by lazy {
@@ -80,24 +88,26 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                 val nav = event.state
                 logger.log("ROUTE", "Stato ricevuto: ${nav::class.simpleName}")
 
-                val waypoints = when (nav) {
+                val (polyline, elevPolyline, source) = when (nav) {
                     is OnNavigationState.NavigationState.NavigatingRoute ->
-                        decodeRoute(
-                            nav.routePolyline.orEmpty(),
-                            nav.routeElevationPolyline.orEmpty(),
-                            "NavigatingRoute",
-                        )
+                        Triple(nav.routePolyline.orEmpty(), nav.routeElevationPolyline.orEmpty(), "NavigatingRoute")
                     is OnNavigationState.NavigationState.NavigatingToDestination ->
-                        decodeRoute(
-                            nav.polyline.orEmpty(),
-                            nav.elevationPolyline.orEmpty(),
-                            "NavigatingToDestination",
-                        )
+                        Triple(nav.polyline.orEmpty(), nav.elevationPolyline.orEmpty(), "NavigatingToDestination")
                     else -> {
                         logger.log("ROUTE", "Stato non gestito → nessun percorso caricato")
-                        emptyList()
+                        lastRoutePolyline = ""
+                        extensionScope.launch { pipeline.setRoute(emptyList()) }
+                        return@addConsumer
                     }
                 }
+
+                if (polyline == lastRoutePolyline) {
+                    logger.log("ROUTE", "[$source] stesso percorso — posizione preservata")
+                    return@addConsumer
+                }
+
+                lastRoutePolyline = polyline
+                val waypoints = decodeRoute(polyline, elevPolyline, source)
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
                     val segCount = pipeline.remainingSegments().size
@@ -135,8 +145,15 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                 RideState.Params, { _ -> }, {}
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
-                    logger.log("RIDE ", "Avviata — model reset")
-                    speedModel.reset()
+                    val now = System.currentTimeMillis()
+                    val prevDurationMs = if (rideStartMs > 0) now - rideStartMs else Long.MAX_VALUE
+                    rideStartMs = now
+                    if (prevDurationMs >= MIN_RIDE_FOR_RESET_MS) {
+                        logger.log("RIDE ", "Avviata — model reset")
+                        speedModel.reset()
+                    } else {
+                        logger.log("RIDE ", "Avviata — model mantenuto (ride precedente ${prevDurationMs / 1000}s < 60s)")
+                    }
                     extensionScope.launch { pipeline.reset() }
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
@@ -297,11 +314,12 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
         if (elev.isEmpty()) {
             logger.log("ROUTE", "WARN [$source] elevazione vuota — pendenza sarà 0% ovunque")
         } else if (elev.size != coords.size) {
-            logger.log("ROUTE", "WARN [$source] mismatch: ${coords.size} coord, ${elev.size} quote")
+            logger.log("ROUTE", "INFO [$source] mismatch: ${coords.size} coord, ${elev.size} quote → interpolazione")
         }
 
+        val elevInterp = interpolateElevations(coords, elev)
         return coords.mapIndexed { i, (lat, lng) ->
-            RouteWaypoint(lat = lat, lon = lng, elevationM = elev.getOrElse(i) { 0.0 })
+            RouteWaypoint(lat = lat, lon = lng, elevationM = elevInterp[i])
         }
     }
 }
