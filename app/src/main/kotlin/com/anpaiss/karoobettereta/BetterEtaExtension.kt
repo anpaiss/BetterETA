@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
+class BetterEtaExtension : KarooExtension("karoo-better-eta-v2", "2") {
 
     private lateinit var karooSystem: KarooSystemService
     private lateinit var logger: BetterEtaLogger

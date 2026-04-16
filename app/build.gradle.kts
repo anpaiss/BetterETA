@@ -8,11 +8,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.anpaiss.karoobettereta"
+        applicationId = "com.anpaiss.karoobettereta.v2"
         minSdk        = 23
         targetSdk     = 34
-        versionCode   = 1
-        versionName   = "1.0"
+        versionCode   = 2
+        versionName   = "2.0-dashboard"
     }
 
     buildTypes {
