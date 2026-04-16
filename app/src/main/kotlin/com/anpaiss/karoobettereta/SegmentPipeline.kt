@@ -11,23 +11,28 @@ import kotlin.math.*
 class SegmentPipeline {
 
     private val mutex = Mutex()
-    private var segments              = listOf<RouteSegment>()
-    private var waypoints             = listOf<RouteWaypoint>() // Teniamo i waypoint per lo snap GPS
-    private var currentIndex          = 0
-    private var consumedInCurrentM    = 0.0
+    private var segments           = listOf<RouteSegment>()
+    private var waypoints          = listOf<RouteWaypoint>()
+    private var waypointCumDist    = DoubleArray(0)  // distanza cumulativa al waypoint[i]
+    private var currentIndex       = 0
+    private var consumedInCurrentM = 0.0
+    private var traveledM          = 0.0             // metri percorsi dall'inizio del percorso
 
     /** Carica un nuovo percorso e riparte dall'inizio. */
     suspend fun setRoute(newWaypoints: List<RouteWaypoint>) = mutex.withLock {
         waypoints          = newWaypoints
         segments           = buildSegments(newWaypoints)
+        waypointCumDist    = buildCumDist(newWaypoints)
         currentIndex       = 0
         consumedInCurrentM = 0.0
+        traveledM          = 0.0
     }
 
     /** Azzera la posizione sul percorso (nuova uscita). */
     suspend fun reset() = mutex.withLock {
         currentIndex       = 0
         consumedInCurrentM = 0.0
+        traveledM          = 0.0
     }
 
     /** Avanza di [meters] metri sul percorso. */
@@ -39,8 +44,10 @@ class SegmentPipeline {
             val available = seg.distanceM - consumedInCurrentM
             if (rem < available) {
                 consumedInCurrentM += rem
+                traveledM          += rem
                 break
             } else {
+                traveledM += available
                 rem -= available
                 currentIndex++
                 consumedInCurrentM = 0.0
@@ -50,55 +57,28 @@ class SegmentPipeline {
 
     /**
      * Sincronizza la posizione basandosi sulle coordinate GPS reali.
-     * Cerca il punto più vicino sul percorso originale.
+     *
+     * Usa la distanza cumulativa precalcolata per trovare la finestra di ricerca
+     * corretta nei waypoint originali — evita di confondere l'indice dei segmenti
+     * semplificati con l'indice dei waypoint originali.
      */
     suspend fun snapToLocation(lat: Double, lon: Double) = mutex.withLock {
         if (waypoints.isEmpty()) return@withLock
 
-        // Cerchiamo il waypoint più vicino (semplificato: entro i prossimi 2km dal punto attuale per performance)
-        var bestIdx = -1
-        var minSourceDist = Double.MAX_VALUE
-        
-        // Cerchiamo in un intorno della posizione attuale per evitare salti all'indietro o troppo avanti
-        val searchStart = (currentIndex).coerceIn(0, waypoints.size)
-        val searchEnd   = (searchStart + 500).coerceAtMost(waypoints.size) 
+        // Binary search: primo waypoint con distanza cumulativa >= traveledM
+        val searchStart = lowerBound(waypointCumDist, traveledM)
+        val searchEnd   = (searchStart + 500).coerceAtMost(waypoints.size)
 
+        var bestIdx = -1
+        var minDist = Double.MAX_VALUE
         for (i in searchStart until searchEnd) {
             val d = haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon)
-            if (d < minSourceDist) {
-                minSourceDist = d
-                bestIdx = i
-            }
+            if (d < minDist) { minDist = d; bestIdx = i }
         }
 
-        // Se troviamo un punto entro 100m, sincronizziamo
-        if (bestIdx != -1 && minSourceDist < 100.0) {
-            // Calcoliamo la distanza totale dal waypoint 0 al waypoint trovato
-            var distFromStart = 0.0
-            for (i in 0 until bestIdx) {
-                distFromStart += haversineM(waypoints[i].lat, waypoints[i].lon, waypoints[i+1].lat, waypoints[i+1].lon)
-            }
-            
-            // Applichiamo la nuova posizione
-            val currentSegmentsTotal = segments.sumOf { it.distanceM }
-            val targetTraveled = distFromStart.coerceIn(0.0, currentSegmentsTotal)
-            
-            // Reset virtuale e avanzamento fino al punto GPS
-            currentIndex = 0
-            consumedInCurrentM = 0.0
-            
-            var rem = targetTraveled
-            while (rem > 0.0 && currentIndex < segments.size) {
-                val seg = segments[currentIndex]
-                if (rem < seg.distanceM) {
-                    consumedInCurrentM = rem
-                    break
-                } else {
-                    rem -= seg.distanceM
-                    currentIndex++
-                }
-            }
-        }
+        if (bestIdx == -1 || minDist >= 100.0) return@withLock
+
+        repositionTo(waypointCumDist[bestIdx])
     }
 
     /** True se ci sono segmenti rimanenti. */
@@ -106,34 +86,63 @@ class SegmentPipeline {
         currentIndex < segments.size
     }
 
-    /**
-     * Restituisce i segmenti ancora da percorrere.
-     */
+    /** Restituisce i segmenti ancora da percorrere. */
     suspend fun remainingSegments(): List<RouteSegment> = mutex.withLock {
         if (currentIndex >= segments.size) return emptyList()
         val result = mutableListOf<RouteSegment>()
-
-        val first = segments[currentIndex]
+        val first  = segments[currentIndex]
         val firstRemaining = first.distanceM - consumedInCurrentM
-        if (firstRemaining > 0.0) {
-            result.add(first.copy(distanceM = firstRemaining))
-        }
-        for (i in currentIndex + 1 until segments.size) {
-            result.add(segments[i])
-        }
+        if (firstRemaining > 0.0) result.add(first.copy(distanceM = firstRemaining))
+        for (i in currentIndex + 1 until segments.size) result.add(segments[i])
         return result
     }
 
-    // ── costruzione segmenti ─────────────────────────────────────────
+    // ── private helpers ──────────────────────────────────────────────────
+
+    /** Sposta traveledM/currentIndex/consumedInCurrentM al punto targetM dall'inizio. */
+    private fun repositionTo(targetM: Double) {
+        traveledM          = targetM
+        currentIndex       = 0
+        consumedInCurrentM = 0.0
+        var rem = targetM
+        while (rem > 0.0 && currentIndex < segments.size) {
+            val seg = segments[currentIndex]
+            if (rem < seg.distanceM) {
+                consumedInCurrentM = rem
+                break
+            }
+            rem -= seg.distanceM
+            currentIndex++
+        }
+    }
+
+    /** Lower bound: primo indice i per cui arr[i] >= value. */
+    private fun lowerBound(arr: DoubleArray, value: Double): Int {
+        var lo = 0; var hi = arr.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (arr[mid] < value) lo = mid + 1 else hi = mid
+        }
+        return lo.coerceIn(0, (arr.size - 1).coerceAtLeast(0))
+    }
+
+    private fun buildCumDist(pts: List<RouteWaypoint>): DoubleArray {
+        val arr = DoubleArray(pts.size)
+        for (i in 1 until pts.size) {
+            arr[i] = arr[i - 1] + haversineM(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon)
+        }
+        return arr
+    }
+
+    // ── costruzione segmenti ─────────────────────────────────────────────
 
     private fun buildSegments(waypoints: List<RouteWaypoint>): List<RouteSegment> {
         if (waypoints.size < 2) return emptyList()
-
         val raw = mutableListOf<RouteSegment>()
         for (i in 0 until waypoints.size - 1) {
-            val dist = haversineM(waypoints[i].lat, waypoints[i].lon, waypoints[i + 1].lat, waypoints[i + 1].lon)
+            val dist = haversineM(waypoints[i].lat, waypoints[i].lon, waypoints[i+1].lat, waypoints[i+1].lon)
             if (dist < 1.0) continue
-            val elevDiff = waypoints[i + 1].elevationM - waypoints[i].elevationM
+            val elevDiff = waypoints[i+1].elevationM - waypoints[i].elevationM
             val grade    = (elevDiff / dist * 100.0).coerceIn(-30.0, 30.0)
             raw.add(RouteSegment(distanceM = dist, gradePct = grade))
         }
@@ -144,11 +153,10 @@ class SegmentPipeline {
         if (raw.isEmpty()) return emptyList()
         val out     = mutableListOf<RouteSegment>()
         var current = raw[0]
-
         for (i in 1 until raw.size) {
             val next = raw[i]
             if (abs(next.gradePct - current.gradePct) <= 2.0) {
-                val total   = current.distanceM + next.distanceM
+                val total    = current.distanceM + next.distanceM
                 val avgGrade = (current.gradePct * current.distanceM +
                                 next.gradePct    * next.distanceM) / total
                 current = RouteSegment(distanceM = total, gradePct = avgGrade)

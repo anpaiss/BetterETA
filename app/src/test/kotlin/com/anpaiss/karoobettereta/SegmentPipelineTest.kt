@@ -1,5 +1,6 @@
 package com.anpaiss.karoobettereta
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,7 +30,7 @@ class SegmentPipelineTest {
     // ── test ──────────────────────────────────────────────────────────
 
     @Test
-    fun `empty route has no segments`() {
+    fun `empty route has no segments`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(emptyList())
         assertFalse(p.hasSegments())
@@ -37,14 +38,14 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `single waypoint has no segments`() {
+    fun `single waypoint has no segments`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(listOf(RouteWaypoint(45.0, 9.0, 300.0)))
         assertFalse(p.hasSegments())
     }
 
     @Test
-    fun `flat two-point route builds one segment`() {
+    fun `flat two-point route builds one segment`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(flatWaypoints())
         assertTrue(p.hasSegments())
@@ -56,7 +57,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `advance past full distance leaves no segments`() {
+    fun `advance past full distance leaves no segments`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(flatWaypoints())
         p.advanceByDistance(999_999.0)
@@ -65,7 +66,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `partial advance reduces remaining distance correctly`() {
+    fun `partial advance reduces remaining distance correctly`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(twoSegmentRoute())
         val totalBefore = p.remainingSegments().sumOf { it.distanceM }
@@ -77,7 +78,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `advance across segment boundary continues into next segment`() {
+    fun `advance across segment boundary continues into next segment`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(twoSegmentRoute())
         val firstSegDist = p.remainingSegments().first().distanceM
@@ -96,7 +97,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `climbing route has positive grade`() {
+    fun `climbing route has positive grade`() = runBlocking {
         val p = SegmentPipeline()
         // ~1111m, +100m di dislivello → ~9% di pendenza
         p.setRoute(listOf(
@@ -109,7 +110,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `descending route has negative grade`() {
+    fun `descending route has negative grade`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(listOf(
             RouteWaypoint(45.0000, 9.0, 200.0),
@@ -120,7 +121,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `reset restores position to start`() {
+    fun `reset restores position to start`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(twoSegmentRoute())
         val totalBefore = p.remainingSegments().sumOf { it.distanceM }
@@ -133,7 +134,7 @@ class SegmentPipelineTest {
     }
 
     @Test
-    fun `adjacent similar grade segments are merged by simplify`() {
+    fun `adjacent similar grade segments are merged by simplify`() = runBlocking {
         val p = SegmentPipeline()
         // 5 punti con pendenza quasi identica → dovrebbero essere mergiati in meno segmenti
         val waypoints = listOf(

@@ -88,15 +88,16 @@ class SimulatorActivity : AppCompatActivity() {
                     Toast.makeText(this, "Percorso non ancora caricato", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                // Prima esecuzione o riavvio dopo completamento
-                if (btnStartStop.text == "Avvia Simulazione" || btnStartStop.text == "Ricomincia") {
-                    speedModel.reset()
-                    pipeline.reset()
-                    traveledM = 0.0
-                }
+                val isFirstRun = btnStartStop.text == "Avvia Simulazione" || btnStartStop.text == "Ricomincia"
                 btnStartStop.text = "Pausa"
 
                 simJob = lifecycleScope.launch {
+                    // Prima esecuzione o riavvio dopo completamento
+                    if (isFirstRun) {
+                        speedModel.reset()
+                        pipeline.reset()
+                        traveledM = 0.0
+                    }
                     while (pipeline.hasSegments()) {
                         val speedKmh = (sbSpeed.progress / 2.0).coerceAtLeast(1.0)
                         val speedMs  = speedKmh / 3.6

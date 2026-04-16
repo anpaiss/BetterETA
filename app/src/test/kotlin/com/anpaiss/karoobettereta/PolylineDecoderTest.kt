@@ -1,5 +1,6 @@
 package com.anpaiss.karoobettereta
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,9 +43,6 @@ class PolylineDecoderTest {
 
     @Test
     fun `decoded coords are in plausible lat-lon range`() {
-        // Un percorso ciclistico in Italia: lat ~44-46°N, lon ~8-12°E
-        // Usiamo il primo punto del percorso campione come "polyline"
-        // Questo test verifica che valori realistici vengano decodificati correttamente
         val points = PolylineDecoder.decodeLatLng("_p~iF~ps|U")
         val (lat, lon) = points[0]
         assertTrue("lat=$lat deve essere in -90..90", lat in -90.0..90.0)
@@ -55,16 +53,13 @@ class PolylineDecoderTest {
 
     @Test
     fun `decodes elevation sequence`() {
-        // Codifica manuale: 300m in decimetri = 3000
-        // Verifichiamo che la decodifica produca valori coerenti
-        // Usiamo una stringa che codifica delta [100, 50, -30] (valori in decimetri)
         // 100dm = 10m, 50dm = 5m, -30dm = -3m → elevazioni assolute: 10, 15, 12
         val encoded = encodeDeltas(listOf(100, 50, -30))
         val elevations = PolylineDecoder.decodeElevations(encoded)
         assertEquals(3, elevations.size)
-        assertApprox(10.0, elevations[0], 0.01)   // 100dm / 10 = 10m
-        assertApprox(15.0, elevations[1], 0.01)   // (100+50)dm / 10 = 15m
-        assertApprox(12.0, elevations[2], 0.01)   // (100+50-30)dm / 10 = 12m
+        assertApprox(10.0, elevations[0], 0.01)
+        assertApprox(15.0, elevations[1], 0.01)
+        assertApprox(12.0, elevations[2], 0.01)
     }
 
     @Test
@@ -74,8 +69,6 @@ class PolylineDecoderTest {
 
     @Test
     fun `elevation values from typical cycling route are plausible`() {
-        // Codifica una sequenza di elevazioni tipica (200-800m sul livello del mare)
-        // in decimetri, e verifica che la decodifica li riporti in range ragionevole
         val deltas = listOf(3000, 200, 150, -100, 500, -300)  // in dm
         val encoded = encodeDeltas(deltas)
         val elevations = PolylineDecoder.decodeElevations(encoded)
@@ -84,12 +77,11 @@ class PolylineDecoderTest {
         }
     }
 
-    // ── SegmentPipeline.syncToRemainingDistance ───────────────────────
+    // ── SegmentPipeline advance + remaining ──────────────────────────
 
     @Test
-    fun `syncToRemainingDistance positions pipeline correctly`() {
+    fun `advance positions pipeline correctly`() = runBlocking {
         val pipeline = SegmentPipeline()
-        // Percorso ~2222m (~2.2km flat)
         pipeline.setRoute(listOf(
             RouteWaypoint(45.0000, 9.0, 300.0),
             RouteWaypoint(45.0100, 9.0, 300.0),
@@ -97,30 +89,21 @@ class PolylineDecoderTest {
         ))
         val total = pipeline.remainingSegments().sumOf { it.distanceM }
 
-        // Simula avanzamento fino a metà percorso circa
-        pipeline.advanceByDistance(total / 2)
-        val midRemaining = pipeline.remainingSegments().sumOf { it.distanceM }
+        // Avanza fino a ~500m rimanenti
+        pipeline.advanceByDistance(total - 500.0)
+        val afterAdvance = pipeline.remainingSegments().sumOf { it.distanceM }
 
-        // Ora forza un sync a un valore noto: 500m rimanenti
-        pipeline.syncToRemainingDistance(500.0)
-        val afterSync = pipeline.remainingSegments().sumOf { it.distanceM }
-
-        // La distanza rimanente dopo sync deve essere ~500m
-        assertEquals(500.0, afterSync, 2.0)
-        // E deve essere diversa dalla posizione "metà percorso"
-        assertTrue("syncRem=$afterSync deve differire da midRem=$midRemaining",
-            Math.abs(afterSync - midRemaining) > 100.0)
+        assertEquals(500.0, afterAdvance, 2.0)
     }
 
     @Test
-    fun `syncToRemainingDistance with zero remaining reaches end`() {
+    fun `advance past end leaves no remaining distance`() = runBlocking {
         val pipeline = SegmentPipeline()
         pipeline.setRoute(listOf(
             RouteWaypoint(45.0, 9.0, 300.0),
             RouteWaypoint(45.01, 9.0, 300.0),
         ))
-        pipeline.syncToRemainingDistance(0.0)
-        // Con 0 rimanente, il percorso è completato
+        pipeline.advanceByDistance(999_999.0)
         assertTrue(pipeline.remainingSegments().sumOf { it.distanceM } < 1.0)
     }
 

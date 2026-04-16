@@ -12,7 +12,7 @@ class EtaEngine(
     private val speedModel: AdaptiveSpeedModel,
     private val pipeline:   SegmentPipeline,
 ) {
-    fun computeRemainingSeconds(): Long {
+    suspend fun computeRemainingSeconds(): Long {
         val segments = pipeline.remainingSegments()
         if (segments.isEmpty()) return -1L
 

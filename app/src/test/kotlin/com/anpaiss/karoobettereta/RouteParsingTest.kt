@@ -1,5 +1,6 @@
 package com.anpaiss.karoobettereta
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -50,16 +51,14 @@ class RouteParsingTest {
     @Test
     fun `elevation values are read correctly`() {
         val waypoints = RouteReader().parseFromStream(loadSampleGpx()!!)
-        // Il punto più alto è il 15° (indice 14) a 643m
         val maxEle = waypoints.maxOf { it.elevationM }
         assertEquals(643.0, maxEle, 0.5)
-        // Il punto più basso è il primo a 300m
         val minEle = waypoints.minOf { it.elevationM }
         assertEquals(300.0, minEle, 0.5)
     }
 
     @Test
-    fun `route builds segments correctly via pipeline`() {
+    fun `route builds segments correctly via pipeline`() = runBlocking {
         val waypoints = RouteReader().parseFromStream(loadSampleGpx()!!)
         val pipeline = SegmentPipeline()
         pipeline.setRoute(waypoints)
@@ -71,7 +70,7 @@ class RouteParsingTest {
     }
 
     @Test
-    fun `route has both climbing and descending segments`() {
+    fun `route has both climbing and descending segments`() = runBlocking {
         val waypoints = RouteReader().parseFromStream(loadSampleGpx()!!)
         val pipeline = SegmentPipeline()
         pipeline.setRoute(waypoints)

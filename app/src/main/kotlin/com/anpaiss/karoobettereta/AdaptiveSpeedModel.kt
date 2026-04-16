@@ -94,6 +94,7 @@ class AdaptiveSpeedModel {
         for (i in buckets.indices) buckets[i] = Bucket()
         overallEma     = 0.0
         overallSamples = 0
+        smoothedGrade  = 0.0
     }
 
     // ── private helpers ──────────────────────────────────────────────

@@ -3,6 +3,7 @@ package com.anpaiss.karoobettereta
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.DataType
+import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
 import io.hammerhead.karooext.models.RideState
@@ -10,6 +11,8 @@ import io.hammerhead.karooext.models.StreamState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -46,6 +49,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     private val distToDestFlow   = MutableStateFlow(-1.0)
     @Volatile private var rideState: RideState = RideState.Idle
 
+    private val extensionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tickerJob: Job? = null
     private val consumerIds = mutableListOf<String>()
 
@@ -77,7 +81,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                         decodeRoute(nav.polyline.orEmpty(), nav.elevationPolyline.orEmpty())
                     else -> emptyList()
                 }
-                CoroutineScope(Dispatchers.IO).launch {
+                extensionScope.launch {
                     pipeline.setRoute(waypoints)
                 }
             }
@@ -97,15 +101,8 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             }
 
             // ── Posizione GPS (Lat/Lon) per Snap-to-Route ────────────────────────
-            consumerIds += karooSystem.addConsumer(
-                OnStreamState.StartStreaming(DataType.Type.LOCATION), { _ -> }, {}
-            ) { event: OnStreamState ->
-                val point = (event.state as? StreamState.Streaming)?.dataPoint
-                val lat = point?.values?.get(DataType.Field.LATITUDE)
-                val lon = point?.values?.get(DataType.Field.LONGITUDE)
-                if (lat != null && lon != null) {
-                    locationFlow.value = lat to lon
-                }
+            consumerIds += karooSystem.addConsumer({ _ -> }, {}) { event: OnLocationChanged ->
+                locationFlow.value = event.lat to event.lng
             }
 
             // ── Stato uscita ──────────────────────────────────────────────────────
@@ -114,13 +111,13 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
                     speedModel.reset()
-                    CoroutineScope(Dispatchers.IO).launch { pipeline.reset() }
+                    extensionScope.launch { pipeline.reset() }
                 }
                 rideState = state
             }
 
             // ── Ticker principale ─────────────────────────────────────────────────
-            tickerJob = CoroutineScope(Dispatchers.IO).launch {
+            tickerJob = extensionScope.launch {
                 while (true) {
                     delay(TICK_MS)
                     
@@ -159,6 +156,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     override fun onDestroy() {
         tickerJob?.cancel()
         tickerJob = null
+        extensionScope.cancel()
         consumerIds.forEach { karooSystem.removeConsumer(it) }
         consumerIds.clear()
         karooSystem.disconnect()
