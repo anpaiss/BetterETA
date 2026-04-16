@@ -12,10 +12,13 @@ class EtaEngine(
     private val speedModel: AdaptiveSpeedModel,
     private val pipeline:   SegmentPipeline,
 ) {
-    suspend fun computeRemainingSeconds(): Long {
-        val segments = pipeline.remainingSegments()
-        if (segments.isEmpty()) return -1L
+    /** Versione suspend: fetcha i segmenti dalla pipeline. */
+    suspend fun computeRemainingSeconds(): Long =
+        computeFromSegments(pipeline.remainingSegments())
 
+    /** Versione sincrona: accetta segmenti già fetchati — evita un secondo lock sulla pipeline. */
+    fun computeFromSegments(segments: List<RouteSegment>): Long {
+        if (segments.isEmpty()) return -1L
         var totalSec = 0.0
         for (seg in segments) {
             val speedMs = speedModel.predictSpeed(seg.gradePct)

@@ -5,7 +5,11 @@ import android.graphics.Color
 import android.text.format.DateFormat
 import android.widget.RemoteViews
 import io.hammerhead.karooext.extension.DataTypeImpl
+import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
+import io.hammerhead.karooext.models.DataPoint
+import io.hammerhead.karooext.models.DataType
+import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
 import io.hammerhead.karooext.models.ViewConfig
 import kotlinx.coroutines.CoroutineScope
@@ -13,12 +17,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
 /**
- * Pagina Dashboard (Master) - Versione 2.
- * Mostra tutti i dati dell'ETA, lo stato del modello adattivo e la qualità GPS.
+ * Dashboard "Da qui al traguardo" — mostra in un'unica pagina:
+ *   - Orario di arrivo stimato (GRANDE)
+ *   - Tempo rimanente
+ *   - Km mancanti (GRANDE)
+ *   - Dislivello positivo rimanente (GRANDE)
+ *   - Stato dei bucket di velocità (per feedback modello)
  */
 class EtaMasterDataType(
     extension: String,
@@ -26,17 +36,32 @@ class EtaMasterDataType(
     private val speedModel: AdaptiveSpeedModel
 ) : DataTypeImpl(extension, "eta-master") {
 
+    override fun startStream(emitter: Emitter<StreamState>) {
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        scope.launch {
+            etaState
+                .map { if (it.remainingSeconds >= 0) it.remainingSeconds.toDouble() else -1.0 }
+                .distinctUntilChanged()
+                .collect { secs ->
+                    emitter.onNext(
+                        StreamState.Streaming(
+                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to secs))
+                        )
+                    )
+                }
+        }
+        emitter.setCancellable { scope.cancel() }
+    }
+
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
-        // Comunichiamo al Karoo di non mostrare l'header standard per avere più spazio
-        emitter.onNext(UpdateGraphicConfig(showHeader = false))
-
         scope.launch {
+            emitter.onNext(UpdateGraphicConfig(showHeader = false))
+            
             etaState.collect { state ->
                 val views = RemoteViews(context.packageName, R.layout.view_eta_master)
-
-                // 1. Orario di arrivo e Tempo Rimanente
+                
+                // 1. ETA e Tempo Rimanente (Header)
                 if (state.hasRoute && state.remainingSeconds >= 0) {
                     val arrivalMs = System.currentTimeMillis() + state.remainingSeconds * 1000L
                     val cal = Calendar.getInstance().apply { timeInMillis = arrivalMs }
@@ -49,7 +74,16 @@ class EtaMasterDataType(
                     views.setTextViewText(R.id.tv_master_remaining, state.status)
                 }
 
-                // 2. Statistiche Modello Adattivo (Bucket)
+                // 2. Dati al traguardo (Grandi)
+                val distStr = if (state.remainingDistanceM >= 0) 
+                    "%.1f".format(state.remainingDistanceM / 1000.0) else "--.-"
+                val elevStr = if (state.remainingElevationM >= 0) 
+                    "${state.remainingElevationM.toInt()}" else "--"
+                
+                views.setTextViewText(R.id.tv_master_km, "$distStr km")
+                views.setTextViewText(R.id.tv_master_ascent, "$elevStr m")
+
+                // 3. Statistiche Modello Adattivo (Bucket)
                 val snap = speedModel.snapshot()
                 val labels = listOf("Discesa", "Piano", "Salita", "Ripida", "Muro")
                 val ids = listOf(R.id.tv_b0, R.id.tv_b1, R.id.tv_b2, R.id.tv_b3, R.id.tv_b4)
@@ -57,31 +91,22 @@ class EtaMasterDataType(
                 snap.bucketEmas.forEachIndexed { i, speedMs ->
                     val speedKmh = speedMs * 3.6
                     val count = snap.bucketCounts[i]
-                    val isCurrent = i == bucketIndex(smoothedGradeFallback(speedMs)) // Logica semplificata per highlight
-                    
-                    val text = "${labels[i]}: %.1f km/h (%d pts)".format(speedKmh, count)
+                    val text = "${labels[i]}: %.1f km/h (%d)".format(speedKmh, count)
                     views.setTextViewText(ids[i], text)
-                    
-                    // Colore verde se abbiamo dati, grigio se vuoto
-                    val color = if (count > 0) Color.GREEN else Color.LTGRAY
-                    views.setTextColor(ids[i], color)
+                    views.setTextColor(ids[i], if (count > 0) Color.parseColor("#4CAF50") else Color.GRAY)
                 }
 
-                // 3. Footer: Status e GPS Snap
+                // 4. Footer: Status e GPS
                 views.setTextViewText(R.id.tv_status_msg, state.status)
-                
-                val gpsText = if (state.gpsStale) "STALE / DR" else "ACTIVE"
-                val gpsColor = if (state.gpsStale) Color.RED else Color.CYAN
+                val gpsText = if (state.gpsStale) "GPS STALE / DR" else "GPS ACTIVE"
+                val gpsColor = if (state.gpsStale) Color.RED else Color.parseColor("#00AAFF")
                 views.setTextViewText(R.id.tv_gps_status, gpsText)
                 views.setTextColor(R.id.tv_gps_status, gpsColor)
 
                 emitter.updateView(views)
             }
         }
-
-        emitter.setCancellable {
-            scope.cancel()
-        }
+        emitter.setCancellable { scope.cancel() }
     }
 
     private fun formatRemaining(seconds: Long): String {
@@ -89,15 +114,4 @@ class EtaMasterDataType(
         val m = (seconds % 3600) / 60
         return if (h > 0) "${h}h ${m}m" else "${m}m"
     }
-
-    // Helper per determinare il bucket (solo per visualizzazione)
-    private fun bucketIndex(grade: Double): Int = when {
-        grade < -5.0 -> 0
-        grade < 2.0  -> 1
-        grade < 6.0  -> 2
-        grade < 10.0 -> 3
-        else         -> 4
-    }
-
-    private fun smoothedGradeFallback(speedMs: Double): Double = 0.0 // Semplificato per ora
 }

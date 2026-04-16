@@ -196,13 +196,21 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                         logger.log("GPS  ", "Recuperato dopo ${staleDurSec}s")
                     }
 
-                    // 4. Calcolo ETA
-                    val remainingSec = etaEngine.computeRemainingSeconds()
+                    // 4. Calcolo ETA + statistiche percorso (un solo lock sulla pipeline)
+                    val remainingSegs = pipeline.remainingSegments()
+                    val remainingSec  = etaEngine.computeFromSegments(remainingSegs)
+                    val remainDistM   = remainingSegs.sumOf { it.distanceM }
+                    val remainElevM   = remainingSegs
+                        .filter { it.gradePct > 0 }
+                        .sumOf { it.distanceM * it.gradePct / 100.0 }
+
                     etaState.value = EtaState(
-                        remainingSeconds = remainingSec,
-                        hasRoute         = true,
-                        gpsStale         = gpsStale,
-                        status           = if (remainingSec > 0) "OK" else "Calcolo...",
+                        remainingSeconds    = remainingSec,
+                        hasRoute            = true,
+                        gpsStale            = gpsStale,
+                        remainingDistanceM  = remainDistM,
+                        remainingElevationM = remainElevM,
+                        status              = if (remainingSec > 0) "OK" else "Calcolo...",
                     )
 
                     // 5. Log periodico ETA

@@ -3,74 +3,48 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
-    android:gravity="center_horizontal"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="8dp">
 
-    <!-- Header: Arrivo -->
+    <!-- RIGA 1: ETA GRANDE -->
     <TextView
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="ARRIVO STIMATO"
         android:textColor="#AAAAAA"
         android:textSize="12sp"
+        android:gravity="center"
         android:letterSpacing="0.1" />
 
     <TextView
         android:id="@+id/tv_master_eta"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="--:--"
         android:textColor="#FFFFFF"
-        android:textSize="48sp"
-        android:textStyle="bold" />
+        android:textSize="64sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:includeFontPadding="false" />
 
     <TextView
         android:id="@+id/tv_master_remaining"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="--h --m"
         android:textColor="#00FF00"
-        android:textSize="20sp" />
+        android:textSize="24sp"
+        android:gravity="center"
+        android:layout_marginTop="-4dp" />
 
-    <!-- Divider alternative for RemoteViews -->
-    <TextView
+    <!-- SEPARATORE -->
+    <View
         android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp"
+        android:layout_height="2dp"
+        android:layout_marginVertical="8dp"
         android:background="#333333" />
 
-    <!-- Sezione Modello: Bucket di Pendenza -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="start"
-        android:text="ADAPTIVE SPEED MODEL (m/s)"
-        android:textColor="#AAAAAA"
-        android:textSize="11sp"
-        android:layout_marginBottom="8dp" />
-
-    <LinearLayout
-        android:id="@+id/container_buckets"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-        <TextView android:id="@+id/tv_b0" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Discesa: --" android:textColor="#888888" android:textSize="14sp" />
-        <TextView android:id="@+id/tv_b1" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Piano: --" android:textColor="#888888" android:textSize="14sp" />
-        <TextView android:id="@+id/tv_b2" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Salita: --" android:textColor="#888888" android:textSize="14sp" />
-        <TextView android:id="@+id/tv_b3" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Ripida: --" android:textColor="#888888" android:textSize="14sp" />
-        <TextView android:id="@+id/tv_b4" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Muro: --" android:textColor="#888888" android:textSize="14sp" />
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp"
-        android:background="#333333" />
-
-    <!-- Info supplementari -->
+    <!-- RIGA 2: KM E DISLIVELLO (Dati traguardo) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -81,9 +55,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="STATUS" android:textColor="#AAAAAA" android:textSize="11sp" />
-            <TextView android:id="@+id/tv_status_msg" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="OK" android:textColor="#FFFFFF" android:textSize="16sp" />
+            android:orientation="vertical"
+            android:gravity="center">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="KM MANCANTI" android:textColor="#AAAAAA" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_km" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--.- km" android:textColor="#FFFFFF" android:textSize="32sp" android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout
@@ -91,10 +66,53 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:gravity="end">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="GPS SNAP" android:textColor="#AAAAAA" android:textSize="11sp" />
-            <TextView android:id="@+id/tv_gps_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ACTIVE" android:textColor="#00AAFF" android:textSize="16sp" />
+            android:gravity="center">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="D+ MANCANTE" android:textColor="#AAAAAA" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_ascent" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-- m" android:textColor="#FFFFFF" android:textSize="32sp" android:textStyle="bold" />
         </LinearLayout>
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="8dp"
+        android:background="#333333" />
+
+    <!-- SEZIONE MODELLO (Testi chiari per i bucket) -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="VELOCITÀ APPRESA PER PENDENZA"
+        android:textColor="#AAAAAA"
+        android:textSize="10sp"
+        android:gravity="center"
+        android:layout_marginBottom="4dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp">
+        <TextView android:id="@+id/tv_b0" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Discesa: --" android:textColor="#888888" android:textSize="13sp" />
+        <TextView android:id="@+id/tv_b1" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Piano: --" android:textColor="#888888" android:textSize="13sp" />
+        <TextView android:id="@+id/tv_b2" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Salita: --" android:textColor="#888888" android:textSize="13sp" />
+        <TextView android:id="@+id/tv_b3" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Ripida: --" android:textColor="#888888" android:textSize="13sp" />
+        <TextView android:id="@+id/tv_b4" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Muro: --" android:textColor="#888888" android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- FOOTER: STATUS -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="bottom">
+        <TextView android:id="@+id/tv_status_msg" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="OK" android:textColor="#666666" android:textSize="10sp" />
+        <TextView android:id="@+id/tv_gps_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="GPS ACTIVE" android:textColor="#00AAFF" android:textSize="10sp" android:textStyle="bold" />
     </LinearLayout>
 
 </LinearLayout>

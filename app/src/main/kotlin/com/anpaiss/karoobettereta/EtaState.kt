@@ -12,4 +12,6 @@ data class EtaState(
     val hasRoute: Boolean = false,
     val status: String = "Cerca GPX",
     val gpsStale: Boolean = false,
+    val remainingDistanceM: Double = -1.0,
+    val remainingElevationM: Double = -1.0,
 )
