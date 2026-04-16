@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ExtensionInfo
+    displayName="@string/extension_name"
+    icon="@drawable/ic_launcher_foreground"
+    id="karoo-better-eta"
+    scansDevices="false">
+
+    <!-- ETA assoluta — ora di arrivo HH:mm -->
+    <dataType
+        typeId="eta-absolute"
+        displayName="@string/eta_absolute_name"
+        description="@string/eta_absolute_desc"
+        graphical="true" />
+
+    <!-- Tempo rimanente — Xh Ym -->
+    <dataType
+        typeId="eta-remaining"
+        displayName="@string/eta_remaining_name"
+        description="@string/eta_remaining_desc"
+        graphical="true" />
+
+</ExtensionInfo>

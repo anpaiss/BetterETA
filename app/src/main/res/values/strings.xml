@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Karoo BetterETA</string>
+    <string name="extension_name">BetterETA</string>
+
+    <string name="eta_absolute_name">ETA (Better)</string>
+    <string name="eta_absolute_desc">Orario arrivo stimato con correzione dislivello (Komoot)</string>
+
+    <string name="eta_remaining_name">Tempo Rimanente (Better)</string>
+    <string name="eta_remaining_desc">Tempo rimanente stimato con correzione dislivello</string>
+</resources>
