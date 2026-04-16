@@ -3,6 +3,9 @@
     <string name="app_name">Karoo BetterETA</string>
     <string name="extension_name">BetterETA</string>
 
+    <string name="eta_master_name">BetterETA Dashboard</string>
+    <string name="eta_master_desc">Pagina completa: arrivo, tempo, km, D+, modello velocità, GPS</string>
+
     <string name="eta_absolute_name">ETA (Better)</string>
     <string name="eta_absolute_desc">Orario arrivo stimato con correzione dislivello (Komoot)</string>
 

@@ -2,8 +2,15 @@
 <ExtensionInfo
     displayName="@string/extension_name"
     icon="@drawable/ic_launcher_foreground"
-    id="karoo-better-eta"
+    id="karoo-better-eta-v2"
     scansDevices="false">
+
+    <!-- Dashboard completa — pagina intera con tutte le info percorso -->
+    <dataType
+        typeId="eta-master"
+        displayName="@string/eta_master_name"
+        description="@string/eta_master_desc"
+        graphical="true" />
 
     <!-- ETA assoluta — ora di arrivo HH:mm -->
     <dataType
