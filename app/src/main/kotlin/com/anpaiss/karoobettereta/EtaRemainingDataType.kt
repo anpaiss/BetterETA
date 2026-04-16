@@ -70,6 +70,8 @@ class EtaRemainingDataType(
         val totalMin = state.remainingSeconds / 60L
         val hours    = totalMin / 60L
         val mins     = totalMin % 60L
-        return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+        val time     = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+        // "~" indica che il GPS non è disponibile: l'ETA è stima per dead reckoning
+        return if (state.gpsStale) "~$time" else time
     }
 }

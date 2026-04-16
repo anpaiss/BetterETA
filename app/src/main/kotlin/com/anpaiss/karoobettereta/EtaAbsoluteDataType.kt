@@ -68,10 +68,11 @@ class EtaAbsoluteDataType(
 
     private fun formatEta(context: Context, state: EtaState): String {
         if (!state.hasRoute || state.remainingSeconds < 0) return state.status
-        
+
         val arrivalMs = System.currentTimeMillis() + state.remainingSeconds * 1000L
-        val cal = Calendar.getInstance().apply { timeInMillis = arrivalMs }
-        
-        return DateFormat.getTimeFormat(context).format(cal.time)
+        val cal  = Calendar.getInstance().apply { timeInMillis = arrivalMs }
+        val time = DateFormat.getTimeFormat(context).format(cal.time)
+        // "~" indica che il GPS non è disponibile: l'orario è stima per dead reckoning
+        return if (state.gpsStale) "~$time" else time
     }
 }

@@ -1,5 +1,6 @@
 package com.anpaiss.karoobettereta
 
+import android.content.Context
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.DataType
@@ -16,7 +17,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 /**
  * Extension principale Karoo BetterETA.
@@ -26,12 +26,9 @@ import kotlin.math.abs
  *   - eta-remaining → tempo rimanente (Xh Ym)
  *
  * Sorgenti dati:
- *   - Percorso attivo: OnNavigationState (aggiornamento in tempo reale)
- *     Gestisce sia percorsi Komoot (NavigatingRoute) sia navigazione
- *     ad-hoc come "Portami a casa" (NavigatingToDestination).
- *   - Velocità e pendenza: stream OnStreamState via KarooSystemService
- *   - Posizione sul percorso: integrazione speed×dt + correzione drift
- *     via DISTANCE_TO_DESTINATION quando il delta supera SYNC_THRESHOLD_M
+ *   - Percorso attivo: OnNavigationState
+ *   - Velocità e pendenza: OnStreamState
+ *   - Posizione GPS: OnLocationChanged
  */
 class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
@@ -43,18 +40,22 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     private val pipeline   = SegmentPipeline()
     private val etaEngine  = EtaEngine(speedModel, pipeline)
 
-    private val speedMsFlow      = MutableStateFlow(0.0)
-    private val gradePctFlow     = MutableStateFlow(0.0)
-    private val locationFlow     = MutableStateFlow<Pair<Double, Double>?>(null)
-    private val distToDestFlow   = MutableStateFlow(-1.0)
+    private val speedMsFlow  = MutableStateFlow(0.0)
+    private val gradePctFlow = MutableStateFlow(0.0)
+    private val locationFlow = MutableStateFlow<Pair<Double, Double>?>(null)
     @Volatile private var rideState: RideState = RideState.Idle
+
+    // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
+    @Volatile private var lastGpsUpdateMs = 0L
 
     private val extensionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tickerJob: Job? = null
     private val consumerIds = mutableListOf<String>()
 
     companion object {
-        private const val TICK_MS = 1000L
+        private const val TICK_MS        = 1000L
+        private const val GPS_TIMEOUT_MS = 10_000L   // 10s senza fix → stale
+        private const val PREFS_NAME     = "better_eta_model"
     }
 
     override val types by lazy {
@@ -66,6 +67,10 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Carica il modello addestrato dalla sessione precedente
+        loadModel()
+
         karooSystem = KarooSystemService(applicationContext)
 
         karooSystem.connect { _ ->
@@ -102,7 +107,8 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
             // ── Posizione GPS (Lat/Lon) per Snap-to-Route ────────────────────────
             consumerIds += karooSystem.addConsumer({ _ -> }, {}) { event: OnLocationChanged ->
-                locationFlow.value = event.lat to event.lng
+                locationFlow.value  = event.lat to event.lng
+                lastGpsUpdateMs     = System.currentTimeMillis()
             }
 
             // ── Stato uscita ──────────────────────────────────────────────────────
@@ -113,6 +119,10 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                     speedModel.reset()
                     extensionScope.launch { pipeline.reset() }
                 }
+                // Fine uscita → salva il modello addestrato
+                if (rideState is RideState.Recording && state !is RideState.Recording) {
+                    saveModel()
+                }
                 rideState = state
             }
 
@@ -120,7 +130,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             tickerJob = extensionScope.launch {
                 while (true) {
                     delay(TICK_MS)
-                    
+
                     val hasRoute = pipeline.hasSegments()
                     if (!hasRoute) {
                         etaState.value = EtaState(status = "No Route")
@@ -135,10 +145,14 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                     // 1. Update Modello
                     speedModel.update(speedMsFlow.value, gradePctFlow.value)
 
-                    // 2. Avanzamento stimato e Sync GPS
+                    // 2. Avanzamento stimato + Snap GPS (solo se fix recente)
                     pipeline.advanceByDistance(speedMsFlow.value * (TICK_MS / 1000.0))
-                    locationFlow.value?.let { (lat, lon) ->
-                        pipeline.snapToLocation(lat, lon)
+                    val gpsStale = lastGpsUpdateMs > 0 &&
+                        System.currentTimeMillis() - lastGpsUpdateMs > GPS_TIMEOUT_MS
+                    if (!gpsStale) {
+                        locationFlow.value?.let { (lat, lon) ->
+                            pipeline.snapToLocation(lat, lon)
+                        }
                     }
 
                     // 3. Calcolo ETA
@@ -146,7 +160,8 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
                     etaState.value = EtaState(
                         remainingSeconds = remainingSec,
                         hasRoute         = true,
-                        status           = if (remainingSec > 0) "OK" else "Calcolo..."
+                        gpsStale         = gpsStale,
+                        status           = if (remainingSec > 0) "OK" else "Calcolo...",
                     )
                 }
             }
@@ -154,6 +169,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     }
 
     override fun onDestroy() {
+        saveModel()
         tickerJob?.cancel()
         tickerJob = null
         extensionScope.cancel()
@@ -162,6 +178,33 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
         karooSystem.disconnect()
         super.onDestroy()
     }
+
+    // ── persistenza modello ──────────────────────────────────────────────
+
+    private fun saveModel() {
+        val snap  = speedModel.snapshot()
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putFloat("overall_ema",     snap.overallEma.toFloat())
+            putInt("overall_samples",   snap.overallSamples)
+            snap.bucketEmas.forEachIndexed   { i, v -> putFloat("b${i}_ema", v.toFloat()) }
+            snap.bucketCounts.forEachIndexed { i, c -> putInt("b${i}_cnt", c) }
+        }.apply()
+    }
+
+    private fun loadModel() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getInt("overall_samples", 0) == 0) return  // nessun dato salvato
+        val snap = AdaptiveSpeedModel.Snapshot(
+            overallEma     = prefs.getFloat("overall_ema", 0f).toDouble(),
+            overallSamples = prefs.getInt("overall_samples", 0),
+            bucketEmas     = (0..4).map { prefs.getFloat("b${it}_ema", 0f).toDouble() },
+            bucketCounts   = (0..4).map { prefs.getInt("b${it}_cnt", 0) },
+        )
+        speedModel.restore(snap)
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────
 
     private fun decodeRoute(polyline: String, elevPolyline: String): List<RouteWaypoint> {
         val coords = PolylineDecoder.decodeLatLng(polyline)

@@ -89,6 +89,35 @@ class AdaptiveSpeedModel {
         return (flatBase * factor).coerceAtLeast(0.5)
     }
 
+    /** Stato serializzabile del modello — usato per la persistenza. */
+    data class Snapshot(
+        val overallEma: Double,
+        val overallSamples: Int,
+        val bucketEmas: List<Double>,
+        val bucketCounts: List<Int>,
+    )
+
+    /** Restituisce uno snapshot dell'attuale stato addestrato. */
+    fun snapshot() = Snapshot(
+        overallEma     = overallEma,
+        overallSamples = overallSamples,
+        bucketEmas     = buckets.map { it.ema },
+        bucketCounts   = buckets.map { it.count },
+    )
+
+    /** Ripristina lo stato dal snapshot. Chiama reset() prima se necessario. */
+    fun restore(snap: Snapshot) {
+        overallEma     = snap.overallEma
+        overallSamples = snap.overallSamples
+        smoothedGrade  = 0.0
+        for (i in buckets.indices) {
+            buckets[i] = Bucket(
+                ema   = snap.bucketEmas.getOrElse(i) { 0.0 },
+                count = snap.bucketCounts.getOrElse(i) { 0 },
+            )
+        }
+    }
+
     /** Azzera tutto — chiamato all'inizio di ogni nuova uscita. */
     fun reset() {
         for (i in buckets.indices) buckets[i] = Bucket()

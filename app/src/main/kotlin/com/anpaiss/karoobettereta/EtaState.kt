@@ -11,4 +11,5 @@ data class EtaState(
     val remainingSeconds: Long = -1L,
     val hasRoute: Boolean = false,
     val status: String = "Cerca GPX",
+    val gpsStale: Boolean = false,
 )
