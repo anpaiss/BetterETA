@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -30,14 +32,16 @@ class EtaRemainingDataType(
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
-            etaState.collect { state ->
-                val value = if (state.remainingSeconds >= 0) state.remainingSeconds / 60.0 else -1.0
-                emitter.onNext(
-                    StreamState.Streaming(
-                        DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to value))
+            etaState
+                .map { if (it.remainingSeconds >= 0) it.remainingSeconds / 60L else -1L }
+                .distinctUntilChanged()
+                .collect { minsRemaining ->
+                    emitter.onNext(
+                        StreamState.Streaming(
+                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to minsRemaining.toDouble()))
+                        )
                     )
-                )
-            }
+                }
         }
         emitter.setCancellable { scope.cancel() }
     }
@@ -46,17 +50,23 @@ class EtaRemainingDataType(
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            etaState.collect { state ->
-                val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
-                views.setTextViewText(R.id.tv_remaining_value, formatRemaining(state))
-                emitter.updateView(views)
-            }
+            
+            // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente
+            etaState
+                .map { formatRemaining(it) }
+                .distinctUntilChanged()
+                .collect { formattedText ->
+                    val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
+                    views.setTextViewText(R.id.tv_remaining_value, formattedText)
+                    emitter.updateView(views)
+                }
         }
         emitter.setCancellable { scope.cancel() }
     }
 
     private fun formatRemaining(state: EtaState): String {
-        if (!state.hasRoute || state.remainingSeconds < 0) return "--h--m"
+        if (!state.hasRoute || state.remainingSeconds < 0) return state.status
+
         val totalMin = state.remainingSeconds / 60L
         val hours    = totalMin / 60L
         val mins     = totalMin % 60L

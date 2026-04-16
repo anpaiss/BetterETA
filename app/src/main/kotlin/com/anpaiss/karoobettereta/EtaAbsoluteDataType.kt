@@ -2,6 +2,7 @@ package com.anpaiss.karoobettereta
 
 import android.content.Context
 import android.widget.RemoteViews
+import android.text.format.DateFormat
 import io.hammerhead.karooext.extension.DataTypeImpl
 import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
@@ -15,6 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -31,14 +34,16 @@ class EtaAbsoluteDataType(
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
-            etaState.collect { state ->
-                val value = if (state.remainingSeconds >= 0) state.remainingSeconds / 60.0 else -1.0
-                emitter.onNext(
-                    StreamState.Streaming(
-                        DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to value))
+            etaState
+                .map { if (it.remainingSeconds >= 0) it.remainingSeconds / 60L else -1L }
+                .distinctUntilChanged()
+                .collect { minsRemaining ->
+                    emitter.onNext(
+                        StreamState.Streaming(
+                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to minsRemaining.toDouble()))
+                        )
                     )
-                )
-            }
+                }
         }
         emitter.setCancellable { scope.cancel() }
     }
@@ -47,19 +52,26 @@ class EtaAbsoluteDataType(
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            etaState.collect { state ->
-                val views = RemoteViews(context.packageName, R.layout.view_eta_absolute)
-                views.setTextViewText(R.id.tv_eta_value, formatEta(state))
-                emitter.updateView(views)
-            }
+            
+            // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente (es. cambio minuto)
+            etaState
+                .map { formatEta(context, it) }
+                .distinctUntilChanged()
+                .collect { formattedText ->
+                    val views = RemoteViews(context.packageName, R.layout.view_eta_absolute)
+                    views.setTextViewText(R.id.tv_eta_value, formattedText)
+                    emitter.updateView(views)
+                }
         }
         emitter.setCancellable { scope.cancel() }
     }
 
-    private fun formatEta(state: EtaState): String {
-        if (!state.hasRoute || state.remainingSeconds < 0) return "--:--"
+    private fun formatEta(context: Context, state: EtaState): String {
+        if (!state.hasRoute || state.remainingSeconds < 0) return state.status
+        
         val arrivalMs = System.currentTimeMillis() + state.remainingSeconds * 1000L
         val cal = Calendar.getInstance().apply { timeInMillis = arrivalMs }
-        return "%02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+        
+        return DateFormat.getTimeFormat(context).format(cal.time)
     }
 }

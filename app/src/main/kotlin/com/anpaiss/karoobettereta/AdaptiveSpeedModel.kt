@@ -20,7 +20,8 @@ package com.anpaiss.karoobettereta
 class AdaptiveSpeedModel {
 
     companion object {
-        private const val ALPHA              = 0.25   // peso campione recente
+        private const val ALPHA              = 0.15   // Peso campione recente (più basso = più stabile)
+        private const val ALPHA_GRADE        = 0.10   // Peso per lo smoothing della pendenza
         private const val MIN_TRUSTED        = 5      // campioni minimi per fidarsi del bucket
         private const val DEFAULT_FLAT_MS    = 5.0    // ~18 km/h, fallback iniziale
 
@@ -28,7 +29,6 @@ class AdaptiveSpeedModel {
         private val THRESHOLDS = doubleArrayOf(-5.0, 2.0, 6.0, 10.0)
 
         // Fattori di velocità rispetto al piano (bucket 1 = 1.0) per ebike
-        // Più piatti rispetto a una bici normale grazie all'assistenza motore
         private val FALLBACK_FACTORS = doubleArrayOf(1.15, 1.0, 0.80, 0.65, 0.50)
     }
 
@@ -40,16 +40,20 @@ class AdaptiveSpeedModel {
     private val buckets = Array(5) { Bucket() }
     private var overallEma     = 0.0
     private var overallSamples = 0
+    private var smoothedGrade  = 0.0
 
     /**
      * Aggiorna il modello con un nuovo campione di (velocità, pendenza).
      * Chiamare ogni secondo durante la registrazione.
-     * Ignora campioni sotto 0.5 m/s (~1.8 km/h) per filtrare le soste.
      */
     fun update(speedMs: Double, gradePct: Double) {
+        // Smoothing della pendenza per evitare spike istantanei
+        smoothedGrade = if (overallSamples == 0) gradePct 
+                        else ALPHA_GRADE * gradePct + (1.0 - ALPHA_GRADE) * smoothedGrade
+
         if (speedMs < 0.5) return
 
-        val idx = bucketIndex(gradePct)
+        val idx = bucketIndex(smoothedGrade)
         val b   = buckets[idx]
         buckets[idx] = if (b.count == 0) {
             Bucket(ema = speedMs, count = 1)

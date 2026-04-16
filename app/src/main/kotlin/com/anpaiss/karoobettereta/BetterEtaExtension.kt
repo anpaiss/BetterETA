@@ -42,16 +42,15 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     private val speedMsFlow      = MutableStateFlow(0.0)
     private val gradePctFlow     = MutableStateFlow(0.0)
-    private val distToDestFlow   = MutableStateFlow(-1.0)  // -1 = non disponibile
+    private val locationFlow     = MutableStateFlow<Pair<Double, Double>?>(null)
+    private val distToDestFlow   = MutableStateFlow(-1.0)
     @Volatile private var rideState: RideState = RideState.Idle
 
     private var tickerJob: Job? = null
     private val consumerIds = mutableListOf<String>()
 
     companion object {
-        private const val TICK_MS          = 1000L
-        /** Soglia oltre la quale la posizione stimata viene corretta da DISTANCE_TO_DESTINATION. */
-        private const val SYNC_THRESHOLD_M = 200.0
+        private const val TICK_MS = 1000L
     }
 
     override val types by lazy {
@@ -68,59 +67,45 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
         karooSystem.connect { _ ->
 
             // ── Percorso attivo in tempo reale ────────────────────────────────────
-            // Si aggiorna automaticamente a ogni cambio di navigazione:
-            // nuovo percorso, rerouting, navigazione ad-hoc, fine navigazione.
             consumerIds += karooSystem.addConsumer(
                 OnNavigationState.Params, { _ -> }, {}
             ) { event: OnNavigationState ->
                 val waypoints = when (val nav = event.state) {
                     is OnNavigationState.NavigationState.NavigatingRoute ->
-                        decodeRoute(
-                            nav.routePolyline.orEmpty(),
-                            nav.routeElevationPolyline.orEmpty(),
-                        )
-
+                        decodeRoute(nav.routePolyline.orEmpty(), nav.routeElevationPolyline.orEmpty())
                     is OnNavigationState.NavigationState.NavigatingToDestination ->
-                        decodeRoute(
-                            nav.polyline.orEmpty(),
-                            nav.elevationPolyline.orEmpty(),
-                        )
-
+                        decodeRoute(nav.polyline.orEmpty(), nav.elevationPolyline.orEmpty())
                     else -> emptyList()
                 }
-                pipeline.setRoute(waypoints)
-                // Se il percorso viene aggiornato mentre siamo già in giro
-                // (es. rerouting), riallinea subito la posizione.
-                val dist = distToDestFlow.value
-                if (waypoints.isNotEmpty() && dist > 0) {
-                    pipeline.syncToRemainingDistance(dist)
+                CoroutineScope(Dispatchers.IO).launch {
+                    pipeline.setRoute(waypoints)
                 }
             }
 
-            // ── Velocità corrente (m/s) ───────────────────────────────────────────
+            // ── Velocità ──────────────────────────────────────────────────────────
             consumerIds += karooSystem.addConsumer(
                 OnStreamState.StartStreaming(DataType.Type.SPEED), { _ -> }, {}
             ) { event: OnStreamState ->
-                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue
-                    ?.let { speedMsFlow.value = it }
+                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let { speedMsFlow.value = it }
             }
 
-            // ── Pendenza corrente (%) ─────────────────────────────────────────────
+            // ── Pendenza ──────────────────────────────────────────────────────────
             consumerIds += karooSystem.addConsumer(
                 OnStreamState.StartStreaming(DataType.Type.ELEVATION_GRADE), { _ -> }, {}
             ) { event: OnStreamState ->
-                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue
-                    ?.let { gradePctFlow.value = it }
+                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let { gradePctFlow.value = it }
             }
 
-            // ── Distanza rimanente a destinazione (m) ────────────────────────────
-            // Fonte di verità per correggere il drift dell'integrazione speed×dt.
+            // ── Posizione GPS (Lat/Lon) per Snap-to-Route ────────────────────────
             consumerIds += karooSystem.addConsumer(
-                OnStreamState.StartStreaming(DataType.Type.DISTANCE_TO_DESTINATION),
-                { _ -> }, {}
+                OnStreamState.StartStreaming(DataType.Type.LOCATION), { _ -> }, {}
             ) { event: OnStreamState ->
-                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue
-                    ?.let { if (it > 0) distToDestFlow.value = it }
+                val point = (event.state as? StreamState.Streaming)?.dataPoint
+                val lat = point?.values?.get(DataType.Field.LATITUDE)
+                val lon = point?.values?.get(DataType.Field.LONGITUDE)
+                if (lat != null && lon != null) {
+                    locationFlow.value = lat to lon
+                }
             }
 
             // ── Stato uscita ──────────────────────────────────────────────────────
@@ -129,38 +114,42 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
                     speedModel.reset()
-                    pipeline.reset()
-                    distToDestFlow.value = -1.0
+                    CoroutineScope(Dispatchers.IO).launch { pipeline.reset() }
                 }
                 rideState = state
             }
 
-            // ── Ticker principale: aggiorna modello e ricalcola ETA ogni secondo ─
+            // ── Ticker principale ─────────────────────────────────────────────────
             tickerJob = CoroutineScope(Dispatchers.IO).launch {
                 while (true) {
                     delay(TICK_MS)
-                    if (rideState !is RideState.Recording) continue
-
-                    val speedMs  = speedMsFlow.value
-                    val gradePct = gradePctFlow.value
-
-                    speedModel.update(speedMs = speedMs, gradePct = gradePct)
-                    pipeline.advanceByDistance(speedMs * (TICK_MS / 1000.0))
-
-                    // Corregge il drift di posizione se la stima si discosta
-                    // dalla distanza reale riportata dal Karoo di più di SYNC_THRESHOLD_M.
-                    val trueDist = distToDestFlow.value
-                    if (trueDist > 0) {
-                        val estDist = pipeline.remainingSegments().sumOf { it.distanceM }
-                        if (abs(trueDist - estDist) > SYNC_THRESHOLD_M) {
-                            pipeline.syncToRemainingDistance(trueDist)
-                        }
+                    
+                    val hasRoute = pipeline.hasSegments()
+                    if (!hasRoute) {
+                        etaState.value = EtaState(status = "No Route")
+                        continue
                     }
 
+                    if (rideState !is RideState.Recording) {
+                        etaState.value = EtaState(hasRoute = true, status = "In pausa")
+                        continue
+                    }
+
+                    // 1. Update Modello
+                    speedModel.update(speedMsFlow.value, gradePctFlow.value)
+
+                    // 2. Avanzamento stimato e Sync GPS
+                    pipeline.advanceByDistance(speedMsFlow.value * (TICK_MS / 1000.0))
+                    locationFlow.value?.let { (lat, lon) ->
+                        pipeline.snapToLocation(lat, lon)
+                    }
+
+                    // 3. Calcolo ETA
                     val remainingSec = etaEngine.computeRemainingSeconds()
                     etaState.value = EtaState(
                         remainingSeconds = remainingSec,
-                        hasRoute         = pipeline.hasSegments(),
+                        hasRoute         = true,
+                        status           = if (remainingSec > 0) "OK" else "Calcolo..."
                     )
                 }
             }
