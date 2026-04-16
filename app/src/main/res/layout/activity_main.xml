@@ -32,6 +32,14 @@
         android:textColor="#CCCCCC"
         android:textSize="13sp"
         android:gravity="center"
-        android:lineSpacingMultiplier="1.5" />
+        android:lineSpacingMultiplier="1.5"
+        android:layout_marginBottom="32dp" />
+
+    <Button
+        android:id="@+id/btnOpenSimulator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Apri Simulatore"
+        android:textSize="13sp" />
 
 </LinearLayout>

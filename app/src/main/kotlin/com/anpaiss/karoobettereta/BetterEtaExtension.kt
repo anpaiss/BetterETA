@@ -3,6 +3,7 @@ package com.anpaiss.karoobettereta
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.DataType
+import io.hammerhead.karooext.models.OnStreamState
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.StreamState
 import kotlinx.coroutines.CoroutineScope
@@ -20,14 +21,8 @@ import kotlinx.coroutines.launch
  *   - eta-remaining → tempo rimanente (Xh Ym)
  *
  * Sorgente dati:
- *   - Velocità e pendenza: stream Karoo SDK
+ *   - Velocità e pendenza: addConsumer() su KarooSystemService
  *   - Percorso con quota: file GPX Komoot su storage Karoo
- *
- * Il modello adattivo impara la velocità per fascia di pendenza
- * durante l'uscita e aggiorna la stima ogni secondo.
- *
- * TODO: quando disponibile, sostituire RouteReader.waypointFlow()
- *       con consumerFlow<OnNavigationState>() per percorso in tempo reale.
  */
 class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
@@ -35,20 +30,21 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     internal val etaState = MutableStateFlow(EtaState())
 
-    private val speedModel  = AdaptiveSpeedModel()
-    private val pipeline    = SegmentPipeline()
-    private val etaEngine   = EtaEngine(speedModel, pipeline)
-    private lateinit var routeReader: RouteReader
+    private val speedModel = AdaptiveSpeedModel()
+    private val pipeline   = SegmentPipeline()
+    private val etaEngine  = EtaEngine(speedModel, pipeline)
 
-    // Valori correnti letti dai stream Karoo (thread-safe via StateFlow)
+    // Valori correnti aggiornati dai consumer callback
     private val speedMsFlow  = MutableStateFlow(0.0)
     private val gradePctFlow = MutableStateFlow(0.0)
     @Volatile private var rideState: RideState = RideState.Idle
 
-    private var serviceJob: Job? = null
+    private var tickerJob: Job? = null
+    private var routeJob: Job? = null
+    private val consumerIds = mutableListOf<String>()
 
     companion object {
-        private const val TICK_MS = 1000L  // intervallo aggiornamento modello
+        private const val TICK_MS = 1000L
     }
 
     override val types by lazy {
@@ -60,55 +56,51 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
 
     override fun onCreate() {
         super.onCreate()
-        karooSystem  = KarooSystemService(applicationContext)
-        routeReader  = RouteReader(applicationContext)
+        karooSystem = KarooSystemService(applicationContext)
 
-        serviceJob = CoroutineScope(Dispatchers.IO).launch {
-            karooSystem.connect { }
-
-            // Carica il percorso dal file GPX
-            launch {
-                routeReader.waypointFlow().collect { waypoints ->
-                    pipeline.setRoute(waypoints)
-                }
+        // Carica il percorso GPX in background (indipendente dalla connessione)
+        routeJob = CoroutineScope(Dispatchers.IO).launch {
+            RouteReader().waypointFlow().collect { waypoints ->
+                pipeline.setRoute(waypoints)
             }
+        }
 
+        karooSystem.connect { _ ->
             // Velocità corrente (m/s)
-            launch {
-                karooSystem.streamDataFlow(DataType.Type.SPEED).collect { state ->
-                    (state as? StreamState.Streaming)?.dataPoint?.singleValue
-                        ?.let { speedMsFlow.value = it }
-                }
+            consumerIds += karooSystem.addConsumer(
+                OnStreamState.StartStreaming(DataType.Type.SPEED),
+                { _ -> }, {},
+            ) { event: OnStreamState ->
+                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue
+                    ?.let { speedMsFlow.value = it }
             }
 
-            // Pendenza corrente (%)
-            // TODO: verificare il nome esatto della costante su Karoo 3
-            launch {
-                karooSystem.streamDataFlow(DataType.Type.GRADE).collect { state ->
-                    (state as? StreamState.Streaming)?.dataPoint?.singleValue
-                        ?.let { gradePctFlow.value = it }
-                }
+            // Pendenza corrente (%) — ELEVATION_GRADE è il tipo corretto in SDK 1.1.x
+            consumerIds += karooSystem.addConsumer(
+                OnStreamState.StartStreaming(DataType.Type.ELEVATION_GRADE),
+                { _ -> }, {},
+            ) { event: OnStreamState ->
+                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue
+                    ?.let { gradePctFlow.value = it }
             }
 
             // Stato uscita — reset del modello a ogni nuova uscita
-            launch {
-                var prev: RideState = RideState.Idle
-                karooSystem.consumerFlow<RideState>().collect { state ->
-                    if (prev !is RideState.Recording && state is RideState.Recording) {
-                        speedModel.reset()
-                        pipeline.reset()
-                    }
-                    prev      = state
-                    rideState = state
+            consumerIds += karooSystem.addConsumer(
+                RideState.Params,
+                { _ -> }, {},
+            ) { state: RideState ->
+                if (rideState !is RideState.Recording && state is RideState.Recording) {
+                    speedModel.reset()
+                    pipeline.reset()
                 }
+                rideState = state
             }
 
             // Ticker principale: aggiorna modello e ricalcola ETA ogni secondo
-            launch {
+            tickerJob = CoroutineScope(Dispatchers.IO).launch {
                 while (true) {
                     delay(TICK_MS)
-                    val currentState = rideState
-                    if (currentState !is RideState.Recording) continue
+                    if (rideState !is RideState.Recording) continue
 
                     val speedMs  = speedMsFlow.value
                     val gradePct = gradePctFlow.value
@@ -127,8 +119,12 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta", "1") {
     }
 
     override fun onDestroy() {
-        serviceJob?.cancel()
-        serviceJob = null
+        tickerJob?.cancel()
+        tickerJob = null
+        routeJob?.cancel()
+        routeJob = null
+        consumerIds.forEach { karooSystem.removeConsumer(it) }
+        consumerIds.clear()
         karooSystem.disconnect()
         super.onDestroy()
     }

@@ -1,8 +1,6 @@
 package com.anpaiss.karoobettereta
 
-import android.content.Context
 import android.os.Environment
-import android.util.Xml
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -10,6 +8,7 @@ import kotlinx.coroutines.flow.flowOn
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
+import java.io.InputStream
 
 /**
  * Legge i waypoint con quota dal percorso Komoot caricato sul Karoo.
@@ -28,7 +27,7 @@ import java.io.File
  *   /sdcard/karoo/routes/
  *   /storage/emulated/0/karoo/routes/
  */
-class RouteReader(private val context: Context) {
+class RouteReader {
 
     /**
      * Flow che emette la lista di waypoint del percorso trovato.
@@ -37,6 +36,13 @@ class RouteReader(private val context: Context) {
     fun waypointFlow(): Flow<List<RouteWaypoint>> = flow {
         emit(findAndParse())
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Parsa un GPX da uno stream arbitrario.
+     * Usato nei test e nella SimulatorActivity per caricare da assets o resources.
+     */
+    fun parseFromStream(inputStream: InputStream): List<RouteWaypoint> =
+        parseGpxStream(inputStream)
 
     // ── private ──────────────────────────────────────────────────────
 
@@ -52,7 +58,7 @@ class RouteReader(private val context: Context) {
             val gpx = dir.listFiles { f -> f.extension.equals("gpx", ignoreCase = true) }
                 ?.maxByOrNull { it.lastModified() }
                 ?: continue
-            val pts = parseGpx(gpx)
+            val pts = parseGpxStream(gpx.inputStream())
             if (pts.isNotEmpty()) return pts
         }
         return emptyList()
@@ -62,11 +68,11 @@ class RouteReader(private val context: Context) {
      * Parsing GPX standard: supporta <trkpt>, <rtept> e <wpt>.
      * L'elevazione viene letta dal tag figlio <ele>.
      */
-    private fun parseGpx(file: File): List<RouteWaypoint> {
+    private fun parseGpxStream(inputStream: InputStream): List<RouteWaypoint> {
         val result = mutableListOf<RouteWaypoint>()
         try {
             val parser = XmlPullParserFactory.newInstance().newPullParser()
-            parser.setInput(file.inputStream(), null)
+            parser.setInput(inputStream, null)
 
             var lat     = Double.NaN
             var lon     = Double.NaN

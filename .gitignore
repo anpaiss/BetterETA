@@ -9,5 +9,6 @@ local.properties
 .idea/
 *.iml
 .DS_Store
+.claude/
 .gradle/
 gradle/wrapper/gradle-wrapper.jar

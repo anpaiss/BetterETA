@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Cerchio sfondo -->
+    <path
+        android:fillColor="#1A73E8"
+        android:pathData="M54,54 m-46,0 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0" />
+    <!-- Lettera E stilizzata (ETA) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,34 L32,74 L68,74 L68,66 L42,66 L42,58 L64,58 L64,50 L42,50 L42,42 L68,42 L68,34 Z" />
+    <!-- Piccola freccia in alto a destra (ETA = estimated time of arrival) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,28 L80,28 L80,38 L76,34 L70,40 L66,36 L72,30 Z" />
+</vector>
