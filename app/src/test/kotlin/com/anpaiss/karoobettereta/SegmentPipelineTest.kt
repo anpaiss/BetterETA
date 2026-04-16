@@ -18,11 +18,12 @@ class SegmentPipelineTest {
         RouteWaypoint(45.0100, 9.0, 300.0),
     )
 
-    /** ~1111m + ~1111m = ~2222m totali, pianura */
+    /** ~1111m pianura + ~1111m salita ~5% = ~2222m totali con pendenze diverse
+     *  (le grade differiscono di >2% quindi simplify() NON le unisce) */
     private fun twoSegmentRoute() = listOf(
         RouteWaypoint(45.0000, 9.0, 300.0),
-        RouteWaypoint(45.0100, 9.0, 300.0),
-        RouteWaypoint(45.0200, 9.0, 300.0),
+        RouteWaypoint(45.0100, 9.0, 300.0),  // flat 0%
+        RouteWaypoint(45.0200, 9.0, 360.0),  // climb ~5.4%
     )
 
     // ── test ──────────────────────────────────────────────────────────

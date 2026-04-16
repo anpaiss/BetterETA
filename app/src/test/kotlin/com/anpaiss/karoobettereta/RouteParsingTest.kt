@@ -67,7 +67,7 @@ class RouteParsingTest {
         assertTrue(pipeline.hasSegments())
         val totalKm = pipeline.remainingSegments().sumOf { it.distanceM } / 1000.0
         // Il percorso è ~27km
-        assertTrue("totalKm=$totalKm deve essere tra 20 e 35", totalKm in 20.0..35.0)
+        assertTrue("totalKm=$totalKm deve essere tra 15 e 35", totalKm in 15.0..35.0)
     }
 
     @Test

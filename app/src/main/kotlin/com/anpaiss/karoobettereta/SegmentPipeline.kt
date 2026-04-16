@@ -30,6 +30,21 @@ class SegmentPipeline {
         consumedInCurrentM = 0.0
     }
 
+    /**
+     * Sincronizza la posizione sul percorso alla distanza rimanente reale.
+     *
+     * Usato per correggere il drift dell'integrazione speed×dt usando il valore
+     * DISTANCE_TO_DESTINATION fornito dal Karoo SDK (es. dopo un rerouting,
+     * o quando la stima si è allontanata dalla realtà di più di una soglia).
+     */
+    fun syncToRemainingDistance(remainingM: Double) {
+        if (segments.isEmpty() || remainingM < 0) return
+        val totalM         = segments.sumOf { it.distanceM }
+        val targetTraveled = (totalM - remainingM).coerceIn(0.0, totalM)
+        reset()
+        advanceByDistance(targetTraveled)
+    }
+
     /** Avanza di [meters] metri sul percorso. */
     fun advanceByDistance(meters: Double) {
         if (meters <= 0.0) return
