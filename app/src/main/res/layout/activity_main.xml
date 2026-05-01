@@ -28,7 +28,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Add the「ETA (Better)」and「Time Remaining (Better)」\nfields to your Karoo navigation screen."
+        android:text="Add the &quot;BetterETA Dashboard&quot;,\n&quot;ETA (Better)&quot; or &quot;Time Remaining (Better)&quot;\nfields to your Karoo ride profile."
         android:textColor="#CCCCCC"
         android:textSize="13sp"
         android:gravity="center"
