@@ -97,16 +97,15 @@ class EtaMasterDataType(
                     val count = snap.bucketCounts[i]
                     val text = "${labels[i]}: %.1f km/h (%d)".format(speedKmh, count)
                     views.setTextViewText(ids[i], text)
-                    val activeColor = context.resources.getColor(R.color.text_primary, context.theme)
-                    val mutedColor  = context.resources.getColor(R.color.text_secondary, context.theme)
+                    val activeColor = Color.parseColor("#FF5823")
+                    val mutedColor  = Color.parseColor("#888888")
                     views.setTextColor(ids[i], if (count > 0) activeColor else mutedColor)
                 }
 
                 // 4. Footer: Status e GPS
                 views.setTextViewText(R.id.tv_status_msg, state.status)
                 val gpsText = if (state.gpsStale) "GPS STALE / DR" else "GPS ACTIVE"
-                val gpsColor = if (state.gpsStale) Color.RED
-                               else context.resources.getColor(R.color.text_primary, context.theme)
+                val gpsColor = if (state.gpsStale) Color.RED else Color.parseColor("#FF5823")
                 views.setTextViewText(R.id.tv_gps_status, gpsText)
                 views.setTextColor(R.id.tv_gps_status, gpsColor)
 
