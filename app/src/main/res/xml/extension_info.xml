@@ -5,25 +5,28 @@
     id="better-eta"
     scansDevices="false">
 
-    <!-- Dashboard completa — pagina intera con tutte le info percorso -->
-    <dataType
+    <!-- Full dashboard — single page with arrival, time, km, ascent, model -->
+    <DataType
         typeId="eta-master"
         displayName="@string/eta_master_name"
         description="@string/eta_master_desc"
-        graphical="true" />
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
 
-    <!-- ETA assoluta — ora di arrivo HH:mm -->
-    <dataType
+    <!-- Absolute ETA — arrival time HH:mm -->
+    <DataType
         typeId="eta-absolute"
         displayName="@string/eta_absolute_name"
         description="@string/eta_absolute_desc"
-        graphical="true" />
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
 
-    <!-- Tempo rimanente — Xh Ym -->
-    <dataType
+    <!-- Time remaining — Xh Ym -->
+    <DataType
         typeId="eta-remaining"
         displayName="@string/eta_remaining_name"
         description="@string/eta_remaining_desc"
-        graphical="true" />
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
 
 </ExtensionInfo>
