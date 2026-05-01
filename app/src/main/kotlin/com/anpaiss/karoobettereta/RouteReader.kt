@@ -39,7 +39,7 @@ class RouteReader {
 
     /**
      * Parsa un GPX da uno stream arbitrario.
-     * Usato nei test e nella SimulatorActivity per caricare da assets o resources.
+     * Usato nei test per caricare da resources.
      */
     fun parseFromStream(inputStream: InputStream): List<RouteWaypoint> =
         parseGpxStream(inputStream)

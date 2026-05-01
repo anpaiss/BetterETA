@@ -22,11 +22,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".SimulatorActivity"
-            android:exported="true"
-            android:label="BetterETA Simulator" />
-
         <service
             android:name=".BetterEtaExtension"
             android:exported="true"
