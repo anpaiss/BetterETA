@@ -69,6 +69,7 @@ class SegmentPipeline {
 
         // Binary search: primo waypoint con distanza cumulativa >= traveledM
         val searchStart = lowerBound(waypointCumDist, traveledM)
+        if (searchStart >= waypoints.size) return@withLock 0.0   // siamo già oltre la fine
         val searchEnd   = (searchStart + 500).coerceAtMost(waypoints.size)
 
         var bestIdx = -1
@@ -120,14 +121,14 @@ class SegmentPipeline {
         }
     }
 
-    /** Lower bound: primo indice i per cui arr[i] >= value. */
+    /** Lower bound: primo indice i per cui arr[i] >= value. Può restituire arr.size se tutti gli elementi sono < value. */
     private fun lowerBound(arr: DoubleArray, value: Double): Int {
         var lo = 0; var hi = arr.size
         while (lo < hi) {
             val mid = (lo + hi) ushr 1
             if (arr[mid] < value) lo = mid + 1 else hi = mid
         }
-        return lo.coerceIn(0, (arr.size - 1).coerceAtLeast(0))
+        return lo
     }
 
     private fun buildCumDist(pts: List<RouteWaypoint>): DoubleArray {

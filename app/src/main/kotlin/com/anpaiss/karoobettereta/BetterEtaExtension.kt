@@ -147,13 +147,20 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta-v2", "2") {
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
                     val now = System.currentTimeMillis()
-                    val prevDurationMs = if (rideStartMs > 0) now - rideStartMs else Long.MAX_VALUE
+                    val isFirstSinceProcessStart = rideStartMs == 0L
+                    val prevDurationMs = if (rideStartMs > 0) now - rideStartMs else 0L
                     rideStartMs = now
-                    if (prevDurationMs >= MIN_RIDE_FOR_RESET_MS) {
-                        logger.log("RIDE ", "Avviata — model reset")
-                        speedModel.reset()
-                    } else {
-                        logger.log("RIDE ", "Avviata — model mantenuto (ride precedente ${prevDurationMs / 1000}s < 60s)")
+                    when {
+                        isFirstSinceProcessStart -> {
+                            logger.log("RIDE ", "Avviata — model dal disco preservato (primo Recording dopo restart)")
+                        }
+                        prevDurationMs >= MIN_RIDE_FOR_RESET_MS -> {
+                            logger.log("RIDE ", "Avviata — model reset (ride precedente ${prevDurationMs / 1000}s ≥ 60s)")
+                            speedModel.reset()
+                        }
+                        else -> {
+                            logger.log("RIDE ", "Avviata — model mantenuto (ride precedente ${prevDurationMs / 1000}s < 60s)")
+                        }
                     }
                     extensionScope.launch { pipeline.reset() }
                 }

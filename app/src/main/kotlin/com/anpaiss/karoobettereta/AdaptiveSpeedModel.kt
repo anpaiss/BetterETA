@@ -47,11 +47,14 @@ class AdaptiveSpeedModel {
      * Chiamare ogni secondo durante la registrazione.
      */
     fun update(speedMs: Double, gradePct: Double) {
-        // Smoothing della pendenza per evitare spike istantanei
-        smoothedGrade = if (overallSamples == 0) gradePct 
-                        else ALPHA_GRADE * gradePct + (1.0 - ALPHA_GRADE) * smoothedGrade
-
+        // Ignora campioni a velocità troppo bassa (fermi a un semaforo, ecc.):
+        // sia per il bucket che per lo smoothing della pendenza, così evitiamo
+        // di "trascinare" smoothedGrade con campioni non legati al movimento.
         if (speedMs < 0.5) return
+
+        // Smoothing della pendenza per evitare spike istantanei
+        smoothedGrade = if (overallSamples == 0) gradePct
+                        else ALPHA_GRADE * gradePct + (1.0 - ALPHA_GRADE) * smoothedGrade
 
         val idx = bucketIndex(smoothedGrade)
         val b   = buckets[idx]
