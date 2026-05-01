@@ -4,11 +4,11 @@
     <string name="extension_name">BetterETA</string>
 
     <string name="eta_master_name">BetterETA Dashboard</string>
-    <string name="eta_master_desc">Pagina completa: arrivo, tempo, km, D+, modello velocità, GPS</string>
+    <string name="eta_master_desc">Full page: arrival time, remaining time, km, ascent, speed model, GPS</string>
 
     <string name="eta_absolute_name">ETA (Better)</string>
-    <string name="eta_absolute_desc">Orario arrivo stimato con correzione dislivello (Komoot)</string>
+    <string name="eta_absolute_desc">Estimated arrival time with elevation-aware correction (Komoot)</string>
 
-    <string name="eta_remaining_name">Tempo Rimanente (Better)</string>
-    <string name="eta_remaining_desc">Tempo rimanente stimato con correzione dislivello</string>
+    <string name="eta_remaining_name">Time Remaining (Better)</string>
+    <string name="eta_remaining_desc">Estimated remaining time with elevation-aware correction</string>
 </resources>

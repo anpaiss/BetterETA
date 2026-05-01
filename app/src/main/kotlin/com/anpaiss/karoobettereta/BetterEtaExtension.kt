@@ -183,7 +183,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta-v2", "2") {
                     }
 
                     if (rideState !is RideState.Recording) {
-                        etaState.value = EtaState(hasRoute = true, status = "In pausa")
+                        etaState.value = EtaState(hasRoute = true, status = "Paused")
                         continue
                     }
 
@@ -234,7 +234,7 @@ class BetterEtaExtension : KarooExtension("karoo-better-eta-v2", "2") {
                         gpsStale            = gpsStale,
                         remainingDistanceM  = remainDistM,
                         remainingElevationM = remainElevM,
-                        status              = if (remainingSec > 0) "OK" else "Calcolo...",
+                        status              = if (remainingSec > 0) "OK" else "Calculating...",
                     )
 
                     // 5. Log periodico ETA

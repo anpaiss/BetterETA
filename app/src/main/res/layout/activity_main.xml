@@ -19,7 +19,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="ETA corretto per dislivello Komoot"
+        android:text="Elevation-aware ETA for Komoot routes"
         android:textColor="#888888"
         android:textSize="14sp"
         android:gravity="center"
@@ -28,7 +28,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Aggiungi i campi\n「ETA (Better)」e「Tempo Rimanente (Better)」\nalla tua schermata di navigazione Karoo."
+        android:text="Add the「ETA (Better)」and「Time Remaining (Better)」\nfields to your Karoo navigation screen."
         android:textColor="#CCCCCC"
         android:textSize="13sp"
         android:gravity="center"
@@ -39,7 +39,7 @@
         android:id="@+id/btnOpenSimulator"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Apri Simulatore"
+        android:text="Open Simulator"
         android:textSize="13sp" />
 
 </LinearLayout>

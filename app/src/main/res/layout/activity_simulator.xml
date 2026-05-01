@@ -23,16 +23,16 @@
             android:id="@+id/tvRouteInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Caricamento percorso..."
+            android:text="Loading route..."
             android:textColor="#888888"
             android:textSize="12sp"
             android:layout_marginBottom="20dp" />
 
-        <!-- Slider velocità -->
+        <!-- Speed slider -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Velocità simulata"
+            android:text="Simulated speed"
             android:textColor="#AAAAAA"
             android:textSize="13sp"
             android:layout_marginBottom="4dp" />
@@ -66,10 +66,10 @@
             android:id="@+id/btnStartStop"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Avvia Simulazione"
+            android:text="Start Simulation"
             android:layout_marginBottom="20dp" />
 
-        <!-- Progresso sul percorso -->
+        <!-- Route progress -->
         <ProgressBar
             android:id="@+id/pbRoute"
             style="?android:attr/progressBarStyleHorizontal"
@@ -93,13 +93,13 @@
             android:id="@+id/tvGrade"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Pendenza: --"
+            android:text="Grade: --"
             android:textColor="#AAAAAA"
             android:textSize="13sp"
             android:gravity="center"
             android:layout_marginBottom="20dp" />
 
-        <!-- Display ETA -->
+        <!-- ETA Display -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -118,7 +118,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="ORA ARRIVO"
+                    android:text="ARRIVAL"
                     android:textColor="#888888"
                     android:textSize="10sp"
                     android:layout_marginBottom="4dp" />
@@ -146,7 +146,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="RIMANENTE"
+                    android:text="REMAINING"
                     android:textColor="#888888"
                     android:textSize="10sp"
                     android:layout_marginBottom="4dp" />

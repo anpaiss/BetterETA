@@ -89,7 +89,7 @@ class EtaMasterDataType(
 
                 // 3. Statistiche Modello Adattivo (Bucket)
                 val snap = speedModel.snapshot()
-                val labels = listOf("Discesa", "Piano", "Salita", "Ripida", "Muro")
+                val labels = listOf("Descent", "Flat", "Climb", "Steep", "Wall")
                 val ids = listOf(R.id.tv_b0, R.id.tv_b1, R.id.tv_b2, R.id.tv_b3, R.id.tv_b4)
                 
                 snap.bucketEmas.forEachIndexed { i, speedMs ->

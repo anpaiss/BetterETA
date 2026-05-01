@@ -60,12 +60,12 @@ class SimulatorActivity : AppCompatActivity() {
                 emptyList()
             }
             if (waypoints.isEmpty()) {
-                tvRouteInfo.text = "Errore: percorso non trovato in assets/"
+                tvRouteInfo.text = "Error: route not found in assets/"
                 return@launch
             }
             pipeline.setRoute(waypoints)
             totalDistanceM = pipeline.remainingSegments().sumOf { it.distanceM }
-            tvRouteInfo.text = "${waypoints.size} waypoint  ·  %.1f km  ·  pronto".format(totalDistanceM / 1000.0)
+            tvRouteInfo.text = "${waypoints.size} waypoints  ·  %.1f km  ·  ready".format(totalDistanceM / 1000.0)
         }
 
         // Slider velocità: 0-100 → 0-50 km/h (step 0.5)
@@ -80,16 +80,16 @@ class SimulatorActivity : AppCompatActivity() {
 
         btnStartStop.setOnClickListener {
             if (simJob?.isActive == true) {
-                // Pausa
+                // Pause
                 simJob?.cancel()
-                btnStartStop.text = "Riprendi"
+                btnStartStop.text = "Resume"
             } else {
                 if (totalDistanceM == 0.0) {
-                    Toast.makeText(this, "Percorso non ancora caricato", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Route not loaded yet", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                val isFirstRun = btnStartStop.text == "Avvia Simulazione" || btnStartStop.text == "Ricomincia"
-                btnStartStop.text = "Pausa"
+                val isFirstRun = btnStartStop.text == "Start Simulation" || btnStartStop.text == "Restart"
+                btnStartStop.text = "Pause"
 
                 simJob = lifecycleScope.launch {
                     // Prima esecuzione o riavvio dopo completamento
@@ -114,7 +114,7 @@ class SimulatorActivity : AppCompatActivity() {
 
                         pbRoute.progress = progress
                         tvProgress.text  = "%.1f / %.1f km".format(traveledM / 1000.0, totalDistanceM / 1000.0)
-                        tvGrade.text     = "Pendenza: %+.1f%%".format(gradePct)
+                        tvGrade.text     = "Grade: %+.1f%%".format(gradePct)
 
                         if (remainingSec > 0) {
                             val cal = Calendar.getInstance().apply {
@@ -130,10 +130,10 @@ class SimulatorActivity : AppCompatActivity() {
                         delay(1000L)
                     }
 
-                    // Percorso completato
-                    tvEtaAbsolute.text  = "Arrivato!"
+                    // Route completed
+                    tvEtaAbsolute.text  = "Arrived!"
                     tvEtaRemaining.text = "0m"
-                    btnStartStop.text   = "Ricomincia"
+                    btnStartStop.text   = "Restart"
                 }
             }
         }
