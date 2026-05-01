@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import kotlin.math.*
 

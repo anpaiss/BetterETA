@@ -1,8 +1,7 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import android.content.Context
 import android.widget.RemoteViews
-import android.text.format.DateFormat
 import io.hammerhead.karooext.extension.DataTypeImpl
 import io.hammerhead.karooext.internal.Emitter
 import io.hammerhead.karooext.internal.ViewEmitter
@@ -19,16 +18,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 /**
- * Campo grafico — mostra l'orario di arrivo previsto nel formato HH:mm.
- * Mostra "--:--" se non c'è un percorso caricato.
+ * Campo grafico — mostra il tempo rimanente nel formato Xh Ym.
+ * Mostra "--h--m" se non c'è un percorso caricato.
  */
-class EtaAbsoluteDataType(
+class EtaRemainingDataType(
     extension: String,
     private val etaState: StateFlow<EtaState>,
-) : DataTypeImpl(extension, "eta-absolute") {
+) : DataTypeImpl(extension, "eta-remaining") {
 
     // Fallback numerico: minuti rimanenti
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -57,26 +55,27 @@ class EtaAbsoluteDataType(
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             
-            // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente (es. cambio minuto)
+            // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente
             etaState
-                .map { formatEta(context, it) }
+                .map { formatRemaining(it) }
                 .distinctUntilChanged()
                 .collect { formattedText ->
-                    val views = RemoteViews(context.packageName, R.layout.view_eta_absolute)
-                    views.setTextViewText(R.id.tv_eta_value, formattedText)
+                    val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
+                    views.setTextViewText(R.id.tv_remaining_value, formattedText)
                     emitter.updateView(views)
                 }
         }
         emitter.setCancellable { scope.cancel() }
     }
 
-    private fun formatEta(context: Context, state: EtaState): String {
+    private fun formatRemaining(state: EtaState): String {
         if (!state.hasRoute || state.remainingSeconds < 0) return state.status
 
-        val arrivalMs = System.currentTimeMillis() + state.remainingSeconds * 1000L
-        val cal  = Calendar.getInstance().apply { timeInMillis = arrivalMs }
-        val time = DateFormat.getTimeFormat(context).format(cal.time)
-        // "~" indica che il GPS non è disponibile: l'orario è stima per dead reckoning
+        val totalMin = state.remainingSeconds / 60L
+        val hours    = totalMin / 60L
+        val mins     = totalMin % 60L
+        val time     = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+        // "~" indica che il GPS non è disponibile: l'ETA è stima per dead reckoning
         return if (state.gpsStale) "~$time" else time
     }
 }

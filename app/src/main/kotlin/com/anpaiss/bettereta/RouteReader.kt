@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers

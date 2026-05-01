@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity

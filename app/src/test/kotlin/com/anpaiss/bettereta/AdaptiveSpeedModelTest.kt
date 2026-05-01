@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 /**
  * Modello adattivo velocità/pendenza calibrato sull'uscita in corso.

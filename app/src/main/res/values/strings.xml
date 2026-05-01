@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Karoo BetterETA</string>
+    <string name="app_name">BetterETA</string>
     <string name="extension_name">BetterETA</string>
 
     <string name="eta_master_name">BetterETA Dashboard</string>

@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 /**
  * Calcola il tempo rimanente in secondi sommando il tempo stimato

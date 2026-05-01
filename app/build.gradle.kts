@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace  = "com.anpaiss.karoobettereta"
+    namespace  = "com.anpaiss.bettereta"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.anpaiss.karoobettereta.v2"
+        applicationId = "com.anpaiss.bettereta"
         minSdk        = 23
         targetSdk     = 34
-        versionCode   = 2
-        versionName   = "2.0-dashboard"
+        versionCode   = 3
+        versionName   = "1.0"
     }
 
     buildTypes {

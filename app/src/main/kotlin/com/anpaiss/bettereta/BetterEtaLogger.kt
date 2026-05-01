@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import android.content.Context
 import android.os.Build
@@ -11,13 +11,13 @@ import java.util.Locale
  * Logger su file per il diagnostico di BetterETA.
  *
  * Percorso del file (Android 10+):
- *   /sdcard/Android/data/com.anpaiss.karoobettereta/files/better_eta.log
+ *   /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta.log
  *
  * Recupero via ADB (non richiede root):
- *   adb pull /sdcard/Android/data/com.anpaiss.karoobettereta/files/better_eta.log
+ *   adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta.log
  *
  * Se il log è nel filesDir interno (Android < 10 / storage non disponibile):
- *   adb shell run-as com.anpaiss.karoobettereta cat files/better_eta.log
+ *   adb shell run-as com.anpaiss.bettereta cat files/better_eta.log
  *
  * Rotazione automatica a 512 KB → il file precedente viene rinominato better_eta.old.log.
  */

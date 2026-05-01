@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 import android.content.Context
 import io.hammerhead.karooext.KarooSystemService
@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class BetterEtaExtension : KarooExtension("karoo-better-eta-v2", "2") {
+class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private lateinit var karooSystem: KarooSystemService
     private lateinit var logger: BetterEtaLogger

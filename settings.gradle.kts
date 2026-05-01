@@ -24,5 +24,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KarooBetterETA"
+rootProject.name = "BetterETA"
 include(":app")

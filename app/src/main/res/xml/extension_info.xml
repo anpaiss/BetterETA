@@ -2,7 +2,7 @@
 <ExtensionInfo
     displayName="@string/extension_name"
     icon="@drawable/ic_launcher_foreground"
-    id="karoo-better-eta-v2"
+    id="better-eta"
     scansDevices="false">
 
     <!-- Dashboard completa — pagina intera con tutte le info percorso -->

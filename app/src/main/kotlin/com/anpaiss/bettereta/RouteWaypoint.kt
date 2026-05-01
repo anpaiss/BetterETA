@@ -1,4 +1,4 @@
-package com.anpaiss.karoobettereta
+package com.anpaiss.bettereta
 
 /** Punto del percorso con coordinate e quota. */
 data class RouteWaypoint(
