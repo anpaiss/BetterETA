@@ -4,16 +4,35 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Cerchio sfondo -->
+
+    <!-- Orange background (full canvas, masked by launcher shape) -->
     <path
-        android:fillColor="#1A73E8"
-        android:pathData="M54,54 m-46,0 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0" />
-    <!-- Lettera E stilizzata (ETA) -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M32,34 L32,74 L68,74 L68,66 L42,66 L42,58 L64,58 L64,50 L42,50 L42,42 L68,42 L68,34 Z" />
-    <!-- Piccola freccia in alto a destra (ETA = estimated time of arrival) -->
+        android:fillColor="#FF5823"
+        android:pathData="M0,0h108v108h-108z" />
+
+    <!-- White clock face -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M70,28 L80,28 L80,38 L76,34 L70,40 L66,36 L72,30 Z" />
+        android:pathData="M54,54 m-32,0 a32,32 0 1,0 64,0 a32,32 0 1,0 -64,0" />
+
+    <!-- Tick marks (orange) at 12 / 3 / 6 / 9 -->
+    <path
+        android:fillColor="#FF5823"
+        android:pathData="M52,26 h4 v6 h-4 z M76,52 h6 v4 h-6 z M52,76 h4 v6 h-4 z M26,52 h6 v4 h-6 z" />
+
+    <!-- Hour hand (pointing to 12) -->
+    <path
+        android:fillColor="#FF5823"
+        android:pathData="M51,38 h6 v18 h-6 z" />
+
+    <!-- Minute hand (pointing to 3) -->
+    <path
+        android:fillColor="#FF5823"
+        android:pathData="M54,52 h22 v4 h-22 z" />
+
+    <!-- Center pin -->
+    <path
+        android:fillColor="#FF5823"
+        android:pathData="M54,54 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
+
 </vector>
