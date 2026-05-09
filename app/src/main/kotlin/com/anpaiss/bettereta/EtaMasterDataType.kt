@@ -12,6 +12,7 @@ import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
 import io.hammerhead.karooext.models.ViewConfig
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,11 +59,16 @@ class EtaMasterDataType(
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
+        Log.i("BetterETA", "MASTER startView called: gridSize=${config.gridSize}, viewSize=${config.viewSize}, preview=${config.preview}")
         val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            
+            var emitCount = 0
             etaState.collect { state ->
+                emitCount++
+                if (emitCount <= 3 || emitCount % 30 == 0) {
+                    Log.i("BetterETA", "MASTER updateView #$emitCount: hasRoute=${state.hasRoute}, status=${state.status}, secs=${state.remainingSeconds}")
+                }
                 val views = RemoteViews(context.packageName, R.layout.view_eta_master)
                 
                 // 1. ETA e Tempo Rimanente (Header)

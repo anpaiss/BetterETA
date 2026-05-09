@@ -38,14 +38,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
     @Volatile private var lastRoutePolyline: String = ""
 
+    // True se il percorso corrente ha dati di elevazione (NavigatingToDestination
+    // emette polyline elevazioni vuota → dislivello sconosciuto, non zero)
+    @Volatile private var hasElevationData = false
+
     // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
     @Volatile private var lastGpsUpdateMs  = 0L
     // Stato GPS per logging (evita righe duplicate)
     @Volatile private var gpsStaleLogged  = false
     @Volatile private var gpsStaleStartMs = 0L
-
-    // Timestamp di inizio della ride corrente/ultima (0 = mai avviata)
-    @Volatile private var rideStartMs = 0L
 
     private val extensionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var tickerJob: Job? = null
@@ -60,7 +61,6 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val PREFS_NAME           = "better_eta_model"
         private const val LOG_INTERVAL_TICKS   = 60       // 1 riga ETA al minuto
         private const val SNAP_LOG_THRESHOLD   = 50.0     // logga snap solo se > 50m
-        private const val MIN_RIDE_FOR_RESET_MS = 60_000L // ride < 60s non resetta il modello
     }
 
     override val types by lazy {
@@ -108,6 +108,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 }
 
                 lastRoutePolyline = polyline
+                hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
@@ -142,30 +143,18 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             }
 
             // ── Stato uscita ──────────────────────────────────────────────────────
+            // Modello e posizione vengono preservati tra le transizioni di stato:
+            // il Karoo emette spesso Recording↔non-Recording per auto-pausa o cambi
+            // pagina, e azzerare ogni volta vanificava l'apprendimento.
+            // Il reset della posizione avviene solo quando cambia la route (setRoute).
             consumerIds += karooSystem.addConsumer(
                 RideState.Params, { _ -> }, {}
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
-                    val now = System.currentTimeMillis()
-                    val isFirstSinceProcessStart = rideStartMs == 0L
-                    val prevDurationMs = if (rideStartMs > 0) now - rideStartMs else 0L
-                    rideStartMs = now
-                    when {
-                        isFirstSinceProcessStart -> {
-                            logger.log("RIDE ", "Avviata — model dal disco preservato (primo Recording dopo restart)")
-                        }
-                        prevDurationMs >= MIN_RIDE_FOR_RESET_MS -> {
-                            logger.log("RIDE ", "Avviata — model reset (ride precedente ${prevDurationMs / 1000}s ≥ 60s)")
-                            speedModel.reset()
-                        }
-                        else -> {
-                            logger.log("RIDE ", "Avviata — model mantenuto (ride precedente ${prevDurationMs / 1000}s < 60s)")
-                        }
-                    }
-                    extensionScope.launch { pipeline.reset() }
+                    logger.log("RIDE ", "Avviata — model e posizione preservati")
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
-                    logger.log("RIDE ", "Terminata")
+                    logger.log("RIDE ", "Sospesa — model salvato")
                     saveModel()
                 }
                 rideState = state
@@ -224,9 +213,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val remainingSegs = pipeline.remainingSegments()
                     val remainingSec  = etaEngine.computeFromSegments(remainingSegs)
                     val remainDistM   = remainingSegs.sumOf { it.distanceM }
-                    val remainElevM   = remainingSegs
-                        .filter { it.gradePct > 0 }
-                        .sumOf { it.distanceM * it.gradePct / 100.0 }
+                    // Solo segmenti con pendenza ≥ 1% contribuiscono al dislivello:
+                    // sotto questa soglia è quasi sempre rumore residuo dello smoothing.
+                    val remainElevM   = if (hasElevationData) {
+                        remainingSegs.filter { it.gradePct >= 1.0 }
+                                     .sumOf { it.distanceM * it.gradePct / 100.0 }
+                    } else -1.0
 
                     etaState.value = EtaState(
                         remainingSeconds    = remainingSec,
@@ -328,9 +320,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
         val elev = PolylineDecoder.decodeElevations(elevPolyline)
         if (elev.isEmpty()) {
-            logger.log("ROUTE", "WARN [$source] elevazione vuota — pendenza sarà 0% ovunque")
-        } else if (elev.size != coords.size) {
-            logger.log("ROUTE", "INFO [$source] mismatch: ${coords.size} coord, ${elev.size} quote → interpolazione")
+            logger.log("ROUTE", "WARN [$source] elevazione vuota — dislivello non disponibile")
+        } else {
+            // Diagnostica: stampa range delle quote decodificate per verificare
+            // che ELEVATION_SCALE sia corretta (valori plausibili = 0-3000 m in Italia).
+            logger.log("ROUTE", "Elev: n=${elev.size} min=%.1f max=%.1f first=%.1f last=%.1f"
+                .format(elev.min(), elev.max(), elev.first(), elev.last()))
+            if (elev.size != coords.size) {
+                logger.log("ROUTE", "INFO [$source] mismatch: ${coords.size} coord, ${elev.size} quote → interpolazione")
+            }
         }
 
         val elevInterp = interpolateElevations(coords, elev)

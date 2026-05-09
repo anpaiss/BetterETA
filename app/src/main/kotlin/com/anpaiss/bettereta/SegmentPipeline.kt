@@ -141,8 +141,17 @@ class SegmentPipeline {
 
     // ── costruzione segmenti ─────────────────────────────────────────────
 
-    private fun buildSegments(waypoints: List<RouteWaypoint>): List<RouteSegment> {
-        if (waypoints.size < 2) return emptyList()
+    companion object {
+        // Finestra di smoothing per le quote: il rumore tipico del polyline
+        // (~1-2 m per waypoint) genera pendenze finte ±5-10% che vengono sommate
+        // nel dislivello rimanente. Una media mobile su ~50 m abbatte il rumore
+        // senza appiattire le salite reali (che durano centinaia di metri).
+        private const val ELEVATION_SMOOTH_WINDOW_M = 50.0
+    }
+
+    private fun buildSegments(rawWaypoints: List<RouteWaypoint>): List<RouteSegment> {
+        if (rawWaypoints.size < 2) return emptyList()
+        val waypoints = smoothElevations(rawWaypoints, ELEVATION_SMOOTH_WINDOW_M)
         val raw = mutableListOf<RouteSegment>()
         for (i in 0 until waypoints.size - 1) {
             val dist = haversineM(waypoints[i].lat, waypoints[i].lon, waypoints[i+1].lat, waypoints[i+1].lon)
@@ -152,6 +161,39 @@ class SegmentPipeline {
             raw.add(RouteSegment(distanceM = dist, gradePct = grade))
         }
         return simplify(raw)
+    }
+
+    /**
+     * Media mobile delle quote su una finestra di [windowM] metri di percorso.
+     * Sliding window O(n) con due puntatori.
+     */
+    private fun smoothElevations(waypoints: List<RouteWaypoint>, windowM: Double): List<RouteWaypoint> {
+        if (waypoints.size < 3) return waypoints
+
+        val cum = DoubleArray(waypoints.size)
+        for (i in 1 until waypoints.size) {
+            cum[i] = cum[i - 1] + haversineM(
+                waypoints[i - 1].lat, waypoints[i - 1].lon,
+                waypoints[i].lat,     waypoints[i].lon,
+            )
+        }
+
+        val half = windowM / 2.0
+        var lo   = 0
+        var hi   = 0
+        var sum  = 0.0
+        return waypoints.mapIndexed { i, wp ->
+            while (hi < waypoints.size && cum[hi] <= cum[i] + half) {
+                sum += waypoints[hi].elevationM
+                hi++
+            }
+            while (lo < hi && cum[lo] < cum[i] - half) {
+                sum -= waypoints[lo].elevationM
+                lo++
+            }
+            val count = hi - lo
+            wp.copy(elevationM = if (count > 0) sum / count else wp.elevationM)
+        }
     }
 
     private fun simplify(raw: List<RouteSegment>): List<RouteSegment> {
