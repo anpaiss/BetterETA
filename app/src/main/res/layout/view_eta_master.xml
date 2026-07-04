@@ -80,28 +80,28 @@
         android:layout_marginBottom="6dp"
         android:background="#888888" />
 
-    <!-- SPEED MODEL SECTION -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="LEARNED SPEED BY GRADE"
-        android:textColor="#888888"
-        android:textSize="10sp"
-        android:gravity="center"
-        android:layout_marginBottom="4dp" />
-
+    <!-- PREDICTED AVG SPEED (riempie lo spazio liberato dai bucket) -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
+        android:layout_height="0dp"
         android:layout_weight="1"
-        android:paddingLeft="12dp"
-        android:paddingRight="12dp">
-        <TextView android:id="@+id/tv_b0" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Descent: --" android:textColor="#888888" android:textSize="13sp" />
-        <TextView android:id="@+id/tv_b1" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Flat: --" android:textColor="#888888" android:textSize="13sp" />
-        <TextView android:id="@+id/tv_b2" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Climb: --" android:textColor="#888888" android:textSize="13sp" />
-        <TextView android:id="@+id/tv_b3" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Steep: --" android:textColor="#888888" android:textSize="13sp" />
-        <TextView android:id="@+id/tv_b4" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Wall: --" android:textColor="#888888" android:textSize="13sp" />
+        android:orientation="vertical"
+        android:gravity="center">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="PREDICTED AVG SPEED"
+            android:textColor="#888888"
+            android:textSize="10sp" />
+        <TextView
+            android:id="@+id/tv_master_avgspeed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="-- km/h"
+            android:textColor="#FF5823"
+            android:textSize="40sp"
+            android:textStyle="bold"
+            android:includeFontPadding="false" />
     </LinearLayout>
 
     <!-- FOOTER: STATUS / GPS -->

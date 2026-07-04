@@ -34,4 +34,36 @@
         android:gravity="center"
         android:lineSpacingMultiplier="1.5" />
 
+    <!-- INFO: modello velocità appreso (snapshot salvato a ogni pausa/stop) -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="16dp"
+        android:background="#444444" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="LEARNED SPEED BY GRADE"
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:letterSpacing="0.1"
+        android:layout_marginBottom="8dp" />
+
+    <TextView android:id="@+id/tv_b0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Descent: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Flat: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Climb: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Steep: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wall: --" android:textColor="#888888" android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/tv_model_overall"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="No data yet"
+        android:textColor="#666666"
+        android:textSize="12sp"
+        android:layout_marginTop="12dp" />
+
 </LinearLayout>

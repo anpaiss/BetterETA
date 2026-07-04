@@ -34,7 +34,6 @@ import java.util.Calendar
 class EtaMasterDataType(
     extension: String,
     private val etaState: StateFlow<EtaState>,
-    private val speedModel: AdaptiveSpeedModel
 ) : DataTypeImpl(extension, "eta-master") {
 
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -93,20 +92,12 @@ class EtaMasterDataType(
                 views.setTextViewText(R.id.tv_master_km, "$distStr km")
                 views.setTextViewText(R.id.tv_master_ascent, "$elevStr m")
 
-                // 3. Statistiche Modello Adattivo (Bucket)
-                val snap = speedModel.snapshot()
-                val labels = listOf("Descent", "Flat", "Climb", "Steep", "Wall")
-                val ids = listOf(R.id.tv_b0, R.id.tv_b1, R.id.tv_b2, R.id.tv_b3, R.id.tv_b4)
-                
-                snap.bucketEmas.forEachIndexed { i, speedMs ->
-                    val speedKmh = speedMs * 3.6
-                    val count = snap.bucketCounts[i]
-                    val text = "${labels[i]}: %.1f km/h (%d)".format(speedKmh, count)
-                    views.setTextViewText(ids[i], text)
-                    val activeColor = Color.parseColor("#FF5823")
-                    val mutedColor  = Color.parseColor("#888888")
-                    views.setTextColor(ids[i], if (count > 0) activeColor else mutedColor)
-                }
+                // 3. Velocità media prevista = distanza rimanente / tempo rimanente.
+                // È la media implicata dall'ETA sul tratto davanti (non l'EMA del modello).
+                val avgStr = if (state.remainingSeconds > 0 && state.remainingDistanceM >= 0)
+                    "%.1f km/h".format(state.remainingDistanceM / state.remainingSeconds * 3.6)
+                    else "-- km/h"
+                views.setTextViewText(R.id.tv_master_avgspeed, avgStr)
 
                 // 4. Footer: Status e GPS
                 views.setTextViewText(R.id.tv_status_msg, state.status)
