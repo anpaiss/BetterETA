@@ -5,17 +5,17 @@ import kotlin.math.*
 /**
  * Decodifica Google Encoded Polyline in formato standard.
  *
- * Karoo SDK espone due polyline separate:
- *   - routePolyline / polyline         → coppie (lat, lng) con precisione 1e-5 gradi
- *   - routeElevationPolyline / elevationPolyline → elevazioni in decimetri (precisione 0.1 m)
+ * Karoo SDK (doc ufficiale karoo-ext 1.1.9, KarooEvent.kt) espone due polyline separate:
+ *   - routePolyline / polyline → coppie (lat, lng), "Google encoded polyline, precision 5"
+ *   - routeElevationPolyline / elevationPolyline → "Pair of distance, elevation,
+ *     encoded as Google polyline, precision 1" → coppie 2D (distanza, quota) scala 10.
  *
- * NOTA: la scala delle elevazioni (ELEVATION_SCALE = 10) è inferita dal formato SDK.
- * Se su hardware reale i valori risultano fuori range (>9000 m o negativi),
- * modificare ELEVATION_SCALE: provare 1.0 (metri interi) o 1e5 (standard Google).
+ * Verificato su log ride reale (2026-07-02): decodificare l'elevazione come serie 1D
+ * produce una sequenza monotona 0→22234 (la distanza cumulativa mischiata alle quote).
  */
 object PolylineDecoder {
 
-    /** Scala di decodifica per le elevazioni: 10 = decimetri → metri */
+    /** Precisione 1 → valori codificati in decimi di metro */
     private const val ELEVATION_SCALE = 10.0
 
     /**
@@ -39,18 +39,20 @@ object PolylineDecoder {
     }
 
     /**
-     * Decodifica una polyline 1D di elevazioni.
-     * Restituisce lista vuota se la stringa è blank o malformata.
+     * Decodifica la polyline elevazioni come coppie (distanza dall'inizio, quota),
+     * entrambe in metri. Restituisce lista vuota se la stringa è blank o malformata.
      */
-    fun decodeElevations(encoded: String): List<Double> {
+    fun decodeDistanceElevation(encoded: String): List<Pair<Double, Double>> {
         if (encoded.isBlank()) return emptyList()
-        val result = mutableListOf<Double>()
+        val result = mutableListOf<Pair<Double, Double>>()
         val idx    = intArrayOf(0)
-        var acc    = 0
+        var dist   = 0
+        var elev   = 0
         try {
             while (idx[0] < encoded.length) {
-                acc += nextDelta(encoded, idx)
-                result.add(acc / ELEVATION_SCALE)
+                dist += nextDelta(encoded, idx)
+                elev += nextDelta(encoded, idx)
+                result.add(dist / ELEVATION_SCALE to elev / ELEVATION_SCALE)
             }
         } catch (_: Exception) { /* stringa troncata */ }
         return result
@@ -81,23 +83,23 @@ object PolylineDecoder {
 /**
  * Interpola le elevazioni sui punti delle coordinate GPS.
  *
- * Il Karoo SDK fornisce due polyline con campionamenti diversi: la polyline GPS
- * ha tipicamente meno punti di quella delle elevazioni. Questa funzione assume
- * che entrambe coprano lo stesso percorso totale e che i punti di elevazione
- * siano distribuiti uniformemente sulla distanza totale — e ricampiona le quote
- * sulle coordinate GPS tramite interpolazione lineare.
+ * I campioni quota portano ciascuno la propria distanza dall'inizio del percorso:
+ * per ogni coordinata GPS si calcola la posizione frazionaria lungo il percorso
+ * (normalizzata, così eventuali differenze di scala tra i due assi si annullano)
+ * e si interpola linearmente sull'asse distanza dei campioni.
  *
- * @param coords  Waypoint GPS già decodificati come coppie (lat, lon).
- * @param elev    Elevazioni già decodificate (campionamento uniforme per distanza).
- * @return        Array di elevazioni interpolate, una per ogni punto di [coords].
+ * @param coords   Waypoint GPS già decodificati come coppie (lat, lon).
+ * @param samples  Campioni (distanza dall'inizio, quota) in ordine di distanza.
+ * @return         Array di elevazioni interpolate, una per ogni punto di [coords].
  */
 internal fun interpolateElevations(
     coords: List<Pair<Double, Double>>,
-    elev: List<Double>,
+    samples: List<Pair<Double, Double>>,
 ): DoubleArray {
-    if (elev.isEmpty()) return DoubleArray(coords.size) { 0.0 }
-    if (coords.size <= 1) return DoubleArray(coords.size) { elev.first() }
-    if (elev.size == coords.size) return elev.toDoubleArray()
+    if (samples.isEmpty()) return DoubleArray(coords.size) { 0.0 }
+    if (coords.size <= 1 || samples.size == 1) {
+        return DoubleArray(coords.size) { samples.first().second }
+    }
 
     // Distanza cumulativa lungo le coordinate GPS
     val cumDist = DoubleArray(coords.size)
@@ -107,17 +109,27 @@ internal fun interpolateElevations(
             coords[i].first,     coords[i].second,
         )
     }
-    val totalDist = cumDist.last()
+    val totalDist   = cumDist.last()
+    val sampleStart = samples.first().first
+    val sampleSpan  = samples.last().first - sampleStart
 
     return DoubleArray(coords.size) { i ->
         // Posizione frazionaria [0,1] del waypoint i lungo il percorso
         val t = if (totalDist > 0.0) cumDist[i] / totalDist
                 else i.toDouble() / (coords.size - 1)
-        // Posizione corrispondente nell'array elevazioni
-        val pos = t * (elev.size - 1)
-        val lo  = pos.toInt().coerceIn(0, elev.size - 2)
-        val frac = pos - lo
-        elev[lo] * (1.0 - frac) + elev[lo + 1] * frac
+        val target = sampleStart + t * sampleSpan
+
+        // Binary search: ultimo campione con distanza <= target
+        var lo = 0
+        var hi = samples.size - 1
+        while (lo + 1 < hi) {
+            val mid = (lo + hi) ushr 1
+            if (samples[mid].first <= target) lo = mid else hi = mid
+        }
+        val (d0, e0) = samples[lo]
+        val (d1, e1) = samples[hi]
+        if (d1 <= d0) e0
+        else e0 + (e1 - e0) * ((target - d0) / (d1 - d0)).coerceIn(0.0, 1.0)
     }
 }
 

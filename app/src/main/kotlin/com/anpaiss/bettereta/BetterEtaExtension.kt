@@ -165,14 +165,17 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 while (true) {
                     delay(TICK_MS)
 
-                    val hasRoute = pipeline.hasSegments()
+                    val hasRoute = pipeline.hasRoute()
                     if (!hasRoute) {
                         etaState.value = EtaState(status = "No Route")
                         continue
                     }
 
                     if (rideState !is RideState.Recording) {
-                        etaState.value = EtaState(hasRoute = true, status = "Paused")
+                        // Preserva gli ultimi valori calcolati (ETA, distanza, dislivello):
+                        // il Karoo va in auto-pausa a ogni fermata e azzerarli fa comparire
+                        // i segnaposto "--" per tutta la sosta.
+                        etaState.value = etaState.value.copy(hasRoute = true, status = "Paused")
                         continue
                     }
 
@@ -211,6 +214,22 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     // 4. Calcolo ETA + statistiche percorso (un solo lock sulla pipeline)
                     val remainingSegs = pipeline.remainingSegments()
+
+                    // Segmenti esauriti ma route ancora attiva: fine percorso raggiunta
+                    // (o posizione agganciata male). Lo snap sopra continua a girare
+                    // e il riaggancio globale può rianimare la pipeline se il GPS
+                    // mostra che siamo ancora sulla route.
+                    if (remainingSegs.isEmpty()) {
+                        etaState.value = EtaState(
+                            hasRoute            = true,
+                            status              = "Arrived",
+                            gpsStale            = gpsStale,
+                            remainingDistanceM  = 0.0,
+                            remainingElevationM = if (hasElevationData) 0.0 else -1.0,
+                        )
+                        continue
+                    }
+
                     val remainingSec  = etaEngine.computeFromSegments(remainingSegs)
                     val remainDistM   = remainingSegs.sumOf { it.distanceM }
                     // Solo segmenti con pendenza ≥ 1% contribuiscono al dislivello:
@@ -318,20 +337,21 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             return emptyList()
         }
 
-        val elev = PolylineDecoder.decodeElevations(elevPolyline)
-        if (elev.isEmpty()) {
+        val elevSamples = PolylineDecoder.decodeDistanceElevation(elevPolyline)
+        if (elevSamples.isEmpty()) {
             logger.log("ROUTE", "WARN [$source] elevazione vuota — dislivello non disponibile")
         } else {
-            // Diagnostica: stampa range delle quote decodificate per verificare
-            // che ELEVATION_SCALE sia corretta (valori plausibili = 0-3000 m in Italia).
-            logger.log("ROUTE", "Elev: n=${elev.size} min=%.1f max=%.1f first=%.1f last=%.1f"
-                .format(elev.min(), elev.max(), elev.first(), elev.last()))
-            if (elev.size != coords.size) {
-                logger.log("ROUTE", "INFO [$source] mismatch: ${coords.size} coord, ${elev.size} quote → interpolazione")
+            // Diagnostica: distanza totale e range quote per validare la decodifica
+            // (quote plausibili in Italia = 0-3000 m, distanza ≈ lunghezza route).
+            val quote = elevSamples.map { it.second }
+            logger.log("ROUTE", "Elev: n=${elevSamples.size} dist=%.0fm quota min=%.1f max=%.1f first=%.1f last=%.1f"
+                .format(elevSamples.last().first, quote.min(), quote.max(), quote.first(), quote.last()))
+            if (elevSamples.size != coords.size) {
+                logger.log("ROUTE", "INFO [$source] ${coords.size} coord, ${elevSamples.size} campioni quota → interpolazione")
             }
         }
 
-        val elevInterp = interpolateElevations(coords, elev)
+        val elevInterp = interpolateElevations(coords, elevSamples)
         return coords.mapIndexed { i, (lat, lng) ->
             RouteWaypoint(lat = lat, lon = lng, elevationM = elevInterp[i])
         }

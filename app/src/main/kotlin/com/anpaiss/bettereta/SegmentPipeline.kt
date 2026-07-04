@@ -18,6 +18,12 @@ class SegmentPipeline {
     private var consumedInCurrentM = 0.0
     private var traveledM          = 0.0             // metri percorsi dall'inizio del percorso
 
+    // Stato dello snap GPS
+    private var located            = false  // false finché il GPS non ha mai agganciato la route
+    private var offWindowTicks     = 0      // snap falliti consecutivi nella finestra locale
+    private var rescueCandidateM   = -1.0   // posizione proposta dalla ricerca globale
+    private var rescueConfirmCount = 0      // conferme consecutive coerenti della proposta
+
     /** Carica un nuovo percorso e riparte dall'inizio. */
     suspend fun setRoute(newWaypoints: List<RouteWaypoint>) = mutex.withLock {
         waypoints          = newWaypoints
@@ -26,6 +32,10 @@ class SegmentPipeline {
         currentIndex       = 0
         consumedInCurrentM = 0.0
         traveledM          = 0.0
+        located            = false
+        offWindowTicks     = 0
+        rescueCandidateM   = -1.0
+        rescueConfirmCount = 0
     }
 
     /** Azzera la posizione sul percorso (nuova uscita). */
@@ -33,6 +43,10 @@ class SegmentPipeline {
         currentIndex       = 0
         consumedInCurrentM = 0.0
         traveledM          = 0.0
+        located            = false
+        offWindowTicks     = 0
+        rescueCandidateM   = -1.0
+        rescueConfirmCount = 0
     }
 
     /** Avanza di [meters] metri sul percorso. */
@@ -58,32 +72,79 @@ class SegmentPipeline {
     /**
      * Sincronizza la posizione basandosi sulle coordinate GPS reali.
      *
-     * Usa la distanza cumulativa precalcolata per trovare la finestra di ricerca
-     * corretta nei waypoint originali — evita di confondere l'indice dei segmenti
-     * semplificati con l'indice dei waypoint originali.
+     * Cerca in una finestra CENTRATA sulla posizione stimata (quindi può correggere
+     * anche all'indietro) e tra i waypoint vicini al fix sceglie quello più coerente
+     * con la posizione stimata, non il più vicino al GPS: su percorsi andata/ritorno
+     * o che si incrociano evita di saltare sul ramo sbagliato.
+     *
+     * Se il fix resta fuori finestra a lungo (route caricata a metà giro, posizione
+     * agganciata male fino a "fine percorso"), una ricerca su tutta la route
+     * riaggancia la posizione dopo [RESCUE_CONFIRM_TICKS] proposte coerenti.
      *
      * @return correzione applicata in metri (0.0 se nessuno snap effettuato)
      */
     suspend fun snapToLocation(lat: Double, lon: Double): Double = mutex.withLock {
         if (waypoints.isEmpty()) return@withLock 0.0
 
-        // Binary search: primo waypoint con distanza cumulativa >= traveledM
-        val searchStart = lowerBound(waypointCumDist, traveledM)
-        if (searchStart >= waypoints.size) return@withLock 0.0   // siamo già oltre la fine
-        val searchEnd   = (searchStart + 500).coerceAtMost(waypoints.size)
+        val windowStart = lowerBound(waypointCumDist, traveledM - SNAP_BACK_WINDOW_M)
+        val windowEnd   = lowerBound(waypointCumDist, traveledM + SNAP_FWD_WINDOW_M)
 
-        var bestIdx = -1
-        var minDist = Double.MAX_VALUE
-        for (i in searchStart until searchEnd) {
-            val d = haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon)
-            if (d < minDist) { minDist = d; bestIdx = i }
+        var bestIdx    = -1
+        var bestOffset = Double.MAX_VALUE
+        for (i in windowStart until windowEnd) {
+            if (haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon) >= SNAP_MAX_DIST_M) continue
+            val offset = abs(waypointCumDist[i] - traveledM)
+            if (offset < bestOffset) { bestOffset = offset; bestIdx = i }
         }
 
-        if (bestIdx == -1 || minDist >= 100.0) return@withLock 0.0
+        if (bestIdx != -1) {
+            located            = true
+            offWindowTicks     = 0
+            rescueCandidateM   = -1.0
+            rescueConfirmCount = 0
+            val prevTraveledM = traveledM
+            repositionTo(waypointCumDist[bestIdx])
+            return@withLock abs(traveledM - prevTraveledM)
+        }
 
+        // Nessun aggancio nella finestra locale
+        offWindowTicks++
+        if (located && offWindowTicks < RESCUE_AFTER_TICKS) return@withLock 0.0
+
+        // Ricerca globale: waypoint più vicino al fix su tutta la route
+        var globalIdx = -1
+        var globalMin = Double.MAX_VALUE
+        for (i in waypoints.indices) {
+            val d = haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon)
+            if (d < globalMin) { globalMin = d; globalIdx = i }
+        }
+        if (globalIdx == -1 || globalMin >= SNAP_MAX_DIST_M) {
+            rescueCandidateM   = -1.0
+            rescueConfirmCount = 0
+            return@withLock 0.0
+        }
+
+        // Accetta il riaggancio solo dopo proposte consecutive coerenti tra loro
+        val candidateM = waypointCumDist[globalIdx]
+        rescueConfirmCount =
+            if (rescueCandidateM >= 0 && abs(candidateM - rescueCandidateM) < RESCUE_COHERENCE_M)
+                rescueConfirmCount + 1
+            else 1
+        rescueCandidateM = candidateM
+        if (rescueConfirmCount < RESCUE_CONFIRM_TICKS) return@withLock 0.0
+
+        located            = true
+        offWindowTicks     = 0
+        rescueCandidateM   = -1.0
+        rescueConfirmCount = 0
         val prevTraveledM = traveledM
-        repositionTo(waypointCumDist[bestIdx])
-        kotlin.math.abs(traveledM - prevTraveledM)
+        repositionTo(candidateM)
+        return@withLock abs(traveledM - prevTraveledM)
+    }
+
+    /** True se una route è caricata, indipendentemente dalla posizione su di essa. */
+    suspend fun hasRoute(): Boolean = mutex.withLock {
+        segments.isNotEmpty()
     }
 
     /** True se ci sono segmenti rimanenti. */
@@ -147,6 +208,20 @@ class SegmentPipeline {
         // nel dislivello rimanente. Una media mobile su ~50 m abbatte il rumore
         // senza appiattire le salite reali (che durano centinaia di metri).
         private const val ELEVATION_SMOOTH_WINDOW_M = 50.0
+
+        // Un waypoint è agganciabile dal GPS se dista dal fix meno di questa soglia
+        private const val SNAP_MAX_DIST_M = 100.0
+        // Finestra di ricerca intorno alla posizione stimata: dietro basta poco
+        // (correzione di drift), davanti serve margine per il dead-reckoning lento
+        private const val SNAP_BACK_WINDOW_M = 500.0
+        private const val SNAP_FWD_WINDOW_M  = 2000.0
+        // Tick consecutivi fuori finestra prima di tentare la ricerca globale
+        // (con un tick al secondo = 30s; azzerato se located è ancora false)
+        private const val RESCUE_AFTER_TICKS = 30
+        // Conferme consecutive coerenti richieste per accettare un riaggancio globale
+        private const val RESCUE_CONFIRM_TICKS = 3
+        // Due proposte di riaggancio sono coerenti se distano meno di questa soglia
+        private const val RESCUE_COHERENCE_M = 200.0
     }
 
     private fun buildSegments(rawWaypoints: List<RouteWaypoint>): List<RouteSegment> {

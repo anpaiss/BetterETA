@@ -133,6 +133,77 @@ class SegmentPipelineTest {
         assertApprox(totalBefore, totalAfter, delta = 1.0)
     }
 
+    // ── snapToLocation ────────────────────────────────────────────────
+
+    /** Route rettilinea verso nord, waypoint ogni ~111m. */
+    private fun denseRoute(n: Int = 21) =
+        (0 until n).map { RouteWaypoint(45.0 + it * 0.001, 9.0, 300.0) }
+
+    @Test
+    fun `snap corrects position backward after dead-reckoning overshoot`() = runBlocking {
+        val p = SegmentPipeline()
+        p.setRoute(denseRoute())
+        val total = p.remainingSegments().sumOf { it.distanceM }
+        p.snapToLocation(45.0, 9.0)          // aggancio iniziale
+        p.advanceByDistance(500.0)           // dead-reckoning sovrastimato
+        val correction = p.snapToLocation(45.002, 9.0)  // GPS reale a ~222m
+
+        assertTrue("correction=$correction deve essere > 100", correction > 100.0)
+        val remaining = p.remainingSegments().sumOf { it.distanceM }
+        assertApprox(total - 222.0, remaining, delta = 60.0)
+    }
+
+    @Test
+    fun `snap does not jump to return leg of out-and-back route`() = runBlocking {
+        val p = SegmentPipeline()
+        // Andata verso nord + ritorno parallelo spostato di ~8m (entro i 100m di snap)
+        val out  = (0..20).map { RouteWaypoint(45.0 + it * 0.001, 9.0, 300.0) }
+        val back = (20 downTo 0).map { RouteWaypoint(45.0 + it * 0.001, 9.0001, 300.0) }
+        p.setRoute(out + back)
+        val total = p.remainingSegments().sumOf { it.distanceM }
+        p.snapToLocation(45.0, 9.0)
+        p.advanceByDistance(555.0)
+        // Rider sull'andata a ~556m: il ramo di ritorno è a pochi metri dal fix
+        // ma NON va scelto (correzione piccola, non un salto verso fine route)
+        val correction = p.snapToLocation(45.005, 9.0)
+
+        assertTrue("correction=$correction deve essere piccola", correction < 100.0)
+        val remaining = p.remainingSegments().sumOf { it.distanceM }
+        assertTrue("remaining=$remaining deve restare quasi tutto il percorso ($total)",
+            remaining > total * 0.7)
+    }
+
+    @Test
+    fun `rescue re-engages pipeline after premature exhaustion`() = runBlocking {
+        val p = SegmentPipeline()
+        p.setRoute(denseRoute())
+        val total = p.remainingSegments().sumOf { it.distanceM }
+        p.snapToLocation(45.0, 9.0)
+        p.advanceByDistance(999_999.0)       // posizione (erroneamente) a fine percorso
+        assertTrue(p.remainingSegments().isEmpty())
+
+        // Il rider è in realtà a metà route: dopo RESCUE_AFTER_TICKS fuori finestra
+        // + RESCUE_CONFIRM_TICKS conferme la ricerca globale riaggancia la posizione
+        repeat(35) { p.snapToLocation(45.010, 9.0) }
+
+        assertTrue("la pipeline deve riagganciarsi", p.hasSegments())
+        val remaining = p.remainingSegments().sumOf { it.distanceM }
+        assertApprox(total - 1112.0, remaining, delta = 60.0)
+    }
+
+    @Test
+    fun `route loaded mid-ride locks onto rider position within few ticks`() = runBlocking {
+        val p = SegmentPipeline()
+        p.setRoute(denseRoute(31))           // ~3335m
+        val total = p.remainingSegments().sumOf { it.distanceM }
+        // Rider a ~2780m dall'inizio, oltre la finestra locale: senza mai essere
+        // stati agganciati la ricerca globale parte subito (niente attesa di 30 tick)
+        repeat(3) { p.snapToLocation(45.025, 9.0) }
+
+        val remaining = p.remainingSegments().sumOf { it.distanceM }
+        assertApprox(total - 2780.0, remaining, delta = 60.0)
+    }
+
     @Test
     fun `adjacent similar grade segments are merged by simplify`() = runBlocking {
         val p = SegmentPipeline()
