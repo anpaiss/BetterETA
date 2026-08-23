@@ -7,8 +7,12 @@ import kotlin.math.*
 /**
  * Converte i waypoint grezzi in segmenti semplificati e traccia
  * la posizione del ciclista sul percorso man mano che avanza.
+ *
+ * @param nowMs sorgente dell'orologio, iniettabile nei test.
  */
-class SegmentPipeline {
+class SegmentPipeline(
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
 
     private val mutex = Mutex()
     private var segments           = listOf<RouteSegment>()
@@ -23,6 +27,7 @@ class SegmentPipeline {
     private var offWindowTicks     = 0      // snap falliti consecutivi nella finestra locale
     private var rescueCandidateM   = -1.0   // posizione proposta dalla ricerca globale
     private var rescueConfirmCount = 0      // conferme consecutive coerenti della proposta
+    private var lastGoodSnapMs     = 0L     // orologio reale dell'ultimo aggancio riuscito
 
     /** Carica un nuovo percorso e riparte dall'inizio. */
     suspend fun setRoute(newWaypoints: List<RouteWaypoint>) = mutex.withLock {
@@ -102,6 +107,7 @@ class SegmentPipeline {
             offWindowTicks     = 0
             rescueCandidateM   = -1.0
             rescueConfirmCount = 0
+            lastGoodSnapMs     = nowMs()
             val prevTraveledM = traveledM
             repositionTo(waypointCumDist[bestIdx])
             return@withLock abs(traveledM - prevTraveledM)
@@ -111,14 +117,19 @@ class SegmentPipeline {
         offWindowTicks++
         if (located && offWindowTicks < RESCUE_AFTER_TICKS) return@withLock 0.0
 
-        // Ricerca globale: waypoint più vicino al fix su tutta la route
-        var globalIdx = -1
-        var globalMin = Double.MAX_VALUE
+        // Ricerca globale: tra i waypoint di tutta la route vicini al fix sceglie
+        // quello più coerente con la posizione stimata (stesso criterio dello snap
+        // locale). Il waypoint in assoluto più vicino al fix può stare sul ramo
+        // sbagliato — anelli con partenza=arrivo, andata/ritorno — e teleportare
+        // la posizione a inizio o fine route.
+        var globalIdx    = -1
+        var globalOffset = Double.MAX_VALUE
         for (i in waypoints.indices) {
-            val d = haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon)
-            if (d < globalMin) { globalMin = d; globalIdx = i }
+            if (haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon) >= SNAP_MAX_DIST_M) continue
+            val offset = abs(waypointCumDist[i] - traveledM)
+            if (offset < globalOffset) { globalOffset = offset; globalIdx = i }
         }
-        if (globalIdx == -1 || globalMin >= SNAP_MAX_DIST_M) {
+        if (globalIdx == -1) {
             rescueCandidateM   = -1.0
             rescueConfirmCount = 0
             return@withLock 0.0
@@ -133,10 +144,23 @@ class SegmentPipeline {
         rescueCandidateM = candidateM
         if (rescueConfirmCount < RESCUE_CONFIRM_TICKS) return@withLock 0.0
 
+        // Guardia di plausibilità: dall'ultimo aggancio buono il ciclista può
+        // essersi spostato al massimo di tempo_trascorso × velocità_massima.
+        // Orologio reale, così una pausa lunga con bici in movimento (Karoo in
+        // auto-pausa) allarga la finestra e il riaggancio legittimo passa,
+        // mentre un teletrasporto a inizio/fine route dopo pochi secondi
+        // fuori traccia viene rifiutato finché non diventa plausibile.
+        if (located) {
+            val elapsedSec = (nowMs() - lastGoodSnapMs) / 1000.0
+            val maxJumpM   = elapsedSec * RESCUE_MAX_SPEED_MS + RESCUE_JUMP_MARGIN_M
+            if (abs(candidateM - traveledM) > maxJumpM) return@withLock 0.0
+        }
+
         located            = true
         offWindowTicks     = 0
         rescueCandidateM   = -1.0
         rescueConfirmCount = 0
+        lastGoodSnapMs     = nowMs()
         val prevTraveledM = traveledM
         repositionTo(candidateM)
         return@withLock abs(traveledM - prevTraveledM)
@@ -145,6 +169,11 @@ class SegmentPipeline {
     /** True se una route è caricata, indipendentemente dalla posizione su di essa. */
     suspend fun hasRoute(): Boolean = mutex.withLock {
         segments.isNotEmpty()
+    }
+
+    /** True se il GPS ha agganciato la route almeno una volta dal caricamento. */
+    suspend fun isLocated(): Boolean = mutex.withLock {
+        located
     }
 
     /** True se ci sono segmenti rimanenti. */
@@ -222,6 +251,10 @@ class SegmentPipeline {
         private const val RESCUE_CONFIRM_TICKS = 3
         // Due proposte di riaggancio sono coerenti se distano meno di questa soglia
         private const val RESCUE_COHERENCE_M = 200.0
+        // Guardia di plausibilità del riaggancio: velocità massima credibile
+        // (ebike in discesa con margine) e tolleranza base sul salto
+        private const val RESCUE_MAX_SPEED_MS  = 20.0
+        private const val RESCUE_JUMP_MARGIN_M = 500.0
     }
 
     private fun buildSegments(rawWaypoints: List<RouteWaypoint>): List<RouteSegment> {

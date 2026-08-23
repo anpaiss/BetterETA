@@ -12,3 +12,4 @@ local.properties
 .claude/
 .gradle/
 gradle/wrapper/gradle-wrapper.jar
+/logs

@@ -25,6 +25,38 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         renderModel()
+        renderResults()
+    }
+
+    /** Storico confronto ETA vs Karoo: media in testa, poi le ultime uscite. */
+    private fun renderResults() {
+        val tvAvg  = findViewById<TextView>(R.id.tv_results_avg)
+        val tvList = findViewById<TextView>(R.id.tv_results_list)
+
+        val history = getSharedPreferences(BetterEtaExtension.RESULTS_PREFS, Context.MODE_PRIVATE)
+            .getString(BetterEtaExtension.RESULTS_KEY, "").orEmpty()
+        // Entry: "data|diffPct|errBePct|errKarooPct" (diffPct > 0 = BetterEta meglio)
+        val entries = history.split(';').filter { it.isNotBlank() }.mapNotNull { raw ->
+            val p = raw.split('|')
+            val diff = p.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            Pair(p[0], diff)
+        }
+
+        if (entries.isEmpty()) {
+            tvAvg.text  = "No data yet"
+            tvAvg.setTextColor(Color.parseColor("#666666"))
+            tvList.text = ""
+            return
+        }
+
+        val avg = entries.sumOf { it.second }.toDouble() / entries.size
+        tvAvg.text = "Avg: %.1f%% %s than Karoo ETA".format(
+            kotlin.math.abs(avg), if (avg >= 0) "better" else "worse")
+        tvAvg.setTextColor(if (avg >= 0) Color.parseColor("#4CAF50") else Color.RED)
+
+        tvList.text = entries.joinToString("\n") { (date, diff) ->
+            "%s  %s%d%%".format(date, if (diff >= 0) "+" else "", diff)
+        }
     }
 
     private fun renderModel() {

@@ -52,6 +52,17 @@ class AdaptiveSpeedModelTest {
     }
 
     @Test
+    fun `brief slowdown does not corrupt long-run bucket average`() {
+        val model = AdaptiveSpeedModel()
+        // 10 minuti a 8 m/s, poi 20s lenti (semaforo, manovra): la previsione
+        // deve restare vicina alla media di lungo periodo, non agli ultimi secondi
+        repeat(600) { model.update(speedMs = 8.0, gradePct = 0.0) }
+        repeat(20)  { model.update(speedMs = 2.0, gradePct = 0.0) }
+        val predicted = model.predictSpeed(0.0)
+        assertTrue("predicted=$predicted deve restare > 7", predicted > 7.0)
+    }
+
+    @Test
     fun `reset clears all learned buckets`() {
         val model = AdaptiveSpeedModel()
         repeat(10) { model.update(speedMs = 10.0, gradePct = 0.0) }

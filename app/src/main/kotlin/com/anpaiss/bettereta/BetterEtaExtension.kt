@@ -17,6 +17,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
 
 class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
@@ -38,9 +42,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
     @Volatile private var lastRoutePolyline: String = ""
 
+    // False quando il Karoo emette uno stato di navigazione non gestito (es. Idle).
+    // Il Karoo emette Idle transitori anche a metà navigazione: route e posizione
+    // restano in memoria, si sospende solo la pubblicazione dell'ETA — un reset
+    // qui azzerava la posizione e mostrava distanza/dislivello dell'intera route.
+    @Volatile private var navActive = false
+
     // True se il percorso corrente ha dati di elevazione (NavigatingToDestination
     // emette polyline elevazioni vuota → dislivello sconosciuto, non zero)
     @Volatile private var hasElevationData = false
+
+    // Baseline del campo delta: tempo di percorrenza previsto alla prima stima
+    // valida del giro (-1 = non catturata) e secondi effettivi in movimento da
+    // allora. Il confronto usa solo il tempo in movimento: le soste non spostano
+    // il delta, che misura se la parte pedalata sta rispettando le medie.
+    // Si azzera solo al cambio route, mai su pause/riprese o Idle transitori.
+    @Volatile private var initialRemainingSec = -1L
+    @Volatile private var movingElapsedSec    = 0L
 
     // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
     @Volatile private var lastGpsUpdateMs  = 0L
@@ -55,12 +73,37 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // Log ETA ogni LOG_INTERVAL_TICKS secondi (non ogni tick)
     private var logTickCounter = 0
 
+    // ── Confronto ETA BetterEta vs ETA nativa Karoo ──────────────────────
+    // Un campione al minuto (movingAt = tempo in movimento dalla baseline,
+    // previsioni di entrambi); a fine giro ogni campione viene giudicato
+    // contro il tempo in movimento realmente servito da quel punto in poi.
+    private data class EtaSample(
+        val movingAtSec: Long,
+        val beRemainingSec: Long,
+        val karooRemainingSec: Double,
+    )
+    private val etaSamples = mutableListOf<EtaSample>()  // accesso via synchronized(etaSamples)
+    @Volatile private var karooEtaSec    = -1.0          // ultimo TIME_TO_DESTINATION ricevuto
+    @Volatile private var resultRecorded = false         // già registrato per questa route
+    private var sampleTickCounter = 0
+
     companion object {
         private const val TICK_MS              = 1000L
         private const val GPS_TIMEOUT_MS       = 10_000L
         private const val PREFS_NAME           = "better_eta_model"
         private const val LOG_INTERVAL_TICKS   = 60       // 1 riga ETA al minuto
         private const val SNAP_LOG_THRESHOLD   = 50.0     // logga snap solo se > 50m
+
+        // Confronto ETA: cadenza campioni, minimo percorso reale davanti perché
+        // un campione sia giudicabile (vicino all'arrivo l'errore relativo
+        // esplode), campioni minimi per registrare un risultato, cap di memoria.
+        private const val SAMPLE_INTERVAL_TICKS      = 60
+        private const val MIN_ACTUAL_REMAINING_SEC   = 300L
+        private const val MIN_SAMPLES                = 5
+        private const val MAX_SAMPLES                = 600
+        internal const val RESULTS_PREFS             = "better_eta_results"
+        internal const val RESULTS_KEY               = "history"
+        internal const val RESULTS_MAX               = 20
     }
 
     override val types by lazy {
@@ -95,11 +138,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     is OnNavigationState.NavigationState.NavigatingToDestination ->
                         Triple(nav.polyline.orEmpty(), nav.elevationPolyline.orEmpty(), "NavigatingToDestination")
                     else -> {
-                        logger.log("ROUTE", "Stato non gestito → nessun percorso caricato")
-                        lastRoutePolyline = ""
-                        extensionScope.launch { pipeline.setRoute(emptyList()) }
+                        logger.log("ROUTE", "Stato non gestito → ETA sospeso, route in memoria")
+                        navActive = false
                         return@addConsumer
                     }
+                }
+
+                navActive = true
+
+                // Polyline vuota su stato di navigazione attivo: evento transitorio del
+                // Karoo — decodificarla azzerava la route a metà giro.
+                if (polyline.isBlank()) {
+                    logger.log("ROUTE", "WARN [$source] polyline vuota — route corrente mantenuta")
+                    return@addConsumer
                 }
 
                 if (polyline == lastRoutePolyline) {
@@ -109,6 +160,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                 lastRoutePolyline = polyline
                 hasElevationData  = elevPolyline.isNotBlank()
+                initialRemainingSec = -1L  // nuova route → nuova baseline per il delta
+                movingElapsedSec    = 0L
+                resultRecorded      = false
+                synchronized(etaSamples) { etaSamples.clear() }
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
@@ -131,6 +186,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 OnStreamState.StartStreaming(DataType.Type.ELEVATION_GRADE), { _ -> }, {}
             ) { event: OnStreamState ->
                 (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let { gradePctFlow.value = it }
+            }
+
+            // ── ETA nativa Karoo (per il confronto di fine giro) ──────────────────
+            consumerIds += karooSystem.addConsumer(
+                OnStreamState.StartStreaming(DataType.Type.TIME_TO_DESTINATION), { _ -> }, {}
+            ) { event: OnStreamState ->
+                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let { karooEtaSec = it }
             }
 
             // ── Posizione GPS ─────────────────────────────────────────────────────
@@ -166,7 +228,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     delay(TICK_MS)
 
                     val hasRoute = pipeline.hasRoute()
-                    if (!hasRoute) {
+                    if (!hasRoute || !navActive) {
                         etaState.value = EtaState(status = "No Route")
                         continue
                     }
@@ -220,6 +282,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     // e il riaggancio globale può rianimare la pipeline se il GPS
                     // mostra che siamo ancora sulla route.
                     if (remainingSegs.isEmpty()) {
+                        // Fine giro: valuta i campioni raccolti e registra il
+                        // confronto con l'ETA nativa (una sola volta per route)
+                        if (!resultRecorded && initialRemainingSec >= 0) {
+                            resultRecorded = true
+                            recordEtaComparison(movingElapsedSec)
+                        }
                         etaState.value = EtaState(
                             hasRoute            = true,
                             status              = "Arrived",
@@ -239,6 +307,40 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                                      .sumOf { it.distanceM * it.gradePct / 100.0 }
                     } else -1.0
 
+                    // Baseline per il delta: primo ETA valido con posizione agganciata
+                    // dal GPS (evita di congelare la stima dell'intera route quando
+                    // il percorso viene caricato a metà giro). Il tempo in movimento
+                    // avanza solo sopra la soglia di fermo (stessa del modello):
+                    // le soste non spostano il delta.
+                    var deltaSec: Long? = null
+                    if (remainingSec > 0) {
+                        if (initialRemainingSec < 0 && !gpsStale && pipeline.isLocated()) {
+                            initialRemainingSec = remainingSec
+                            movingElapsedSec    = 0L
+                            sampleTickCounter   = 0
+                            synchronized(etaSamples) { etaSamples.clear() }
+                            logger.log("ETA  ", "Baseline pace catturata: ${remainingSec}s previsti")
+                        } else if (initialRemainingSec >= 0 && currentSpeedMs >= 0.5) {
+                            movingElapsedSec += TICK_MS / 1000
+                        }
+                        if (initialRemainingSec >= 0) {
+                            deltaSec = movingElapsedSec + remainingSec - initialRemainingSec
+
+                            // Campione per il confronto di fine giro (1/min),
+                            // solo se anche l'ETA nativa del Karoo è disponibile
+                            sampleTickCounter++
+                            if (sampleTickCounter >= SAMPLE_INTERVAL_TICKS) {
+                                sampleTickCounter = 0
+                                val k = karooEtaSec
+                                if (k > 0) synchronized(etaSamples) {
+                                    if (etaSamples.size < MAX_SAMPLES) {
+                                        etaSamples.add(EtaSample(movingElapsedSec, remainingSec, k))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     etaState.value = EtaState(
                         remainingSeconds    = remainingSec,
                         hasRoute            = true,
@@ -246,6 +348,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         remainingDistanceM  = remainDistM,
                         remainingElevationM = remainElevM,
                         status              = if (remainingSec > 0) "OK" else "Calculating...",
+                        deltaSeconds        = deltaSec,
                     )
 
                     // 5. Log periodico ETA
@@ -280,6 +383,40 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val gps = if (gpsStale) " [GPS stale]" else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | " +
             "speed=%.1fm/s grade=%.1f%%%s".format(speedMs, gradePct, gps))
+    }
+
+    // ── confronto ETA di fine giro ───────────────────────────────────────
+
+    /**
+     * Giudica ogni campione contro il tempo in movimento realmente servito da
+     * quel punto all'arrivo e salva nello storico (max [RESULTS_MAX] uscite)
+     * di quanto BetterEta è stata migliore/peggiore dell'ETA nativa, in punti
+     * percentuali di errore medio. Formato entry: "data|diffPct|errBePct|errKarooPct".
+     */
+    private fun recordEtaComparison(totalMovingSec: Long) {
+        val samples = synchronized(etaSamples) { etaSamples.toList() }
+        val valid = samples
+            .map { s -> Triple(totalMovingSec - s.movingAtSec, s.beRemainingSec, s.karooRemainingSec) }
+            .filter { it.first >= MIN_ACTUAL_REMAINING_SEC }
+        if (valid.size < MIN_SAMPLES) {
+            logger.log("STATS", "Confronto ETA non registrato: ${valid.size} campioni validi (min $MIN_SAMPLES)")
+            return
+        }
+
+        val errBe = valid.sumOf { (act, be, _) -> kotlin.math.abs(be - act).toDouble() / act } / valid.size
+        val errK  = valid.sumOf { (act, _, k)  -> kotlin.math.abs(k - act) / act } / valid.size
+        val diffPct   = ((errK - errBe) * 100).roundToInt()
+        val errBePct  = (errBe * 100).roundToInt()
+        val errKPct   = (errK * 100).roundToInt()
+
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val entry   = "$dateStr|$diffPct|$errBePct|$errKPct"
+        val prefs   = getSharedPreferences(RESULTS_PREFS, Context.MODE_PRIVATE)
+        val history = prefs.getString(RESULTS_KEY, "").orEmpty()
+        val entries = (listOf(entry) + history.split(';').filter { it.isNotBlank() }).take(RESULTS_MAX)
+        prefs.edit().putString(RESULTS_KEY, entries.joinToString(";")).commit()
+
+        logger.log("STATS", "ETA vs Karoo: diff=$diffPct% (BE $errBePct%, Karoo $errKPct%) su ${valid.size} campioni")
     }
 
     // ── persistenza modello ──────────────────────────────────────────────

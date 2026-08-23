@@ -175,7 +175,8 @@ class SegmentPipelineTest {
 
     @Test
     fun `rescue re-engages pipeline after premature exhaustion`() = runBlocking {
-        val p = SegmentPipeline()
+        var fakeNow = 0L
+        val p = SegmentPipeline { fakeNow }
         p.setRoute(denseRoute())
         val total = p.remainingSegments().sumOf { it.distanceM }
         p.snapToLocation(45.0, 9.0)
@@ -183,7 +184,9 @@ class SegmentPipelineTest {
         assertTrue(p.remainingSegments().isEmpty())
 
         // Il rider è in realtà a metà route: dopo RESCUE_AFTER_TICKS fuori finestra
-        // + RESCUE_CONFIRM_TICKS conferme la ricerca globale riaggancia la posizione
+        // + RESCUE_CONFIRM_TICKS conferme la ricerca globale riaggancia la posizione.
+        // Il tempo trascorso rende plausibile il salto (~1100m in 2 minuti).
+        fakeNow += 120_000
         repeat(35) { p.snapToLocation(45.010, 9.0) }
 
         assertTrue("la pipeline deve riagganciarsi", p.hasSegments())
@@ -202,6 +205,52 @@ class SegmentPipelineTest {
 
         val remaining = p.remainingSegments().sumOf { it.distanceM }
         assertApprox(total - 2780.0, remaining, delta = 60.0)
+    }
+
+    @Test
+    fun `rescue on loop route picks branch coherent with estimated position`() = runBlocking {
+        var fakeNow = 0L
+        val p = SegmentPipeline { fakeNow }
+        // Anello: andata verso nord su lon 9.0, ritorno su lon 9.002 (~157m a est,
+        // fuori dal raggio di snap), ultimo waypoint = punto di partenza.
+        val out  = (0..20).map { RouteWaypoint(45.0 + it * 0.001, 9.0, 300.0) }
+        val back = (19 downTo 1).map { RouteWaypoint(45.0 + it * 0.001, 9.002, 300.0) } +
+                   RouteWaypoint(45.0, 9.0, 300.0)
+        p.setRoute(out + back)
+
+        p.snapToLocation(45.0, 9.0)          // aggancio iniziale a inizio route
+        p.advanceByDistance(2800.0)          // stima: sul ramo di ritorno
+        fakeNow += 120_000                   // rende plausibile il salto di ~1800m
+        // Fix GPS sul punto partenza=arrivo, fuori dalla finestra locale: la
+        // ricerca globale trova sia il waypoint 0 sia l'ultimo. Deve scegliere
+        // l'arrivo (coerente con la stima a 2800m), non riportare la posizione a 0.
+        repeat(35) { p.snapToLocation(45.0, 9.0) }
+
+        val remaining = p.remainingSegments().sumOf { it.distanceM }
+        assertTrue("remaining=$remaining deve essere ~0 (arrivo), non l'intera route",
+            remaining < 50.0)
+    }
+
+    @Test
+    fun `implausible rescue jump is rejected until enough time has passed`() = runBlocking {
+        var fakeNow = 0L
+        val p = SegmentPipeline { fakeNow }
+        p.setRoute(denseRoute())             // ~2223m rettilinei
+        val total = p.remainingSegments().sumOf { it.distanceM }
+        p.snapToLocation(45.0, 9.0)          // agganciato all'inizio, t=0
+
+        // Fix GPS vicino a fine route pochi secondi dopo: un salto di ~2,2km
+        // non è fisicamente possibile → il rescue deve rifiutarlo
+        repeat(40) { p.snapToLocation(45.020, 9.0) }
+        val remainingAfterReject = p.remainingSegments().sumOf { it.distanceM }
+        assertApprox(total, remainingAfterReject, delta = 60.0)
+
+        // Dopo 3 minuti il salto diventa plausibile → riaggancio accettato
+        fakeNow += 180_000
+        repeat(3) { p.snapToLocation(45.020, 9.0) }
+        val remainingAfterAccept = p.remainingSegments().sumOf { it.distanceM }
+        assertTrue("remaining=$remainingAfterAccept deve essere ~0 dopo il riaggancio",
+            remainingAfterAccept < 60.0)
     }
 
     @Test

@@ -29,7 +29,8 @@ import java.util.Calendar
  *   - Tempo rimanente
  *   - Km mancanti (GRANDE)
  *   - Dislivello positivo rimanente (GRANDE)
- *   - Stato dei bucket di velocità (per feedback modello)
+ *   - Velocità media prevista sul tratto rimanente
+ *   - Delta vs prima stima del giro (verde = in anticipo, rosso = in ritardo)
  */
 class EtaMasterDataType(
     extension: String,
@@ -95,16 +96,20 @@ class EtaMasterDataType(
                 // 3. Velocità media prevista = distanza rimanente / tempo rimanente.
                 // È la media implicata dall'ETA sul tratto davanti (non l'EMA del modello).
                 val avgStr = if (state.remainingSeconds > 0 && state.remainingDistanceM >= 0)
-                    "%.1f km/h".format(state.remainingDistanceM / state.remainingSeconds * 3.6)
-                    else "-- km/h"
+                    "%.1f".format(state.remainingDistanceM / state.remainingSeconds * 3.6)
+                    else "--"
                 views.setTextViewText(R.id.tv_master_avgspeed, avgStr)
 
-                // 4. Footer: Status e GPS
-                views.setTextViewText(R.id.tv_status_msg, state.status)
-                val gpsText = if (state.gpsStale) "GPS STALE / DR" else "GPS ACTIVE"
-                val gpsColor = if (state.gpsStale) Color.RED else Color.parseColor("#FF5823")
-                views.setTextViewText(R.id.tv_gps_status, gpsText)
-                views.setTextColor(R.id.tv_gps_status, gpsColor)
+                // 4. Delta vs prima stima del giro: positivo = arrivo più tardi del previsto
+                val delta = state.deltaSeconds
+                views.setTextViewText(R.id.tv_master_delta, formatDelta(delta))
+                val deltaColor = when {
+                    delta == null -> Color.parseColor("#888888")
+                    delta > 60L   -> Color.RED
+                    delta < -60L  -> Color.parseColor("#4CAF50")
+                    else          -> Color.parseColor("#FF5823")
+                }
+                views.setTextColor(R.id.tv_master_delta, deltaColor)
 
                 emitter.updateView(views)
             }
@@ -116,5 +121,14 @@ class EtaMasterDataType(
         val h = seconds / 3600
         val m = (seconds % 3600) / 60
         return if (h > 0) "${h}h ${m}m" else "${m}m"
+    }
+
+    private fun formatDelta(seconds: Long?): String {
+        if (seconds == null) return "--"
+        val sign = if (seconds < 0) "-" else "+"
+        val abs  = kotlin.math.abs(seconds)
+        val h = abs / 3600
+        val m = (abs % 3600) / 60
+        return if (h > 0) "$sign${h}h ${m}m" else "$sign$m min"
     }
 }

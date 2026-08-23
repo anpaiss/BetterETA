@@ -20,7 +20,11 @@ package com.anpaiss.bettereta
 class AdaptiveSpeedModel {
 
     companion object {
-        private const val ALPHA              = 0.15   // Peso campione recente (più basso = più stabile)
+        // Finestra equivalente dell'EMA in campioni (~20 min a 1 Hz). Sotto questa
+        // soglia si usa la media cumulativa. Con l'α fisso precedente (0.15) la
+        // memoria effettiva era ~13 s e il "modello appreso" era in pratica la
+        // velocità degli ultimi istanti → ETA instabile.
+        private const val EMA_WINDOW         = 1200
         private const val ALPHA_GRADE        = 0.10   // Peso per lo smoothing della pendenza
         private const val MIN_TRUSTED        = 5      // campioni minimi per fidarsi del bucket
         private const val DEFAULT_FLAT_MS    = 5.0    // ~18 km/h, fallback iniziale
@@ -58,17 +62,12 @@ class AdaptiveSpeedModel {
 
         val idx = bucketIndex(smoothedGrade)
         val b   = buckets[idx]
-        buckets[idx] = if (b.count == 0) {
-            Bucket(ema = speedMs, count = 1)
-        } else {
-            Bucket(
-                ema   = ALPHA * speedMs + (1.0 - ALPHA) * b.ema,
-                count = b.count + 1,
-            )
-        }
+        buckets[idx] = Bucket(
+            ema   = emaStep(b.ema, speedMs, b.count),
+            count = b.count + 1,
+        )
 
-        overallEma = if (overallSamples == 0) speedMs
-                     else ALPHA * speedMs + (1.0 - ALPHA) * overallEma
+        overallEma = emaStep(overallEma, speedMs, overallSamples)
         overallSamples++
     }
 
@@ -130,6 +129,13 @@ class AdaptiveSpeedModel {
     }
 
     // ── private helpers ──────────────────────────────────────────────
+
+    // Media cumulativa fino a EMA_WINDOW campioni, poi EMA con finestra
+    // equivalente EMA_WINDOW: stabile ma ancora adattiva entro l'uscita.
+    private fun emaStep(ema: Double, sample: Double, prevCount: Int): Double {
+        val alpha = 1.0 / minOf(prevCount + 1, EMA_WINDOW)
+        return alpha * sample + (1.0 - alpha) * ema
+    }
 
     private fun flatSpeed(): Double {
         // Usa l'EMA del bucket pianura se disponibile, altrimenti overall, altrimenti default

@@ -6,6 +6,9 @@ package com.anpaiss.bettereta
  * @param remainingSeconds  secondi al traguardo; -1 = dati non disponibili
  * @param hasRoute          true se un percorso con quota è stato caricato
  * @param status            messaggio descrittivo dello stato (es. "Looking for route", "No Route")
+ * @param deltaSeconds      scarto del tempo di percorrenza (solo tempo in movimento)
+ *                          rispetto alla prima stima valida del giro (positivo = in
+ *                          ritardo sulla media); null finché non c'è baseline
  */
 data class EtaState(
     val remainingSeconds: Long = -1L,
@@ -14,4 +17,5 @@ data class EtaState(
     val gpsStale: Boolean = false,
     val remainingDistanceM: Double = -1.0,
     val remainingElevationM: Double = -1.0,
+    val deltaSeconds: Long? = null,
 )
