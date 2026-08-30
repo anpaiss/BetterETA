@@ -16,6 +16,10 @@ class MainActivity : AppCompatActivity() {
 
     private val bucketLabels = listOf("Descent", "Flat", "Climb", "Steep", "Wall")
 
+    private companion object {
+        const val MAX_SANE_ERR_PCT = 300
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -33,10 +37,25 @@ class MainActivity : AppCompatActivity() {
         val tvAvg  = findViewById<TextView>(R.id.tv_results_avg)
         val tvList = findViewById<TextView>(R.id.tv_results_list)
 
-        val history = getSharedPreferences(BetterEtaExtension.RESULTS_PREFS, Context.MODE_PRIVATE)
-            .getString(BetterEtaExtension.RESULTS_KEY, "").orEmpty()
+        val prefs   = getSharedPreferences(BetterEtaExtension.RESULTS_PREFS, Context.MODE_PRIVATE)
+        val history = prefs.getString(BetterEtaExtension.RESULTS_KEY, "").orEmpty()
+        val rawEntries = history.split(';').filter { it.isNotBlank() }
+
+        // Bonifica: un errore medio oltre MAX_SANE_ERR_PCT è fisicamente impossibile
+        // per un'ETA funzionante — scarta le entry corrotte (es. quelle del bug ms/s
+        // del 29/08) e rende la pulizia permanente.
+        val sane = rawEntries.filter { raw ->
+            val p  = raw.split('|')
+            val be = p.getOrNull(2)?.toIntOrNull()
+            val k  = p.getOrNull(3)?.toIntOrNull()
+            be != null && k != null && be <= MAX_SANE_ERR_PCT && k <= MAX_SANE_ERR_PCT
+        }
+        if (sane.size != rawEntries.size) {
+            prefs.edit().putString(BetterEtaExtension.RESULTS_KEY, sane.joinToString(";")).apply()
+        }
+
         // Entry: "data|diffPct|errBePct|errKarooPct" (diffPct > 0 = BetterEta meglio)
-        val entries = history.split(';').filter { it.isNotBlank() }.mapNotNull { raw ->
+        val entries = sane.mapNotNull { raw ->
             val p = raw.split('|')
             val diff = p.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
             Pair(p[0], diff)

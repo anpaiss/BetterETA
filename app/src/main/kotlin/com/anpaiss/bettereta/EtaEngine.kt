@@ -22,7 +22,7 @@ class EtaEngine(
         var totalSec = 0.0
         for (seg in segments) {
             // predictSpeed garantisce sempre ≥ 0.5 m/s (coerceAtLeast in AdaptiveSpeedModel)
-            val speedMs = speedModel.predictSpeed(seg.gradePct)
+            val speedMs = speedModel.predictSpeed(seg.gradePct, seg.surface)
             totalSec += seg.distanceM / speedMs
         }
         return totalSec.toLong()

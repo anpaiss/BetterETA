@@ -42,15 +42,19 @@ class AdaptiveSpeedModel {
     )
 
     private val buckets = Array(5) { Bucket() }
+    // Bucket per-fondo: imparano solo quando il fondo corrente è noto.
+    // I bucket globali restano la base (fondo ignoto, pochi campioni).
+    private val pavedBuckets   = Array(5) { Bucket() }
+    private val unpavedBuckets = Array(5) { Bucket() }
     private var overallEma     = 0.0
     private var overallSamples = 0
     private var smoothedGrade  = 0.0
 
     /**
-     * Aggiorna il modello con un nuovo campione di (velocità, pendenza).
+     * Aggiorna il modello con un nuovo campione di (velocità, pendenza, fondo).
      * Chiamare ogni secondo durante la registrazione.
      */
-    fun update(speedMs: Double, gradePct: Double) {
+    fun update(speedMs: Double, gradePct: Double, surface: Surface = Surface.UNKNOWN) {
         // Ignora campioni a velocità troppo bassa (fermi a un semaforo, ecc.):
         // sia per il bucket che per lo smoothing della pendenza, così evitiamo
         // di "trascinare" smoothedGrade con campioni non legati al movimento.
@@ -66,29 +70,47 @@ class AdaptiveSpeedModel {
             ema   = emaStep(b.ema, speedMs, b.count),
             count = b.count + 1,
         )
+        surfaceBuckets(surface)?.let { sb ->
+            val s = sb[idx]
+            sb[idx] = Bucket(
+                ema   = emaStep(s.ema, speedMs, s.count),
+                count = s.count + 1,
+            )
+        }
 
         overallEma = emaStep(overallEma, speedMs, overallSamples)
         overallSamples++
     }
 
     /**
-     * Restituisce la velocità prevista (m/s) per una data pendenza.
+     * Restituisce la velocità prevista (m/s) per una data pendenza e fondo.
      *
      * Priorità:
-     *   1. EMA del bucket specifico (se ≥ MIN_TRUSTED campioni)
-     *   2. Velocità piana osservata × fattore di default del bucket
-     *   3. EMA complessiva × fattore di default del bucket
-     *   4. DEFAULT_FLAT_MS × fattore di default del bucket
+     *   1. EMA del bucket (pendenza, fondo) se il fondo è noto e ha ≥ MIN_TRUSTED campioni
+     *   2. EMA del bucket globale di pendenza (se ≥ MIN_TRUSTED campioni)
+     *   3. Velocità piana osservata × fattore di default del bucket
+     *   4. EMA complessiva × fattore di default del bucket
+     *   5. DEFAULT_FLAT_MS × fattore di default del bucket
      */
-    fun predictSpeed(gradePct: Double): Double {
+    fun predictSpeed(gradePct: Double, surface: Surface = Surface.UNKNOWN): Double {
         val idx = bucketIndex(gradePct)
-        val b   = buckets[idx]
 
+        surfaceBuckets(surface)?.let { sb ->
+            if (sb[idx].count >= MIN_TRUSTED) return sb[idx].ema
+        }
+
+        val b = buckets[idx]
         if (b.count >= MIN_TRUSTED) return b.ema
 
         val factor   = FALLBACK_FACTORS[idx]
         val flatBase = flatSpeed()
         return (flatBase * factor).coerceAtLeast(0.5)
+    }
+
+    private fun surfaceBuckets(surface: Surface): Array<Bucket>? = when (surface) {
+        Surface.PAVED   -> pavedBuckets
+        Surface.UNPAVED -> unpavedBuckets
+        Surface.UNKNOWN -> null
     }
 
     /** Stato serializzabile del modello — usato per la persistenza. */
@@ -97,6 +119,10 @@ class AdaptiveSpeedModel {
         val overallSamples: Int,
         val bucketEmas: List<Double>,
         val bucketCounts: List<Int>,
+        val pavedEmas: List<Double>    = emptyList(),
+        val pavedCounts: List<Int>     = emptyList(),
+        val unpavedEmas: List<Double>  = emptyList(),
+        val unpavedCounts: List<Int>   = emptyList(),
     )
 
     /** Restituisce uno snapshot dell'attuale stato addestrato. */
@@ -105,6 +131,10 @@ class AdaptiveSpeedModel {
         overallSamples = overallSamples,
         bucketEmas     = buckets.map { it.ema },
         bucketCounts   = buckets.map { it.count },
+        pavedEmas      = pavedBuckets.map { it.ema },
+        pavedCounts    = pavedBuckets.map { it.count },
+        unpavedEmas    = unpavedBuckets.map { it.ema },
+        unpavedCounts  = unpavedBuckets.map { it.count },
     )
 
     /** Ripristina lo stato dal snapshot. Chiama reset() prima se necessario. */
@@ -117,12 +147,24 @@ class AdaptiveSpeedModel {
                 ema   = snap.bucketEmas.getOrElse(i) { 0.0 },
                 count = snap.bucketCounts.getOrElse(i) { 0 },
             )
+            pavedBuckets[i] = Bucket(
+                ema   = snap.pavedEmas.getOrElse(i) { 0.0 },
+                count = snap.pavedCounts.getOrElse(i) { 0 },
+            )
+            unpavedBuckets[i] = Bucket(
+                ema   = snap.unpavedEmas.getOrElse(i) { 0.0 },
+                count = snap.unpavedCounts.getOrElse(i) { 0 },
+            )
         }
     }
 
     /** Azzera tutto — chiamato all'inizio di ogni nuova uscita. */
     fun reset() {
-        for (i in buckets.indices) buckets[i] = Bucket()
+        for (i in buckets.indices) {
+            buckets[i]        = Bucket()
+            pavedBuckets[i]   = Bucket()
+            unpavedBuckets[i] = Bucket()
+        }
         overallEma     = 0.0
         overallSamples = 0
         smoothedGrade  = 0.0

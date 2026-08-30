@@ -17,6 +17,7 @@ class SegmentPipeline(
     private val mutex = Mutex()
     private var segments           = listOf<RouteSegment>()
     private var waypoints          = listOf<RouteWaypoint>()
+    private var waypointSurfaces   = listOf<Surface>()   // parallelo a waypoints; vuoto = non classificato
     private var waypointCumDist    = DoubleArray(0)  // distanza cumulativa al waypoint[i]
     private var currentIndex       = 0
     private var consumedInCurrentM = 0.0
@@ -32,7 +33,8 @@ class SegmentPipeline(
     /** Carica un nuovo percorso e riparte dall'inizio. */
     suspend fun setRoute(newWaypoints: List<RouteWaypoint>) = mutex.withLock {
         waypoints          = newWaypoints
-        segments           = buildSegments(newWaypoints)
+        waypointSurfaces   = emptyList()
+        segments           = buildSegments(newWaypoints, emptyList())
         waypointCumDist    = buildCumDist(newWaypoints)
         currentIndex       = 0
         consumedInCurrentM = 0.0
@@ -166,6 +168,24 @@ class SegmentPipeline(
         return@withLock abs(traveledM - prevTraveledM)
     }
 
+    /**
+     * Applica la classificazione fondo (parallela ai waypoint della route corrente)
+     * e ricostruisce i segmenti preservando la posizione raggiunta. Arriva in
+     * ritardo rispetto a setRoute perché la classificazione OSM è asincrona.
+     */
+    suspend fun applySurfaces(surfaces: List<Surface>) = mutex.withLock {
+        if (waypoints.isEmpty() || surfaces.size != waypoints.size) return@withLock
+        waypointSurfaces = surfaces
+        val savedM = traveledM
+        segments = buildSegments(waypoints, surfaces)
+        repositionTo(savedM)
+    }
+
+    /** Fondo del segmento su cui si trova ora il ciclista. */
+    suspend fun currentSurface(): Surface = mutex.withLock {
+        segments.getOrNull(currentIndex)?.surface ?: Surface.UNKNOWN
+    }
+
     /** True se una route è caricata, indipendentemente dalla posizione su di essa. */
     suspend fun hasRoute(): Boolean = mutex.withLock {
         segments.isNotEmpty()
@@ -257,7 +277,10 @@ class SegmentPipeline(
         private const val RESCUE_JUMP_MARGIN_M = 500.0
     }
 
-    private fun buildSegments(rawWaypoints: List<RouteWaypoint>): List<RouteSegment> {
+    private fun buildSegments(
+        rawWaypoints: List<RouteWaypoint>,
+        surfaces: List<Surface>,
+    ): List<RouteSegment> {
         if (rawWaypoints.size < 2) return emptyList()
         val waypoints = smoothElevations(rawWaypoints, ELEVATION_SMOOTH_WINDOW_M)
         val raw = mutableListOf<RouteSegment>()
@@ -266,7 +289,11 @@ class SegmentPipeline(
             if (dist < 1.0) continue
             val elevDiff = waypoints[i+1].elevationM - waypoints[i].elevationM
             val grade    = (elevDiff / dist * 100.0).coerceIn(-30.0, 30.0)
-            raw.add(RouteSegment(distanceM = dist, gradePct = grade))
+            raw.add(RouteSegment(
+                distanceM = dist,
+                gradePct  = grade,
+                surface   = surfaces.getOrElse(i) { Surface.UNKNOWN },
+            ))
         }
         return simplify(raw)
     }
@@ -310,11 +337,13 @@ class SegmentPipeline(
         var current = raw[0]
         for (i in 1 until raw.size) {
             val next = raw[i]
-            if (abs(next.gradePct - current.gradePct) <= 2.0) {
+            // Si fondono solo segmenti con pendenza simile E stesso fondo:
+            // il confine asfalto/sterrato è un confine di velocità
+            if (abs(next.gradePct - current.gradePct) <= 2.0 && next.surface == current.surface) {
                 val total    = current.distanceM + next.distanceM
                 val avgGrade = (current.gradePct * current.distanceM +
                                 next.gradePct    * next.distanceM) / total
-                current = RouteSegment(distanceM = total, gradePct = avgGrade)
+                current = RouteSegment(distanceM = total, gradePct = avgGrade, surface = current.surface)
             } else {
                 out.add(current)
                 current = next

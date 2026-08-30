@@ -26,6 +26,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private lateinit var karooSystem: KarooSystemService
     private lateinit var logger: BetterEtaLogger
+    private lateinit var surfaceClassifier: SurfaceClassifier
 
     internal val etaState = MutableStateFlow(EtaState())
 
@@ -41,6 +42,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // Polyline dell'ultimo percorso caricato: se il Karoo riemette lo stesso percorso
     // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
     @Volatile private var lastRoutePolyline: String = ""
+
+    // Fine dell'ultima route caricata: se la nuova route finisce nello stesso
+    // punto (ricalcolo / back-to-start), campioni e baseline restano validi.
+    @Volatile private var lastRouteEnd: Pair<Double, Double>? = null
+
+    // Stato della classificazione fondo per la route corrente (per il retry
+    // quando il primo tentativo fallisce offline)
+    @Volatile private var surfacesApplied = false
+    @Volatile private var lastWaypointsForSurfaces: List<RouteWaypoint>? = null
 
     // False quando il Karoo emette uno stato di navigazione non gestito (es. Idle).
     // Il Karoo emette Idle transitori anche a metà navigazione: route e posizione
@@ -100,6 +110,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val SAMPLE_INTERVAL_TICKS      = 60
         private const val MIN_ACTUAL_REMAINING_SEC   = 300L
         private const val MIN_SAMPLES                = 5
+        private const val SAME_DEST_THRESHOLD_M     = 200.0
+        private const val ARRIVAL_NET_MAX_REMAINING_SEC = 300L
         private const val MAX_SAMPLES                = 600
         internal const val RESULTS_PREFS             = "better_eta_results"
         internal const val RESULTS_KEY               = "history"
@@ -117,6 +129,21 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     override fun onCreate() {
         super.onCreate()
         logger = BetterEtaLogger(applicationContext)
+        surfaceClassifier = SurfaceClassifier(applicationContext, logger)
+
+        // Versione installata: correla il log al build effettivamente sul dispositivo
+        runCatching {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            logger.log("SYS  ", "Versione: ${pi.versionName} (${pi.longVersionCode})")
+        }
+
+        // Un crash non gestito finora non lasciava traccia nel file: registralo
+        // prima di delegare all'handler di sistema (che uccide il processo)
+        val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, t ->
+            logger.logError("CRASH", "Eccezione non gestita su ${thread.name}", t)
+            prevHandler?.uncaughtException(thread, t)
+        }
 
         // Carica il modello addestrato dalla sessione precedente
         loadModel()
@@ -140,6 +167,17 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     else -> {
                         logger.log("ROUTE", "Stato non gestito → ETA sospeso, route in memoria")
                         navActive = false
+                        // Rete di sicurezza (giro 30/08): navigazione chiusa a ridosso
+                        // dell'arrivo senza che la pipeline esaurisse i segmenti →
+                        // il confronto va valutato ora, non perso
+                        val remaining = etaState.value.remainingSeconds
+                        if (!resultRecorded && initialRemainingSec >= 0 &&
+                            remaining in 0..ARRIVAL_NET_MAX_REMAINING_SEC
+                        ) {
+                            resultRecorded = true
+                            logger.log("STATS", "Navigazione chiusa a ${remaining}s dall'arrivo — confronto valutato ora")
+                            recordEtaComparison(movingElapsedSec)
+                        }
                         return@addConsumer
                     }
                 }
@@ -155,21 +193,67 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                 if (polyline == lastRoutePolyline) {
                     logger.log("ROUTE", "[$source] stesso percorso — posizione preservata")
+                    // Classificazione fondo fallita in precedenza (es. offline al
+                    // caricamento): la ri-emissione della route è l'occasione per ritentare
+                    if (!surfacesApplied) {
+                        val wps = lastWaypointsForSurfaces
+                        if (wps != null) extensionScope.launch {
+                            val routeKey = "r${polyline.hashCode()}_${wps.size}"
+                            surfaceClassifier.classify(routeKey, wps)?.let { surfaces ->
+                                pipeline.applySurfaces(surfaces)
+                                surfacesApplied = true
+                                logger.log("SURF ", "Classificazione fondo riuscita al retry")
+                            }
+                        }
+                    }
                     return@addConsumer
                 }
 
                 lastRoutePolyline = polyline
                 hasElevationData  = elevPolyline.isNotBlank()
-                initialRemainingSec = -1L  // nuova route → nuova baseline per il delta
-                movingElapsedSec    = 0L
-                resultRecorded      = false
-                synchronized(etaSamples) { etaSamples.clear() }
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
+
+                // Route diversa ma stessa destinazione (ricalcolo, "back to start"
+                // verso il punto di partenza, ...): campioni e baseline restano
+                // validi — misurano l'arrivo nello stesso posto. Si azzera solo
+                // quando cambia davvero la meta (giro 30/08: 88 campioni persi
+                // per il passaggio route → back-to-start sulla stessa meta).
+                val newEnd  = waypoints.lastOrNull()
+                val endDist = if (newEnd != null && lastRouteEnd != null)
+                    haversineM(lastRouteEnd!!.first, lastRouteEnd!!.second, newEnd.lat, newEnd.lon)
+                    else Double.MAX_VALUE
+                lastRouteEnd = newEnd?.let { it.lat to it.lon }
+
+                if (endDist <= SAME_DEST_THRESHOLD_M) {
+                    logger.log("STATS", "Route cambiata, stessa destinazione (Δ${endDist.toInt()}m) — " +
+                        "campioni (${synchronized(etaSamples) { etaSamples.size }}) e baseline preservati")
+                } else {
+                    initialRemainingSec = -1L  // nuova meta → nuova baseline per il delta
+                    movingElapsedSec    = 0L
+                    resultRecorded      = false
+                    synchronized(etaSamples) {
+                        if (etaSamples.isNotEmpty()) {
+                            logger.log("STATS", "${etaSamples.size} campioni confronto scartati — destinazione cambiata prima dell'arrivo")
+                        }
+                        etaSamples.clear()
+                    }
+                }
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
                     val segCount = pipeline.remainingSegments().size
                     if (waypoints.isNotEmpty()) {
                         logger.log("ROUTE", "Pipeline: ${waypoints.size} wp → $segCount segmenti")
+                    }
+                    // Classificazione fondo (OSM/cache) e riclassificazione segmenti:
+                    // asincrona, l'ETA gira intanto coi bucket globali
+                    surfacesApplied = false
+                    lastWaypointsForSurfaces = waypoints
+                    val routeKey = "r${polyline.hashCode()}_${waypoints.size}"
+                    surfaceClassifier.classify(routeKey, waypoints)?.let { surfaces ->
+                        pipeline.applySurfaces(surfaces)
+                        surfacesApplied = true
+                        logger.log("SURF ", "Segmenti riclassificati col fondo: " +
+                            "${pipeline.remainingSegments().size} rimanenti")
                     }
                 }
             }
@@ -192,7 +276,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             consumerIds += karooSystem.addConsumer(
                 OnStreamState.StartStreaming(DataType.Type.TIME_TO_DESTINATION), { _ -> }, {}
             ) { event: OnStreamState ->
-                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let { karooEtaSec = it }
+                (event.state as? StreamState.Streaming)?.dataPoint?.singleValue?.let {
+                    // Il Karoo pubblica TIME_TO_DESTINATION in millisecondi (come ELAPSED_TIME):
+                    // trattarlo come secondi gonfiava l'errore nativo di ~1000x (uscita 29/08).
+                    if (karooEtaSec < 0) logger.log("STATS", "TIME_TO_DESTINATION: primo valore raw=$it → ${it / 1000.0}s")
+                    karooEtaSec = it / 1000.0
+                }
             }
 
             // ── Posizione GPS ─────────────────────────────────────────────────────
@@ -241,10 +330,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         continue
                     }
 
-                    // 1. Aggiorna modello
+                    // 1. Aggiorna modello (col fondo su cui ci troviamo, se noto)
                     val currentSpeedMs  = speedMsFlow.value
                     val currentGradePct = gradePctFlow.value
-                    speedModel.update(currentSpeedMs, currentGradePct)
+                    speedModel.update(currentSpeedMs, currentGradePct, pipeline.currentSurface())
 
                     // 2. Avanzamento stimato
                     pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
@@ -355,7 +444,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     logTickCounter++
                     if (logTickCounter >= LOG_INTERVAL_TICKS) {
                         logTickCounter = 0
-                        logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale)
+                        logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale,
+                            remainDistM, deltaSec, karooEtaSec)
                     }
                 }
             }
@@ -376,13 +466,28 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     // ── logging ──────────────────────────────────────────────────────────
 
-    private fun logEtaSnapshot(remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean) {
+    private fun logEtaSnapshot(
+        remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean,
+        remainDistM: Double, deltaSec: Long?, karooSec: Double,
+    ) {
         if (remainingSec <= 0L) return
-        val h   = remainingSec / 3600
-        val m   = (remainingSec % 3600) / 60
-        val gps = if (gpsStale) " [GPS stale]" else ""
-        logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | " +
-            "speed=%.1fm/s grade=%.1f%%%s".format(speedMs, gradePct, gps))
+        val h     = remainingSec / 3600
+        val m     = (remainingSec % 3600) / 60
+        val gps   = if (gpsStale) " [GPS stale]" else ""
+        val delta = deltaSec?.let { " delta=%+ds".format(it) } ?: ""
+        val karoo = if (karooSec > 0) " karoo=${karooSec.roundToInt()}s" else ""
+        logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
+            "speed=%.1fm/s grade=%.1f%%%s%s%s".format(speedMs, gradePct, delta, karoo, gps))
+    }
+
+    private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val sinLat = kotlin.math.sin(dLat / 2)
+        val sinLon = kotlin.math.sin(dLon / 2)
+        val a = sinLat * sinLat +
+            kotlin.math.cos(Math.toRadians(lat1)) * kotlin.math.cos(Math.toRadians(lat2)) * sinLon * sinLon
+        return 2.0 * 6_371_000.0 * kotlin.math.asin(kotlin.math.sqrt(a))
     }
 
     // ── confronto ETA di fine giro ───────────────────────────────────────
@@ -399,8 +504,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             .map { s -> Triple(totalMovingSec - s.movingAtSec, s.beRemainingSec, s.karooRemainingSec) }
             .filter { it.first >= MIN_ACTUAL_REMAINING_SEC }
         if (valid.size < MIN_SAMPLES) {
-            logger.log("STATS", "Confronto ETA non registrato: ${valid.size} campioni validi (min $MIN_SAMPLES)")
+            logger.log("STATS", "Confronto ETA non registrato: ${valid.size} campioni validi su ${samples.size} (min $MIN_SAMPLES)")
             return
+        }
+
+        // Dump dei campioni: rende ogni statistica finale verificabile a posteriori
+        // (il bug ms/s del 29/08 era diagnosticabile solo per deduzione)
+        logger.log("STATS", "Campioni validi ${valid.size}/${samples.size} (act=reale, be/karoo=stime, in s):")
+        valid.forEach { (act, be, k) ->
+            logger.log("STATS", "    act=${act} be=${be} (%+d) karoo=${k.roundToInt()} (%+d)"
+                .format(be - act, k.roundToInt() - act))
         }
 
         val errBe = valid.sumOf { (act, be, _) -> kotlin.math.abs(be - act).toDouble() / act } / valid.size
@@ -427,15 +540,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         prefs.edit().apply {
             putFloat("overall_ema",   snap.overallEma.toFloat())
             putInt("overall_samples", snap.overallSamples)
-            snap.bucketEmas.forEachIndexed   { i, v -> putFloat("b${i}_ema", v.toFloat()) }
-            snap.bucketCounts.forEachIndexed { i, c -> putInt("b${i}_cnt", c) }
+            snap.bucketEmas.forEachIndexed    { i, v -> putFloat("b${i}_ema", v.toFloat()) }
+            snap.bucketCounts.forEachIndexed  { i, c -> putInt("b${i}_cnt", c) }
+            snap.pavedEmas.forEachIndexed     { i, v -> putFloat("p${i}_ema", v.toFloat()) }
+            snap.pavedCounts.forEachIndexed   { i, c -> putInt("p${i}_cnt", c) }
+            snap.unpavedEmas.forEachIndexed   { i, v -> putFloat("u${i}_ema", v.toFloat()) }
+            snap.unpavedCounts.forEachIndexed { i, c -> putInt("u${i}_cnt", c) }
         }.commit()  // sincrono: garantisce scrittura su disco prima che il processo venga ucciso
 
         val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
             "b$i=%.1fm/s(n=${snap.bucketCounts[i]})".format(v)
         }.joinToString(" ")
-        logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s"
-            .format(snap.overallEma, snap.overallSamples, bucketStr))
+        val surfStr = "pav[" + snap.pavedEmas.mapIndexed { i, v ->
+            "%.1f(n=${snap.pavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
+            "] unpav[" + snap.unpavedEmas.mapIndexed { i, v ->
+            "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
+        logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s"
+            .format(snap.overallEma, snap.overallSamples, bucketStr, surfStr))
     }
 
     private fun loadModel() {
@@ -449,6 +570,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             overallSamples = prefs.getInt("overall_samples", 0),
             bucketEmas     = (0..4).map { prefs.getFloat("b${it}_ema", 0f).toDouble() },
             bucketCounts   = (0..4).map { prefs.getInt("b${it}_cnt", 0) },
+            pavedEmas      = (0..4).map { prefs.getFloat("p${it}_ema", 0f).toDouble() },
+            pavedCounts    = (0..4).map { prefs.getInt("p${it}_cnt", 0) },
+            unpavedEmas    = (0..4).map { prefs.getFloat("u${it}_ema", 0f).toDouble() },
+            unpavedCounts  = (0..4).map { prefs.getInt("u${it}_cnt", 0) },
         )
         speedModel.restore(snap)
 

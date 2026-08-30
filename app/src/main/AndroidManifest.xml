@@ -5,6 +5,8 @@
     <!-- Lettura file GPX percorso da storage Karoo -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- Classificazione fondo via Overpass API (solo con Karoo in tethering/WiFi) -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"
