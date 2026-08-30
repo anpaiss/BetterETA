@@ -11,4 +11,7 @@
 
     <string name="eta_remaining_name">Time Remaining (Better)</string>
     <string name="eta_remaining_desc">Estimated remaining time with elevation-aware correction</string>
+
+    <string name="eta_farthest_name">Distance to Farthest Point</string>
+    <string name="eta_farthest_desc">Remaining distance to the point farthest from the start (e.g. the turnaround on an out-and-back)</string>
 </resources>

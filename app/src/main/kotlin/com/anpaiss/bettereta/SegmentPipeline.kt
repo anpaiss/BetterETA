@@ -23,6 +23,11 @@ class SegmentPipeline(
     private var consumedInCurrentM = 0.0
     private var traveledM          = 0.0             // metri percorsi dall'inizio del percorso
 
+    // Distanza cumulativa (lungo il percorso) del waypoint geograficamente più
+    // lontano dalla partenza — tipicamente il punto di svolta di un andata/ritorno,
+    // non necessariamente il più alto. -1 finché non c'è una route.
+    private var farthestPointCumDistM = -1.0
+
     // Stato dello snap GPS
     private var located            = false  // false finché il GPS non ha mai agganciato la route
     private var offWindowTicks     = 0      // snap falliti consecutivi nella finestra locale
@@ -43,6 +48,7 @@ class SegmentPipeline(
         offWindowTicks     = 0
         rescueCandidateM   = -1.0
         rescueConfirmCount = 0
+        farthestPointCumDistM = findFarthestPointCumDist(newWaypoints, waypointCumDist)
     }
 
     /** Azzera la posizione sul percorso (nuova uscita). */
@@ -186,6 +192,16 @@ class SegmentPipeline(
         segments.getOrNull(currentIndex)?.surface ?: Surface.UNKNOWN
     }
 
+    /**
+     * Distanza rimanente (m) lungo il percorso fino al punto geograficamente
+     * più lontano dalla partenza (tipico punto di svolta di un andata/ritorno).
+     * 0 una volta superato; -1 se non c'è una route caricata.
+     */
+    suspend fun distanceToFarthestPointM(): Double = mutex.withLock {
+        if (farthestPointCumDistM < 0.0) return@withLock -1.0
+        (farthestPointCumDistM - traveledM).coerceAtLeast(0.0)
+    }
+
     /** True se una route è caricata, indipendentemente dalla posizione su di essa. */
     suspend fun hasRoute(): Boolean = mutex.withLock {
         segments.isNotEmpty()
@@ -239,6 +255,25 @@ class SegmentPipeline(
             if (arr[mid] < value) lo = mid + 1 else hi = mid
         }
         return lo
+    }
+
+    /**
+     * Indice del waypoint con la massima distanza in linea d'aria dalla
+     * partenza, restituito come distanza cumulativa lungo il percorso.
+     * Usa la distanza geografica (non quella percorsa, che su un
+     * andata/ritorno cresce sempre) — così funziona anche quando il punto
+     * di svolta non è il punto di massima quota.
+     */
+    private fun findFarthestPointCumDist(pts: List<RouteWaypoint>, cumDist: DoubleArray): Double {
+        if (pts.size < 2) return -1.0
+        val start = pts[0]
+        var bestIdx = 0
+        var bestDist = 0.0
+        for (i in pts.indices) {
+            val d = haversineM(start.lat, start.lon, pts[i].lat, pts[i].lon)
+            if (d > bestDist) { bestDist = d; bestIdx = i }
+        }
+        return cumDist[bestIdx]
     }
 
     private fun buildCumDist(pts: List<RouteWaypoint>): DoubleArray {

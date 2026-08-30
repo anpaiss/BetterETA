@@ -123,6 +123,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaAbsoluteDataType(extension, etaState),
             EtaRemainingDataType(extension, etaState),
             EtaMasterDataType(extension, etaState),
+            EtaFarthestDataType(extension, etaState),
         )
     }
 
@@ -378,11 +379,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             recordEtaComparison(movingElapsedSec)
                         }
                         etaState.value = EtaState(
-                            hasRoute            = true,
-                            status              = "Arrived",
-                            gpsStale            = gpsStale,
-                            remainingDistanceM  = 0.0,
-                            remainingElevationM = if (hasElevationData) 0.0 else -1.0,
+                            hasRoute               = true,
+                            status                 = "Arrived",
+                            gpsStale               = gpsStale,
+                            remainingDistanceM     = 0.0,
+                            remainingElevationM    = if (hasElevationData) 0.0 else -1.0,
+                            farthestPointDistanceM = 0.0,
                         )
                         continue
                     }
@@ -431,13 +433,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     etaState.value = EtaState(
-                        remainingSeconds    = remainingSec,
-                        hasRoute            = true,
-                        gpsStale            = gpsStale,
-                        remainingDistanceM  = remainDistM,
-                        remainingElevationM = remainElevM,
-                        status              = if (remainingSec > 0) "OK" else "Calculating...",
-                        deltaSeconds        = deltaSec,
+                        remainingSeconds       = remainingSec,
+                        hasRoute               = true,
+                        gpsStale               = gpsStale,
+                        remainingDistanceM     = remainDistM,
+                        remainingElevationM    = remainElevM,
+                        status                 = if (remainingSec > 0) "OK" else "Calculating...",
+                        deltaSeconds           = deltaSec,
+                        farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
                     )
 
                     // 5. Log periodico ETA

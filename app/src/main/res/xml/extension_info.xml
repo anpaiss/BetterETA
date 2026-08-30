@@ -29,4 +29,12 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <!-- Distance to the farthest point from the start (out-and-back turnaround) -->
+    <DataType
+        typeId="eta-farthest"
+        displayName="@string/eta_farthest_name"
+        description="@string/eta_farthest_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
 </ExtensionInfo>
