@@ -27,6 +27,11 @@ The dashboard keeps the bottom band of the page empty on purpose: the Karoo draw
 - The model is persisted across rides and shown in the extension's app page.
 - Buckets without enough samples fall back to observed flat speed × a per-gradient factor (these factors are the only e-bike-specific tuning; on a regular bike the model simply learns different bucket speeds).
 
+### Physics fallback (shadow, under evaluation)
+A second fallback runs alongside the factors and produces a shadow ETA that is **never shown in-ride**. It uses the cycling power equation `P = ½·CdA·ρ·v³ + m·g·(s + Crr)·v`, but the power is not measured: it is inferred from the speed and gradient we already sample every second, so on an e-bike it already contains the motor. Two averages are kept, split at the ~25 km/h assist cutoff, so the pedelec's piecewise behaviour falls out of the data without any "is it an e-bike" setting. Mass and CdA are fitted parameters and cancel within a regime; they only matter when extrapolating flat↔climb, which is exactly what the hand-tuned factors do today. Descents stay with the learned buckets — the equation returns a coasting speed there, and riders brake.
+
+Both fallbacks share the same learned buckets, so the fallback is the only variable. The shadow ETA is judged at the end of every ride by the same harness as the Karoo comparison below, and the app page shows the result. The promotion criterion was fixed before any data was collected: at least 5 rides, mean error at least 2 pp lower than the factors, never more than 3 pp worse on a single ride.
+
 ### Route & position tracking
 - Routes arrive from the Karoo navigation state (`NavigatingRoute` / `NavigatingToDestination`); coordinate and elevation polylines are decoded, elevations smoothed over a 50 m window, and waypoints compressed into (distance, gradient) segments.
 - Position on the route = **dead reckoning** (speed × time) corrected every second by **GPS snap**, searching a window centred on the estimated position and picking the candidate most coherent with it — so out-and-back roads and loops don't teleport the rider to the wrong branch.
@@ -41,7 +46,7 @@ The engine recomputes once a second, but each field redraws only when the text i
 At the first valid ETA of the ride (with GPS locked) the predicted riding time is frozen as a baseline. From then on the dashboard shows the delta between current prediction and baseline, **counting moving time only** — stops do not move it. Green = ahead of plan, red = behind.
 
 ### ETA quality tracking (vs the Karoo's native ETA)
-Once per minute the extension samples its own remaining-time prediction alongside the Karoo's native `TIME_TO_DESTINATION`. When the route is completed, every sample is judged against the moving time that was actually needed from that point to the finish. The result — how many percentage points of error BetterETA saved (or added) compared to the stock ETA — is stored per ride. The extension's app page shows the average and the last 20 rides.
+Once per minute the extension samples its own remaining-time prediction alongside the Karoo's native `TIME_TO_DESTINATION`. When the route is completed, every sample is judged against the moving time that was actually needed from that point to the finish. The result — how many percentage points of error BetterETA saved (or added) compared to the stock ETA, and how the shadow physics fallback would have done on the same samples — is stored per ride. The extension's app page shows the averages and the last 20 rides.
 
 ---
 
@@ -84,7 +89,7 @@ Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state 
 adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta_samples.csv
 ```
 
-Every quantity the extension computes sits next to the Karoo's own answer for the same thing: our position along the route against `routeDistance - DISTANCE_TO_DESTINATION`, our remaining ascent against `ASCENT_REMAINING` and against the route's climb list, our ETA against `TIME_TO_DESTINATION`. That is what makes changes to the model judgeable after a ride rather than a matter of opinion. Columns for values not produced yet are present and empty, so files recorded weeks apart stay comparable and can be concatenated. Rides are separated by `# ride ...` marker lines. Numbers always use a dot as the decimal separator, whatever the device locale.
+Every quantity the extension computes sits next to the Karoo's own answer for the same thing: our position along the route against `routeDistance - DISTANCE_TO_DESTINATION`, our remaining ascent against `ASCENT_REMAINING` and against the route's climb list, our ETA against `TIME_TO_DESTINATION`. That is what makes changes to the model judgeable after a ride rather than a matter of opinion. Columns for values not produced yet are present and empty, so files recorded weeks apart stay comparable and can be concatenated. `eta_physics_s` is the shadow ETA and `model_rung` the share (0..1) of the remaining distance whose speed came from the fallback rather than a learned bucket — if that share is small, no fallback can move the ETA much. Rides are separated by `# ride ...` marker lines. Numbers always use a dot as the decimal separator, whatever the device locale.
 
 ---
 

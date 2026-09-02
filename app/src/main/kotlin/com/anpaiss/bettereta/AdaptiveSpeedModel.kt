@@ -32,8 +32,17 @@ class AdaptiveSpeedModel {
         // Soglie di pendenza (%) che delimitano i bucket 0..4
         private val THRESHOLDS = doubleArrayOf(-5.0, 2.0, 6.0, 10.0)
 
-        // Fattori di velocità rispetto al piano (bucket 1 = 1.0) per ebike
-        private val FALLBACK_FACTORS = doubleArrayOf(1.15, 1.0, 0.80, 0.65, 0.50)
+        /**
+         * Bucket a gradient. Public because rung 3 of the cascade lives in a
+         * [FallbackSpeedProvider] now and some of them are bucket-based.
+         */
+        fun bucketIndex(gradePct: Double): Int = when {
+            gradePct < THRESHOLDS[0] -> 0
+            gradePct < THRESHOLDS[1] -> 1
+            gradePct < THRESHOLDS[2] -> 2
+            gradePct < THRESHOLDS[3] -> 3
+            else                     -> 4
+        }
     }
 
     private data class Bucket(
@@ -88,24 +97,43 @@ class AdaptiveSpeedModel {
      * Priorità:
      *   1. EMA del bucket (pendenza, fondo) se il fondo è noto e ha ≥ MIN_TRUSTED campioni
      *   2. EMA del bucket globale di pendenza (se ≥ MIN_TRUSTED campioni)
-     *   3. Velocità piana osservata × fattore di default del bucket
-     *   4. EMA complessiva × fattore di default del bucket
-     *   5. DEFAULT_FLAT_MS × fattore di default del bucket
+     *   3. [fallback], per le pendenze su cui non abbiamo ancora campioni
      */
-    fun predictSpeed(gradePct: Double, surface: Surface = Surface.UNKNOWN): Double {
+    fun predictSpeed(
+        gradePct: Double,
+        surface: Surface = Surface.UNKNOWN,
+        fallback: FallbackSpeedProvider = GradientFactorFallback,
+    ): Double = predict(gradePct, surface, fallback).speedMs
+
+    /**
+     * As [predictSpeed], but also reports which rung of the cascade answered.
+     *
+     * Knowing how much of a route is served by the fallback is what says whether
+     * changing the fallback can matter at all: if the learned buckets cover
+     * almost everything, even a much better rung 3 moves the ETA very little.
+     */
+    fun predict(
+        gradePct: Double,
+        surface: Surface = Surface.UNKNOWN,
+        fallback: FallbackSpeedProvider = GradientFactorFallback,
+    ): Prediction {
         val idx = bucketIndex(gradePct)
 
         surfaceBuckets(surface)?.let { sb ->
-            if (sb[idx].count >= MIN_TRUSTED) return sb[idx].ema
+            if (sb[idx].count >= MIN_TRUSTED) return Prediction(sb[idx].ema, false)
         }
 
         val b = buckets[idx]
-        if (b.count >= MIN_TRUSTED) return b.ema
+        if (b.count >= MIN_TRUSTED) return Prediction(b.ema, false)
 
-        val factor   = FALLBACK_FACTORS[idx]
-        val flatBase = flatSpeed()
-        return (flatBase * factor).coerceAtLeast(0.5)
+        return Prediction(
+            fallback.fallbackSpeedMs(gradePct, surface, flatSpeed()).coerceAtLeast(0.5),
+            true,
+        )
     }
+
+    /** @param fromFallback true when rung 3 answered, i.e. no learned data applied. */
+    data class Prediction(val speedMs: Double, val fromFallback: Boolean)
 
     private fun surfaceBuckets(surface: Surface): Array<Bucket>? = when (surface) {
         Surface.PAVED   -> pavedBuckets
@@ -187,13 +215,5 @@ class AdaptiveSpeedModel {
             overallSamples > 0        -> overallEma
             else                      -> DEFAULT_FLAT_MS
         }
-    }
-
-    private fun bucketIndex(gradePct: Double): Int = when {
-        gradePct < THRESHOLDS[0] -> 0
-        gradePct < THRESHOLDS[1] -> 1
-        gradePct < THRESHOLDS[2] -> 2
-        gradePct < THRESHOLDS[3] -> 3
-        else                     -> 4
     }
 }

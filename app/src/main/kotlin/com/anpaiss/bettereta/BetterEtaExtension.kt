@@ -10,6 +10,7 @@ import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.StreamState
+import io.hammerhead.karooext.models.UserProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,6 +40,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val speedModel = AdaptiveSpeedModel()
     private val pipeline   = SegmentPipeline()
     private val etaEngine  = EtaEngine(speedModel, pipeline)
+
+    // Shadow ETA: same learned buckets, physics-based rung 3 instead of the
+    // hand-tuned factors. Never displayed — it only goes to the sample log and
+    // to the end-of-ride comparison, which is what decides whether it gets
+    // promoted. See PhysicsSpeedModel for why this holds on an e-bike.
+    private val physicsModel = PhysicsSpeedModel()
+    private val shadowEngine = EtaEngine(speedModel, pipeline, PhysicsFallback(physicsModel))
 
     private val speedMsFlow  = MutableStateFlow(0.0)
     private val gradePctFlow = MutableStateFlow(0.0)
@@ -114,6 +122,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val movingAtSec: Long,
         val beRemainingSec: Long,
         val karooRemainingSec: Double,
+        val physicsRemainingSec: Long,
     )
     private val etaSamples = mutableListOf<EtaSample>()  // accesso via synchronized(etaSamples)
     @Volatile private var karooEtaSec    = -1.0          // ultimo TIME_TO_DESTINATION ricevuto
@@ -386,6 +395,17 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 lastGpsUpdateMs    = System.currentTimeMillis()
             }
 
+            // ── Profilo utente: massa per il modello fisico ───────────────────────
+            // The learned power is only meaningful with the mass it was inferred
+            // with, so a changed weight resets it (setRiderMassKg says when).
+            consumerIds += karooSystem.addConsumer(
+                UserProfile.Params, { _ -> }, {}
+            ) { profile: UserProfile ->
+                val reset = physicsModel.setRiderMassKg(profile.weight.toDouble())
+                logger.log("MODEL", "UserProfile: peso=${profile.weight}kg → massa totale=%.1fkg%s"
+                    .format(physicsModel.massKg, if (reset) " (potenza appresa azzerata)" else ""))
+            }
+
             // ── Stato uscita ──────────────────────────────────────────────────────
             // Modello e posizione vengono preservati tra le transizioni di stato:
             // il Karoo emette spesso Recording↔non-Recording per auto-pausa o cambi
@@ -428,6 +448,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val currentGradePct = gradePctFlow.value
                     val currentSurface  = pipeline.currentSurface()
                     speedModel.update(currentSpeedMs, currentGradePct, currentSurface)
+                    physicsModel.update(currentSpeedMs, currentGradePct, currentSurface)
 
                     // 2. Avanzamento stimato
                     pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
@@ -482,7 +503,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         continue
                     }
 
-                    val remainingSec  = etaEngine.computeFromSegments(remainingSegs)
+                    val primary       = etaEngine.computeBreakdown(remainingSegs)
+                    val shadow        = shadowEngine.computeBreakdown(remainingSegs)
+                    val remainingSec  = primary.seconds
                     val remainDistM   = remainingSegs.sumOf { it.distanceM }
 
                     // Remaining ascent, computed two ways so the change can be judged
@@ -531,7 +554,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                                 val k = karooEtaSec
                                 if (k > 0) synchronized(etaSamples) {
                                     if (etaSamples.size < MAX_SAMPLES) {
-                                        etaSamples.add(EtaSample(movingElapsedSec, remainingSec, k))
+                                        etaSamples.add(EtaSample(movingElapsedSec, remainingSec, k, shadow.seconds))
                                     }
                                 }
                             }
@@ -560,6 +583,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         remainAscThresh = remainElevThreshM,
                         remainAscFull   = remainElevM,
                         remainingSec    = remainingSec,
+                        shadowSec       = shadow.seconds,
+                        fallbackShare   = primary.fallbackDistanceShare,
                     )
 
                     // 6. Log periodico ETA
@@ -605,6 +630,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         remainAscThresh: Double,
         remainAscFull: Double,
         remainingSec: Long,
+        shadowSec: Long,
+        fallbackShare: Double,
     ) {
         val karooDist = karooDistToDestM.takeIf { it >= 0.0 }
         sampleLog.record(
@@ -627,11 +654,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 remAscClimbsM = remainingClimbsAscentM(routeClimbs, posOursM),
                 etaLearnedS   = remainingSec,
                 etaKarooS     = karooEtaSec.takeIf { it > 0.0 },
-                // Populated from phase 3 onwards; empty until then by design.
-                etaPhysicsS   = null,
-                pLowW         = null,
-                pHighW        = null,
-                modelRung     = null,
+                etaPhysicsS   = shadowSec.takeIf { it >= 0L },
+                pLowW         = physicsModel.powerLowW,
+                pHighW        = physicsModel.powerHighW,
+                // Share of the remaining distance served by rung 3 (the fallback)
+                // rather than a learned bucket. If this is small, no fallback —
+                // however good — can move the ETA much.
+                modelRung     = String.format(Locale.US, "%.2f", fallbackShare),
             )
         )
     }
@@ -666,13 +695,20 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * Giudica ogni campione contro il tempo in movimento realmente servito da
      * quel punto all'arrivo e salva nello storico (max [RESULTS_MAX] uscite)
      * di quanto BetterEta è stata migliore/peggiore dell'ETA nativa, in punti
-     * percentuali di errore medio. Formato entry: "data|diffPct|errBePct|errKarooPct".
+     * percentuali di errore medio. Formato entry: vedi [EtaResult].
+     *
+     * The shadow ETA (physics fallback) is judged on the same samples as a
+     * third series. It is never displayed in-ride; this is where it gets its
+     * verdict. The promotion criterion is fixed in advance: at least 5 rides,
+     * mean error at least 2 pp lower than the factors, never more than 3 pp
+     * worse on any single ride.
      */
     private fun recordEtaComparison(totalMovingSec: Long) {
+        data class Judged(val actual: Long, val be: Long, val karoo: Double, val physics: Long)
         val samples = synchronized(etaSamples) { etaSamples.toList() }
         val valid = samples
-            .map { s -> Triple(totalMovingSec - s.movingAtSec, s.beRemainingSec, s.karooRemainingSec) }
-            .filter { it.first >= MIN_ACTUAL_REMAINING_SEC }
+            .map { s -> Judged(totalMovingSec - s.movingAtSec, s.beRemainingSec, s.karooRemainingSec, s.physicsRemainingSec) }
+            .filter { it.actual >= MIN_ACTUAL_REMAINING_SEC }
         if (valid.size < MIN_SAMPLES) {
             logger.log("STATS", "Confronto ETA non registrato: ${valid.size} campioni validi su ${samples.size} (min $MIN_SAMPLES)")
             return
@@ -680,26 +716,34 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
         // Dump dei campioni: rende ogni statistica finale verificabile a posteriori
         // (il bug ms/s del 29/08 era diagnosticabile solo per deduzione)
-        logger.log("STATS", "Campioni validi ${valid.size}/${samples.size} (act=reale, be/karoo=stime, in s):")
-        valid.forEach { (act, be, k) ->
-            logger.log("STATS", "    act=${act} be=${be} (%+d) karoo=${k.roundToInt()} (%+d)"
-                .format(be - act, k.roundToInt() - act))
+        logger.log("STATS", "Campioni validi ${valid.size}/${samples.size} (act=reale, be/phys/karoo=stime, in s):")
+        valid.forEach { j ->
+            logger.log("STATS", "    act=${j.actual} be=${j.be} (%+d) phys=${j.physics} (%+d) karoo=${j.karoo.roundToInt()} (%+d)"
+                .format(j.be - j.actual, j.physics - j.actual, j.karoo.roundToInt() - j.actual))
         }
 
-        val errBe = valid.sumOf { (act, be, _) -> kotlin.math.abs(be - act).toDouble() / act } / valid.size
-        val errK  = valid.sumOf { (act, _, k)  -> kotlin.math.abs(k - act) / act } / valid.size
-        val diffPct   = ((errK - errBe) * 100).roundToInt()
-        val errBePct  = (errBe * 100).roundToInt()
-        val errKPct   = (errK * 100).roundToInt()
+        val errBe = valid.sumOf { kotlin.math.abs(it.be - it.actual).toDouble() / it.actual } / valid.size
+        val errK  = valid.sumOf { kotlin.math.abs(it.karoo - it.actual) / it.actual } / valid.size
+        // A shadow sample without an answer (-1) cannot be blamed on the fallback.
+        val physValid = valid.filter { it.physics >= 0L }
+        val errPhys = if (physValid.size >= MIN_SAMPLES)
+            physValid.sumOf { kotlin.math.abs(it.physics - it.actual).toDouble() / it.actual } / physValid.size
+            else null
 
-        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val entry   = "$dateStr|$diffPct|$errBePct|$errKPct"
+        val result = EtaResult(
+            date          = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
+            diffPct       = ((errK - errBe) * 100).roundToInt(),
+            errBePct      = (errBe * 100).roundToInt(),
+            errKarooPct   = (errK * 100).roundToInt(),
+            errPhysicsPct = errPhys?.let { (it * 100).roundToInt() },
+        )
         val prefs   = getSharedPreferences(RESULTS_PREFS, Context.MODE_PRIVATE)
-        val history = prefs.getString(RESULTS_KEY, "").orEmpty()
-        val entries = (listOf(entry) + history.split(';').filter { it.isNotBlank() }).take(RESULTS_MAX)
-        prefs.edit().putString(RESULTS_KEY, entries.joinToString(";")).commit()
+        val history = EtaResult.parseHistory(prefs.getString(RESULTS_KEY, "").orEmpty())
+        val updated = (listOf(result) + history).take(RESULTS_MAX)
+        prefs.edit().putString(RESULTS_KEY, EtaResult.encodeHistory(updated)).commit()
 
-        logger.log("STATS", "ETA vs Karoo: diff=$diffPct% (BE $errBePct%, Karoo $errKPct%) su ${valid.size} campioni")
+        logger.log("STATS", "ETA vs Karoo: diff=${result.diffPct}% (BE ${result.errBePct}%, Karoo ${result.errKarooPct}%, " +
+            "physics-shadow ${result.errPhysicsPct?.let { "$it%" } ?: "n/a"}) su ${valid.size} campioni")
     }
 
     // ── persistenza modello ──────────────────────────────────────────────
@@ -716,6 +760,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             snap.pavedCounts.forEachIndexed   { i, c -> putInt("p${i}_cnt", c) }
             snap.unpavedEmas.forEachIndexed   { i, v -> putFloat("u${i}_ema", v.toFloat()) }
             snap.unpavedCounts.forEachIndexed { i, c -> putInt("u${i}_cnt", c) }
+            // Physics model (shadow). Persisted for the same reason as the
+            // learned buckets: a shadow that restarted cold every ride would be
+            // judged on a handicap and the comparison would be biased.
+            val ps = physicsModel.snapshot()
+            putFloat("phys_low_ema",  ps.lowEma.toFloat())
+            putInt("phys_low_cnt",    ps.lowCount)
+            putFloat("phys_high_ema", ps.highEma.toFloat())
+            putInt("phys_high_cnt",   ps.highCount)
+            putFloat("phys_mass",     ps.totalMassKg.toFloat())
         }.commit()  // sincrono: garantisce scrittura su disco prima che il processo venga ucciso
 
         val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
@@ -727,10 +780,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
         logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s"
             .format(snap.overallEma, snap.overallSamples, bucketStr, surfStr))
+        logger.log("MODEL", "Physics (shadow): pLow=%s W (n=%d) pHigh=%s W (n=%d) massa=%.1fkg".format(
+            physicsModel.powerLowW?.let { "%.0f".format(it) } ?: "-", physicsModel.lowSamples,
+            physicsModel.powerHighW?.let { "%.0f".format(it) } ?: "-", physicsModel.highSamples,
+            physicsModel.massKg))
     }
 
     private fun loadModel() {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.contains("phys_mass")) {
+            physicsModel.restore(PhysicsSpeedModel.Snapshot(
+                lowEma      = prefs.getFloat("phys_low_ema", 0f).toDouble(),
+                lowCount    = prefs.getInt("phys_low_cnt", 0),
+                highEma     = prefs.getFloat("phys_high_ema", 0f).toDouble(),
+                highCount   = prefs.getInt("phys_high_cnt", 0),
+                totalMassKg = prefs.getFloat("phys_mass", 0f).toDouble(),
+            ))
+        }
         if (prefs.getInt("overall_samples", 0) == 0) {
             logger.log("MODEL", "Nessun modello salvato — si parte da zero")
             return

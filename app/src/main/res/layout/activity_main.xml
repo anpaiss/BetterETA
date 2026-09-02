@@ -71,6 +71,16 @@
         android:textSize="12sp"
         android:layout_marginTop="12dp" />
 
+    <!-- Learned effective power of the physics model (shadow), assisted / unassisted regime -->
+    <TextView
+        android:id="@+id/tv_model_physics"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#666666"
+        android:textSize="12sp"
+        android:layout_marginTop="4dp" />
+
     <!-- STATS: confronto ETA BetterEta vs ETA nativa Karoo (ultime 20 uscite) -->
     <TextView
         android:layout_width="match_parent"
@@ -96,6 +106,16 @@
         android:textColor="#FF5823"
         android:textSize="16sp"
         android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Shadow physics fallback vs the production factors, on the same rides -->
+    <TextView
+        android:id="@+id/tv_results_physics"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#888888"
+        android:textSize="12sp"
         android:layout_marginBottom="8dp" />
 
     <TextView
