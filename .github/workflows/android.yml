@@ -1,0 +1,84 @@
+# Every push: unit tests + debug APK as a downloadable artifact.
+# Tag v*: signed release APK + Karoo extension manifest attached to a GitHub
+# release. The Karoo reads .../releases/latest/download/manifest.json (see
+# MANIFEST_URL in AndroidManifest.xml) to offer installs and updates.
+#
+# Secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD for
+# signing; GPR_TOKEN (a PAT with read:packages) only if GITHUB_TOKEN cannot
+# read the hammerheadnav/karoo-ext package.
+name: Android
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # settings.gradle.kts reads these for the karoo-ext GitHub Packages repo.
+      USERNAME: ${{ github.actor }}
+      TOKEN: ${{ secrets.GPR_TOKEN || secrets.GITHUB_TOKEN }}
+      # app/build.gradle.kts turns these into versionName / versionCode.
+      RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      BUILD_NUMBER: ${{ github.run_number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The wrapper jar is not tracked, so use a provisioned Gradle of the
+      # version pinned in gradle/wrapper/gradle-wrapper.properties.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Unit tests and debug APK
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: app/build/test-results/testDebugUnitTest/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Check signing secrets
+        if: github.ref_type == 'tag'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::KEYSTORE_BASE64 secret is missing: a release must be signed"
+            exit 1
+          fi
+
+      - name: Signed release APK and manifest
+        if: github.ref_type == 'tag'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --no-daemon
+
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "app/build/outputs/apk/release/app-release.apk,app/manifest.json"
+          generateReleaseNotes: true

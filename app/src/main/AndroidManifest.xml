@@ -11,6 +11,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
 
+        <!-- Where the Karoo fetches the extension manifest (latest APK, version,
+             description) to offer installs and updates from its library. The
+             "latest" release URL is stable across releases, so this never changes. -->
+        <meta-data
+            android:name="io.hammerhead.karooext.MANIFEST_URL"
+            android:value="https://github.com/anpaiss/BetterETA/releases/latest/download/manifest.json" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

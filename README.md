@@ -71,6 +71,23 @@ Then add the BetterETA fields to a ride profile from the Karoo page editor.
 
 ---
 
+## Releases & CI
+
+Every push runs the unit tests and builds a debug APK (downloadable from the workflow run). Pushing a tag `vX.Y` builds a **signed** release APK and attaches it, together with the Karoo extension manifest, to a GitHub release. The Karoo fetches `https://github.com/anpaiss/BetterETA/releases/latest/download/manifest.json` (the `MANIFEST_URL` meta-data) to offer the install and later updates from its extension library — so a release is enough to reach the device, no ADB needed.
+
+Repository secrets for signing: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Create the keystore once and keep it — a different key means the Karoo will refuse the update:
+
+```bash
+keytool -genkeypair -v -keystore bettereta.keystore -alias bettereta -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 bettereta.keystore   # → KEYSTORE_BASE64
+```
+
+The `karoo-ext` library is served from GitHub Packages, which always needs a token: the workflow uses `GITHUB_TOKEN`, and falls back to a `GPR_TOKEN` secret (a personal access token with `read:packages`) if that turns out not to be enough. Locally, `gpr.user` / `gpr.key` in `~/.gradle/gradle.properties` do the same job.
+
+`versionCode` is `100 + run number` in CI and `versionName` comes from the tag; local builds keep `3` / `1.0`.
+
+---
+
 ## Diagnostics
 
 The extension writes two logs on the device.
