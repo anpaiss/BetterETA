@@ -6,13 +6,14 @@ A [Hammerhead Karoo 3](https://www.hammerhead.io/karoo) extension that computes 
 
 ## Data Fields
 
-The extension registers three data fields you can add to any ride profile:
+The extension registers four data fields you can add to any ride profile:
 
 | Field | Content |
 |---|---|
 | **BetterETA Dashboard** | Full-page view: arrival time, time remaining, km remaining, ascent remaining, predicted average speed, pace vs plan |
 | **ETA (Better)** | Arrival time only (HH:mm) |
 | **Time Remaining (Better)** | Time remaining only (Xh Ym) |
+| **Distance to Farthest Point** | Distance left to the point geographically farthest from the start (the turnaround of an out-and-back) |
 
 The dashboard keeps the bottom band of the page empty on purpose: the Karoo draws its turn-by-turn "next cue" ticket over the bottom of the screen without notifying extensions, so nothing important lives there.
 
@@ -31,6 +32,10 @@ The dashboard keeps the bottom band of the page empty on purpose: the Karoo draw
 - Position on the route = **dead reckoning** (speed × time) corrected every second by **GPS snap**, searching a window centred on the estimated position and picking the candidate most coherent with it — so out-and-back roads and loops don't teleport the rider to the wrong branch.
 - If the fix stays outside the local window (route loaded mid-ride, long detour), a **global rescue** re-anchors the position — but only after consecutive coherent proposals *and* only if the implied jump is physically plausible (elapsed wall-clock time × max credible speed). A 32 km "jump" after 40 seconds off-track gets rejected; a 2.5 km jump after a 20-minute stop with the Karoo auto-paused gets accepted.
 - If GPS goes silent for more than 10 s the extension keeps dead reckoning and flags the state.
+- Remaining ascent sums **every** positive elevation delta of the segments ahead. The 50 m elevation smoothing already removes the polyline noise, so the old "count only segments at ≥ 1%" rule was double protection that quietly dropped every false flat and under-reported the climbing left. Both figures go to the sample log, next to the Karoo's own `ASCENT_REMAINING` and its climb list.
+
+### Display refresh
+The engine recomputes once a second, but each field redraws only when the text it shows actually changes, only while it is on the ride page the user is looking at, and at most once per its own interval (20 s for the time fields, 10 s for the distance, 5 s for the dashboard). On e-ink every redraw costs battery and leaves ghosting. The visibility gate fails open: if the active page is unknown, everything draws — a gate that wrongly filtered a field out would freeze it for a whole ride and fail silently.
 
 ### Pace vs plan
 At the first valid ETA of the ride (with GPS locked) the predicted riding time is frozen as a baseline. From then on the dashboard shows the delta between current prediction and baseline, **counting moving time only** — stops do not move it. Green = ahead of plan, red = behind.
@@ -63,22 +68,32 @@ Then add the BetterETA fields to a ride profile from the Karoo page editor.
 
 ## Diagnostics
 
-The extension writes a rotating log (512 KB, one `.old` generation) on the device:
+The extension writes two logs on the device.
+
+**Human-readable log** — rotating at 1 MB with one `.old` generation:
 
 ```bash
 adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta.log
 ```
 
-Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
+Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), which fields are on the visible page (`VIEW`), one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
+
+**Structured sample log** — one CSV row per second while recording, rotating at 4 MB:
+
+```bash
+adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta_samples.csv
+```
+
+Every quantity the extension computes sits next to the Karoo's own answer for the same thing: our position along the route against `routeDistance - DISTANCE_TO_DESTINATION`, our remaining ascent against `ASCENT_REMAINING` and against the route's climb list, our ETA against `TIME_TO_DESTINATION`. That is what makes changes to the model judgeable after a ride rather than a matter of opinion. Columns for values not produced yet are present and empty, so files recorded weeks apart stay comparable and can be concatenated. Rides are separated by `# ride ...` marker lines. Numbers always use a dot as the decimal separator, whatever the device locale.
 
 ---
 
 ## Development Notes
 
 - **Extension ID**: `better-eta`, package `com.anpaiss.bettereta`.
-- **SDK**: `io.hammerhead:karoo-ext`.
+- **SDK**: `io.hammerhead:karoo-ext` 1.1.9.
 - Model and ride position are deliberately **never reset on `RideState` transitions**: the Karoo cycles Recording↔paused dozens of times per ride (auto-pause), and transient `Idle` navigation states keep the route in memory. Resets happen only when a genuinely different route polyline arrives.
-- The Karoo SDK exposes **no safe-area/inset API** and no event for the navigation cue overlay — verified against karoo-ext 1.1.8. Layouts must keep the bottom of full-page fields expendable.
+- The Karoo SDK exposes **no safe-area/inset API** and no event for the navigation cue overlay — verified against karoo-ext 1.1.9. Layouts must keep the bottom of full-page fields expendable.
 - Unit tests cover the speed model, the ETA engine, polyline decoding and the segment pipeline (including GPS snap on out-and-back routes, loop rescue coherence and the plausibility guard): `./gradlew :app:testDebugUnitTest`.
 
 ---

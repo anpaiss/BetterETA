@@ -3,6 +3,7 @@ package com.anpaiss.bettereta
 import android.content.Context
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
+import io.hammerhead.karooext.models.ActiveRidePage
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnNavigationState
@@ -26,9 +27,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private lateinit var karooSystem: KarooSystemService
     private lateinit var logger: BetterEtaLogger
+    private lateinit var sampleLog: SampleLog
     private lateinit var surfaceClassifier: SurfaceClassifier
 
     internal val etaState = MutableStateFlow(EtaState())
+
+    // Full data type ids on the ride page the user is currently looking at.
+    // null = not known yet, in which case every field keeps drawing (fail-open).
+    internal val visibleDataTypeIds = MutableStateFlow<Set<String>?>(null)
 
     private val speedModel = AdaptiveSpeedModel()
     private val pipeline   = SegmentPipeline()
@@ -69,6 +75,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // Si azzera solo al cambio route, mai su pause/riprese o Idle transitori.
     @Volatile private var initialRemainingSec = -1L
     @Volatile private var movingElapsedSec    = 0L
+
+    // ── Karoo native references — recorded only, never fed into the ETA ──
+    // These are the Karoo's own answers to questions we compute ourselves.
+    // Phase 1 logs them side by side with ours; only once the logs from real
+    // rides say they are trustworthy do they get promoted into the ETA path.
+    @Volatile private var karooDistToDestM = -1.0
+    @Volatile private var karooOnRoute: Double? = null
+    @Volatile private var karooAscentRemM = -1.0
+
+    // Route metadata published by NavigatingRoute that used to be discarded.
+    @Volatile private var routeName = ""
+    @Volatile private var routeTotalDistM = -1.0
+    @Volatile private var routeClimbs: List<OnNavigationState.NavigationState.Climb> = emptyList()
+    @Volatile private var rejoinActive = false
+
+    // Last set of our own data types seen on the active page, for transition logging.
+    @Volatile private var lastVisibleOurs: Set<String>? = null
 
     // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
     @Volatile private var lastGpsUpdateMs  = 0L
@@ -120,16 +143,18 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     override val types by lazy {
         listOf(
-            EtaAbsoluteDataType(extension, etaState),
-            EtaRemainingDataType(extension, etaState),
-            EtaMasterDataType(extension, etaState),
-            EtaFarthestDataType(extension, etaState),
+            EtaAbsoluteDataType(extension, etaState, visibleDataTypeIds),
+            EtaRemainingDataType(extension, etaState, visibleDataTypeIds),
+            EtaMasterDataType(extension, etaState, visibleDataTypeIds),
+            EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
         )
     }
 
     override fun onCreate() {
         super.onCreate()
         logger = BetterEtaLogger(applicationContext)
+        sampleLog = SampleLog(applicationContext)
+        logger.log("SYS  ", "Sample log: ${sampleLog.path}")
         surfaceClassifier = SurfaceClassifier(applicationContext, logger)
 
         // Versione installata: correla il log al build effettivamente sul dispositivo
@@ -159,6 +184,25 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             ) { event: OnNavigationState ->
                 val nav = event.state
                 logger.log("ROUTE", "Stato ricevuto: ${nav::class.simpleName}")
+
+                // Route metadata the Karoo already publishes. Not used by the ETA
+                // yet — they go into the sample log as independent references for
+                // the values we compute ourselves (position, remaining ascent).
+                when (nav) {
+                    is OnNavigationState.NavigationState.NavigatingRoute -> {
+                        routeName       = nav.name
+                        routeTotalDistM = nav.routeDistance
+                        routeClimbs     = nav.climbs
+                        rejoinActive    = nav.rejoinDistance != null || nav.rejoinPolyline != null
+                    }
+                    is OnNavigationState.NavigationState.NavigatingToDestination -> {
+                        routeName       = nav.destination.name ?: "destination"
+                        routeTotalDistM = -1.0   // not published for a free destination
+                        routeClimbs     = nav.climbs
+                        rejoinActive    = false
+                    }
+                    else -> Unit
+                }
 
                 val (polyline, elevPolyline, source) = when (nav) {
                     is OnNavigationState.NavigationState.NavigatingRoute ->
@@ -213,6 +257,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 lastRoutePolyline = polyline
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
+
+                logger.log("ROUTE", "[$source] '$routeName' dist=${routeTotalDistM.toInt()}m " +
+                    "climbs=${routeClimbs.size} (asc=${routeClimbs.sumOf { it.totalElevation }.toInt()}m)")
+                sampleLog.ride(routeName, routeTotalDistM, polyline.hashCode())
 
                 // Route diversa ma stessa destinazione (ricalcolo, "back to start"
                 // verso il punto di partenza, ...): campioni e baseline restano
@@ -285,6 +333,50 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 }
             }
 
+            // ── Distanza a destinazione + on-route nativi (solo log, fase 1) ──────
+            // routeDistance - DISTANCE_TO_DESTINATION è la posizione lungo la route
+            // secondo il Karoo: il termine di paragone della nostra dead reckoning.
+            consumerIds += karooSystem.addConsumer(
+                OnStreamState.StartStreaming(DataType.Type.DISTANCE_TO_DESTINATION), { _ -> }, {}
+            ) { event: OnStreamState ->
+                (event.state as? StreamState.Streaming)?.dataPoint?.values?.let { v ->
+                    v[DataType.Field.DISTANCE_TO_DESTINATION]?.let {
+                        // Scale is asserted by the docs, not verified: TIME_TO_DESTINATION
+                        // turned out to be milliseconds. Log the first raw value so the
+                        // unit can be confirmed from a real ride before anyone relies on it.
+                        if (karooDistToDestM < 0) logger.log("STATS", "DISTANCE_TO_DESTINATION: primo valore raw=$it")
+                        karooDistToDestM = it
+                    }
+                    karooOnRoute = v[DataType.Field.ON_ROUTE]
+                }
+            }
+
+            // ── Dislivello rimanente nativo (solo log, fase 1) ────────────────────
+            consumerIds += karooSystem.addConsumer(
+                OnStreamState.StartStreaming(DataType.Type.ELEVATION_REMAINING), { _ -> }, {}
+            ) { event: OnStreamState ->
+                (event.state as? StreamState.Streaming)?.dataPoint?.values
+                    ?.get(DataType.Field.ASCENT_REMAINING)?.let {
+                        if (karooAscentRemM < 0) logger.log("STATS", "ASCENT_REMAINING: primo valore raw=$it")
+                        karooAscentRemM = it
+                    }
+            }
+
+            // ── Pagina attiva: gate di visibilità per i redraw ────────────────────
+            consumerIds += karooSystem.addConsumer(
+                ActiveRidePage.Params, { _ -> }, {}
+            ) { event: ActiveRidePage ->
+                val onPage = event.page.elements.map { it.dataTypeId }.toSet()
+                val ours   = types.map { it.dataTypeId }.filter { it in onPage }.toSet()
+                if (ours != lastVisibleOurs) {
+                    lastVisibleOurs = ours
+                    logger.log("VIEW ", "Campi BetterETA sulla pagina attiva: " +
+                        if (ours.isEmpty()) "nessuno — redraw sospesi"
+                        else ours.joinToString { it.substringAfterLast(':') })
+                }
+                visibleDataTypeIds.value = onPage
+            }
+
             // ── Posizione GPS ─────────────────────────────────────────────────────
             consumerIds += karooSystem.addConsumer({ _ -> }, {}) { event: OnLocationChanged ->
                 if (lastGpsUpdateMs == 0L) {
@@ -334,7 +426,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     // 1. Aggiorna modello (col fondo su cui ci troviamo, se noto)
                     val currentSpeedMs  = speedMsFlow.value
                     val currentGradePct = gradePctFlow.value
-                    speedModel.update(currentSpeedMs, currentGradePct, pipeline.currentSurface())
+                    val currentSurface  = pipeline.currentSurface()
+                    speedModel.update(currentSpeedMs, currentGradePct, currentSurface)
 
                     // 2. Avanzamento stimato
                     pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
@@ -391,10 +484,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     val remainingSec  = etaEngine.computeFromSegments(remainingSegs)
                     val remainDistM   = remainingSegs.sumOf { it.distanceM }
-                    // Solo segmenti con pendenza ≥ 1% contribuiscono al dislivello:
-                    // sotto questa soglia è quasi sempre rumore residuo dello smoothing.
-                    val remainElevM   = if (hasElevationData) {
+
+                    // Remaining ascent, computed two ways so the change can be judged
+                    // from real rides instead of asserted:
+                    //  - "thresh" is the historical rule, counting only segments at
+                    //    >= 1%. It drops every false flat and so under-reports, the
+                    //    error growing with the length of the route.
+                    //  - "full" sums every positive delta. The 50 m elevation smoothing
+                    //    in SegmentPipeline already removes the polyline noise the
+                    //    threshold was there to guard against, so this is the one shown.
+                    // Both go to the sample log alongside the Karoo's ASCENT_REMAINING
+                    // and its climb list, which are two independent references.
+                    val remainElevThreshM = if (hasElevationData) {
                         remainingSegs.filter { it.gradePct >= 1.0 }
+                                     .sumOf { it.distanceM * it.gradePct / 100.0 }
+                    } else -1.0
+                    val remainElevM = if (hasElevationData) {
+                        remainingSegs.filter { it.gradePct > 0.0 }
                                      .sumOf { it.distanceM * it.gradePct / 100.0 }
                     } else -1.0
 
@@ -443,7 +549,20 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
                     )
 
-                    // 5. Log periodico ETA
+                    // 5. Riga di campionamento per l'analisi post-uscita
+                    recordSample(
+                        now             = now,
+                        speedMs         = currentSpeedMs,
+                        gradePct        = currentGradePct,
+                        surface         = currentSurface,
+                        posOursM        = pipeline.distanceAlongRouteM(),
+                        remainDistM     = remainDistM,
+                        remainAscThresh = remainElevThreshM,
+                        remainAscFull   = remainElevM,
+                        remainingSec    = remainingSec,
+                    )
+
+                    // 6. Log periodico ETA
                     logTickCounter++
                     if (logTickCounter >= LOG_INTERVAL_TICKS) {
                         logTickCounter = 0
@@ -458,6 +577,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     override fun onDestroy() {
         logger.log("SYS  ", "=== BetterETA fermato ===")
         saveModel()
+        sampleLog.close()
         tickerJob?.cancel()
         tickerJob = null
         extensionScope.cancel()
@@ -468,6 +588,53 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     }
 
     // ── logging ──────────────────────────────────────────────────────────
+
+    /**
+     * Writes one row of the structured sample log. Everything the Karoo
+     * publishes natively sits next to our own answer for the same quantity,
+     * which is what makes the phase 2/3/4 decisions checkable after a ride
+     * rather than a matter of opinion.
+     */
+    private fun recordSample(
+        now: Long,
+        speedMs: Double,
+        gradePct: Double,
+        surface: Surface,
+        posOursM: Double,
+        remainDistM: Double,
+        remainAscThresh: Double,
+        remainAscFull: Double,
+        remainingSec: Long,
+    ) {
+        val karooDist = karooDistToDestM.takeIf { it >= 0.0 }
+        sampleLog.record(
+            SampleLog.Row(
+                tMs           = now,
+                rideState     = rideState::class.simpleName.orEmpty(),
+                gpsAgeMs      = if (lastGpsUpdateMs > 0) now - lastGpsUpdateMs else -1L,
+                speedMs       = speedMs,
+                gradePct      = gradePct,
+                surface       = surface,
+                posOursM      = posOursM,
+                posKarooM     = if (routeTotalDistM > 0.0 && karooDist != null) routeTotalDistM - karooDist else null,
+                onRoute       = karooOnRoute,
+                rejoinActive  = rejoinActive,
+                remDistOursM  = remainDistM,
+                remDistKarooM = karooDist,
+                remAscThreshM = remainAscThresh,
+                remAscFullM   = remainAscFull,
+                remAscKarooM  = karooAscentRemM.takeIf { it >= 0.0 },
+                remAscClimbsM = remainingClimbsAscentM(routeClimbs, posOursM),
+                etaLearnedS   = remainingSec,
+                etaKarooS     = karooEtaSec.takeIf { it > 0.0 },
+                // Populated from phase 3 onwards; empty until then by design.
+                etaPhysicsS   = null,
+                pLowW         = null,
+                pHighW        = null,
+                modelRung     = null,
+            )
+        )
+    }
 
     private fun logEtaSnapshot(
         remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean,

@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -28,7 +29,14 @@ import java.util.Calendar
 class EtaAbsoluteDataType(
     extension: String,
     private val etaState: StateFlow<EtaState>,
+    private val visibleDataTypeIds: StateFlow<Set<String>?> = MutableStateFlow(null),
 ) : DataTypeImpl(extension, "eta-absolute") {
+
+    companion object {
+        // An arrival time has minute resolution, so this throttle almost never
+        // delays anything real — it is a ceiling on redraws, not a sampling rate.
+        private const val REDRAW_THROTTLE_MS = 20_000L
+    }
 
     // Fallback numerico: minuti rimanenti
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -61,6 +69,8 @@ class EtaAbsoluteDataType(
             etaState
                 .map { formatEta(context, it) }
                 .distinctUntilChanged()
+                .whileVisible(visibleDataTypeIds, dataTypeId)
+                .throttle(REDRAW_THROTTLE_MS)
                 .collect { formattedText ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_absolute)
                     views.setTextViewText(R.id.tv_eta_value, formattedText)

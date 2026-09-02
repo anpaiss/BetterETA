@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -29,7 +30,14 @@ import kotlinx.coroutines.launch
 class EtaFarthestDataType(
     extension: String,
     private val etaState: StateFlow<EtaState>,
+    private val visibleDataTypeIds: StateFlow<Set<String>?> = MutableStateFlow(null),
 ) : DataTypeImpl(extension, "eta-farthest") {
+
+    companion object {
+        // A distance in tenths of a km changes every ~100 m ridden, so this is
+        // tighter than the time fields: the number must not look frozen.
+        private const val REDRAW_THROTTLE_MS = 10_000L
+    }
 
     // Fallback numerico: metri rimanenti al punto più lontano
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -61,6 +69,8 @@ class EtaFarthestDataType(
             etaState
                 .map { formatDistance(it) }
                 .distinctUntilChanged()
+                .whileVisible(visibleDataTypeIds, dataTypeId)
+                .throttle(REDRAW_THROTTLE_MS)
                 .collect { formattedText ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_farthest)
                     views.setTextViewText(R.id.tv_farthest_value, formattedText)

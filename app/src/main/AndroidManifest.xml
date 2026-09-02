@@ -2,9 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Lettura file GPX percorso da storage Karoo -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
     <!-- Classificazione fondo via Overpass API (solo con Karoo in tethering/WiFi) -->
     <uses-permission android:name="android.permission.INTERNET" />
 

@@ -202,6 +202,15 @@ class SegmentPipeline(
         (farthestPointCumDistM - traveledM).coerceAtLeast(0.0)
     }
 
+    /**
+     * Distance covered along the route so far (m), i.e. our own estimate of
+     * where the rider is. Exposed so it can be logged side by side with the
+     * Karoo's own `routeDistance - DISTANCE_TO_DESTINATION`.
+     */
+    suspend fun distanceAlongRouteM(): Double = mutex.withLock {
+        traveledM
+    }
+
     /** True se una route è caricata, indipendentemente dalla posizione su di essa. */
     suspend fun hasRoute(): Boolean = mutex.withLock {
         segments.isNotEmpty()

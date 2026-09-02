@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -26,7 +27,14 @@ import kotlinx.coroutines.launch
 class EtaRemainingDataType(
     extension: String,
     private val etaState: StateFlow<EtaState>,
+    private val visibleDataTypeIds: StateFlow<Set<String>?> = MutableStateFlow(null),
 ) : DataTypeImpl(extension, "eta-remaining") {
+
+    companion object {
+        // The displayed text has minute resolution, so this throttle almost never
+        // delays anything real — it is a ceiling on redraws, not a sampling rate.
+        private const val REDRAW_THROTTLE_MS = 20_000L
+    }
 
     // Fallback numerico: minuti rimanenti
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -59,6 +67,8 @@ class EtaRemainingDataType(
             etaState
                 .map { formatRemaining(it) }
                 .distinctUntilChanged()
+                .whileVisible(visibleDataTypeIds, dataTypeId)
+                .throttle(REDRAW_THROTTLE_MS)
                 .collect { formattedText ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
                     views.setTextViewText(R.id.tv_remaining_value, formattedText)
