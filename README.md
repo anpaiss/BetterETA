@@ -73,7 +73,9 @@ Then add the BetterETA fields to a ride profile from the Karoo page editor.
 
 ## Releases & CI
 
-Every push runs the unit tests and builds a debug APK (downloadable from the workflow run). Pushing a tag `vX.Y` builds a **signed** release APK and attaches it, together with the Karoo extension manifest, to a GitHub release. The Karoo fetches `https://github.com/anpaiss/BetterETA/releases/latest/download/manifest.json` (the `MANIFEST_URL` meta-data) to offer the install and later updates from its extension library — so a release is enough to reach the device, no ADB needed.
+Every push runs the unit tests and builds a debug APK (downloadable from the workflow run). Pushing a tag `vX.Y` builds a **signed** release APK and attaches it, together with the Karoo extension manifest, to a GitHub release.
+
+**This repository is private, so the Karoo cannot fetch anything from it.** The `MANIFEST_URL` meta-data (`.../releases/latest/download/manifest.json`) and the screenshot URLs in the manifest are inert: the Karoo gets a 404 and offers no install or update. Installation stays manual — download the release APK while logged in and `adb install -r` it. Everything is wired so that the extension-library flow starts working by itself if the repository is ever made public; nothing else would need to change.
 
 Repository secrets for signing: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Create the keystore once and keep it — a different key means the Karoo will refuse the update:
 
