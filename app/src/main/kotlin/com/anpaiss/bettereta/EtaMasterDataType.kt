@@ -1,7 +1,6 @@
 package com.anpaiss.bettereta
 
 import android.content.Context
-import android.graphics.Color
 import android.text.format.DateFormat
 import android.widget.RemoteViews
 import io.hammerhead.karooext.extension.DataTypeImpl
@@ -19,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -57,7 +57,7 @@ class EtaMasterDataType(
         val ascent: String,
         val avgSpeed: String,
         val delta: String,
-        val deltaColor: Int,
+        val colors: FieldColors,
     )
 
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -84,29 +84,40 @@ class EtaMasterDataType(
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         Log.i("BetterETA", "MASTER startView called: gridSize=${config.gridSize}, viewSize=${config.viewSize}, preview=${config.preview}")
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val prefs = Prefs(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            etaState
-                .map { render(context, it) }
+            combine(etaState, prefs.styleFlow()) { state, style -> render(context, state, style) }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId)
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { view ->
+                    val c = view.colors
                     val views = RemoteViews(context.packageName, R.layout.view_eta_master)
+                    if (c.bgRes != null) views.setInt(R.id.root_master, "setBackgroundResource", c.bgRes)
+                    else views.setInt(R.id.root_master, "setBackgroundColor", c.bgColor ?: 0)
                     views.setTextViewText(R.id.tv_master_eta, view.eta)
                     views.setTextViewText(R.id.tv_master_remaining, view.remaining)
                     views.setTextViewText(R.id.tv_master_km, view.km)
                     views.setTextViewText(R.id.tv_master_ascent, view.ascent)
                     views.setTextViewText(R.id.tv_master_avgspeed, view.avgSpeed)
                     views.setTextViewText(R.id.tv_master_delta, view.delta)
-                    views.setTextColor(R.id.tv_master_delta, view.deltaColor)
+                    for (id in intArrayOf(R.id.tv_master_lbl_eta, R.id.tv_master_lbl_km,
+                            R.id.tv_master_lbl_ascent, R.id.tv_master_lbl_avgspeed, R.id.tv_master_lbl_delta))
+                        views.setTextColor(id, c.label)
+                    for (id in intArrayOf(R.id.tv_master_eta, R.id.tv_master_remaining,
+                            R.id.tv_master_km, R.id.tv_master_ascent, R.id.tv_master_avgspeed))
+                        views.setTextColor(id, c.value)
+                    views.setTextColor(R.id.tv_master_delta, c.delta)
+                    views.setInt(R.id.tv_master_div1, "setBackgroundColor", c.label)
+                    views.setInt(R.id.tv_master_div2, "setBackgroundColor", c.label)
                     emitter.updateView(views)
                 }
         }
         emitter.setCancellable { scope.cancel() }
     }
 
-    private fun render(context: Context, state: EtaState): MasterView {
+    private fun render(context: Context, state: EtaState, style: EtaStyle): MasterView {
         // 1. ETA e tempo rimanente (header)
         val eta: String
         val remaining: String
@@ -134,11 +145,11 @@ class EtaMasterDataType(
 
         // 4. Delta vs prima stima del giro: positivo = arrivo più tardi del previsto
         val delta = state.deltaSeconds
-        val deltaColor = when {
-            delta == null -> Color.parseColor("#888888")
-            delta > 60L   -> Color.RED
-            delta < -60L  -> Color.parseColor("#4CAF50")
-            else          -> Color.parseColor("#FF5823")
+        val pace = when {
+            delta == null -> Pace.UNKNOWN
+            delta > 60L   -> Pace.LATE
+            delta < -60L  -> Pace.EARLY
+            else          -> Pace.ON_PACE
         }
 
         return MasterView(
@@ -148,7 +159,7 @@ class EtaMasterDataType(
             ascent     = "$elevStr m",
             avgSpeed   = avgStr,
             delta      = formatDelta(delta),
-            deltaColor = deltaColor,
+            colors     = style.colorsFor(pace),
         )
     }
 

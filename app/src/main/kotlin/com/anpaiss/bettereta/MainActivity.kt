@@ -2,7 +2,14 @@ package com.anpaiss.bettereta
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
@@ -16,6 +23,10 @@ class MainActivity : AppCompatActivity() {
 
     private val bucketLabels = listOf("Descent", "Flat", "Climb", "Steep", "Wall")
 
+    private lateinit var prefs: Prefs
+    private val styleValues = EtaStyle.values()
+    private val styleLabels = styleValues.map { it.label }
+
     private companion object {
         // Promotion criterion for the shadow physics fallback, fixed before any
         // data was looked at. Mirrored in the README.
@@ -27,6 +38,70 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        prefs = Prefs(this)
+        bindStyleSpinner()
+    }
+
+    // Stesso pattern del selettore stile di AxsRatio: i campi si ridisegnano
+    // da soli via Prefs.styleFlow(), qui basta salvare la scelta.
+    private fun bindStyleSpinner() {
+        val sp = findViewById<Spinner>(R.id.sp_style)
+        sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, styleLabels)
+        sp.setSelection(prefs.tileStyle.ordinal, false)
+        renderStylePreview(prefs.tileStyle)
+        sp.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newStyle = styleValues[position]
+                if (prefs.tileStyle != newStyle) prefs.tileStyle = newStyle
+                renderStylePreview(newStyle)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    /**
+     * Anteprima dello stile: un campo singolo (senza stato, come ETA/REM) e il
+     * delta "pace vs plan" nei quattro stati, con gli stessi colori dei campi
+     * reali (EtaStyle.colorsFor).
+     */
+    private fun renderStylePreview(style: EtaStyle) {
+        val container = findViewById<LinearLayout>(R.id.style_preview)
+        container.removeAllViews()
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
+        fun tile(c: FieldColors, caption: String, big: String, bigColor: Int) =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(2), dp(8), dp(2), dp(8))
+                if (c.bgRes != null) setBackgroundResource(c.bgRes) else setBackgroundColor(c.bgColor ?: 0)
+                addView(TextView(this@MainActivity).apply {
+                    text = caption; textSize = 8f; setTextColor(c.label); maxLines = 1
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = big; textSize = 13f; setTextColor(bigColor); maxLines = 1
+                    setTypeface(typeface, Typeface.BOLD)
+                })
+            }
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            .apply { setMargins(dp(2), 0, dp(2), 0) }
+
+        val single = style.colorsFor(null)
+        row.addView(tile(single, "ETA", "17:42", single.value), lp)
+        val paces = listOf(
+            Triple(Pace.EARLY, "EARLY", "-2m"),
+            Triple(Pace.ON_PACE, "ON PACE", "+0m"),
+            Triple(Pace.LATE, "LATE", "+3m"),
+            Triple(Pace.UNKNOWN, "NO DATA", "--"),
+        )
+        for ((pace, caption, txt) in paces) {
+            val c = style.colorsFor(pace)
+            row.addView(tile(c, caption, txt, c.delta), lp)
+        }
+        container.addView(row)
     }
 
     // onResume così i dati si aggiornano riaprendo la schermata dopo un'uscita.
@@ -64,7 +139,8 @@ class MainActivity : AppCompatActivity() {
         val avg = entries.sumOf { it.diffPct }.toDouble() / entries.size
         tvAvg.text = "Avg: %.1f%% %s than Karoo ETA".format(
             kotlin.math.abs(avg), if (avg >= 0) "better" else "worse")
-        tvAvg.setTextColor(if (avg >= 0) Color.parseColor("#4CAF50") else Color.RED)
+        // Rosso della palette condivisa (AxsRatio zoneAccent) al posto del RED puro
+        tvAvg.setTextColor(if (avg >= 0) Color.parseColor("#4CAF50") else Color.parseColor("#F44336"))
 
         // Shadow physics fallback, judged on the same rides. Shown with the
         // promotion criterion applied (>= PROMOTE_MIN_RIDES rides, mean gain

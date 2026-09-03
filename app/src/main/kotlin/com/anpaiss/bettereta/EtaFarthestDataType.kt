@@ -16,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -63,16 +64,22 @@ class EtaFarthestDataType(
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val prefs = Prefs(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
-            etaState
-                .map { formatDistance(it) }
+            combine(etaState, prefs.styleFlow()) { state, style ->
+                formatDistance(state) to style.colorsFor(null)
+            }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { formattedText ->
+                .collect { (formattedText, c) ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_farthest)
+                    if (c.bgRes != null) views.setInt(R.id.root_farthest, "setBackgroundResource", c.bgRes)
+                    else views.setInt(R.id.root_farthest, "setBackgroundColor", c.bgColor ?: 0)
+                    views.setTextColor(R.id.tv_farthest_label, c.label)
+                    views.setTextColor(R.id.tv_farthest_value, c.value)
                     views.setTextViewText(R.id.tv_farthest_value, formattedText)
                     emitter.updateView(views)
                 }

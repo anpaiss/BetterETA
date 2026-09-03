@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_master"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
@@ -8,10 +9,11 @@
 
     <!-- ROW 1: BIG ETA -->
     <TextView
+        android:id="@+id/tv_master_lbl_eta"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="ESTIMATED ARRIVAL"
-        android:textColor="#888888"
+        android:textColor="#9E9E9E"
         android:textSize="12sp"
         android:gravity="center"
         android:letterSpacing="0.1" />
@@ -38,11 +40,12 @@
 
     <!-- DIVIDER (TextView with bg color, no <View>) -->
     <TextView
+        android:id="@+id/tv_master_div1"
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="6dp"
         android:layout_marginBottom="6dp"
-        android:background="#888888" />
+        android:background="#9E9E9E" />
 
     <!-- ROW 2: KM AND ASCENT (route stats) -->
     <LinearLayout
@@ -57,7 +60,7 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="KM REMAINING" android:textColor="#888888" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_lbl_km" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="KM REMAINING" android:textColor="#9E9E9E" android:textSize="10sp" />
             <TextView android:id="@+id/tv_master_km" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--.- km" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" />
         </LinearLayout>
 
@@ -67,18 +70,19 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASCENT REMAINING" android:textColor="#888888" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_lbl_ascent" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASCENT REMAINING" android:textColor="#9E9E9E" android:textSize="10sp" />
             <TextView android:id="@+id/tv_master_ascent" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-- m" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
     <!-- DIVIDER -->
     <TextView
+        android:id="@+id/tv_master_div2"
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="6dp"
         android:layout_marginBottom="6dp"
-        android:background="#888888" />
+        android:background="#9E9E9E" />
 
     <!-- ROW 3: AVG SPEED + PACE VS PLAN, affiancati come ROW 2.
          La fascia sotto resta vuota: il banner "next cue" del Karoo copre il
@@ -95,7 +99,7 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PREDICTED KM/H" android:textColor="#888888" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_lbl_avgspeed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PREDICTED KM/H" android:textColor="#9E9E9E" android:textSize="10sp" />
             <TextView android:id="@+id/tv_master_avgspeed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-- km/h" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
         </LinearLayout>
 
@@ -105,8 +109,8 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PACE VS PLAN" android:textColor="#888888" android:textSize="10sp" />
-            <TextView android:id="@+id/tv_master_delta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#888888" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
+            <TextView android:id="@+id/tv_master_lbl_delta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PACE VS PLAN" android:textColor="#9E9E9E" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_delta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#9E9E9E" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
         </LinearLayout>
     </LinearLayout>
 

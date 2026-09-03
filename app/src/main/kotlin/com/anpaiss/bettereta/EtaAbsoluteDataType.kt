@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -62,17 +63,23 @@ class EtaAbsoluteDataType(
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val prefs = Prefs(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            
+
             // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente (es. cambio minuto)
-            etaState
-                .map { formatEta(context, it) }
+            combine(etaState, prefs.styleFlow()) { state, style ->
+                formatEta(context, state) to style.colorsFor(null)
+            }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { formattedText ->
+                .collect { (formattedText, c) ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_absolute)
+                    if (c.bgRes != null) views.setInt(R.id.root_eta, "setBackgroundResource", c.bgRes)
+                    else views.setInt(R.id.root_eta, "setBackgroundColor", c.bgColor ?: 0)
+                    views.setTextColor(R.id.tv_eta_label, c.label)
+                    views.setTextColor(R.id.tv_eta_value, c.value)
                     views.setTextViewText(R.id.tv_eta_value, formattedText)
                     emitter.updateView(views)
                 }
