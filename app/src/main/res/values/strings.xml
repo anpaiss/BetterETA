@@ -14,4 +14,12 @@
 
     <string name="eta_farthest_name">Distance to Farthest Point</string>
     <string name="eta_farthest_desc">Remaining distance to the point farthest from the start (e.g. the turnaround on an out-and-back)</string>
+
+    <string name="eta_margin_name">Arrival Margin (MTA)</string>
+    <string name="eta_margin_desc">Minutes of slack vs the mandatory time of arrival asked at ride start (negative = late)</string>
+
+    <string name="mta_popup_title">Mandatory arrival time?</string>
+    <string name="mta_popup_set">SET</string>
+    <string name="mta_popup_dismiss">DISMISS</string>
+    <string name="mta_alert_title">Arrival margin lost</string>
 </resources>

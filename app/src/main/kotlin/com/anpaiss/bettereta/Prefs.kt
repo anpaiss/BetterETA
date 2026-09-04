@@ -35,8 +35,27 @@ class Prefs(ctx: Context) {
         awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    // MTA della route corrente, salvato perché l'estensione può ripartire a
+    // metà giro. mtaRouteHash = hashCode della polyline a cui si riferisce
+    // (anche quando l'utente ha risposto DISMISS: così non si richiede).
+    var mtaEpochMs: Long
+        get() = sp.getLong(KEY_MTA_EPOCH_MS, 0L)
+        set(v) = sp.edit().putLong(KEY_MTA_EPOCH_MS, v).apply()
+
+    var mtaRouteHash: Int
+        get() = sp.getInt(KEY_MTA_ROUTE_HASH, 0)
+        set(v) = sp.edit().putInt(KEY_MTA_ROUTE_HASH, v).apply()
+
+    /** Quando il popup è stato mostrato per mtaRouteHash: la stessa route un altro giorno richiede. */
+    var mtaAskedAtMs: Long
+        get() = sp.getLong(KEY_MTA_ASKED_AT_MS, 0L)
+        set(v) = sp.edit().putLong(KEY_MTA_ASKED_AT_MS, v).apply()
+
     companion object {
         private const val NAME = "better_eta_prefs"
         const val KEY_TILE_STYLE = "tile_style"
+        private const val KEY_MTA_EPOCH_MS   = "mta_epoch_ms"
+        private const val KEY_MTA_ROUTE_HASH = "mta_route_hash"
+        private const val KEY_MTA_ASKED_AT_MS = "mta_asked_at_ms"
     }
 }

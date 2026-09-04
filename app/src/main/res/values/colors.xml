@@ -3,4 +3,7 @@
     <color name="text_primary">#FF5823</color>
     <color name="text_secondary">#666666</color>
     <color name="divider">#CCCCCC</color>
+    <!-- InRideAlert "margin lost": bianco su rosso scuro (5.0:1) -->
+    <color name="alert_bg">#D32F2F</color>
+    <color name="alert_text">#FFFFFF</color>
 </resources>

@@ -32,6 +32,7 @@ import java.util.Calendar
  *   - Dislivello positivo rimanente (GRANDE)
  *   - Velocità media prevista sul tratto rimanente
  *   - Delta vs prima stima del giro (verde = in anticipo, rosso = in ritardo)
+ *   - MTA e margine (segnaposto finché non c'è un mandatory time of arrival)
  */
 class EtaMasterDataType(
     extension: String,
@@ -58,6 +59,10 @@ class EtaMasterDataType(
         val avgSpeed: String,
         val delta: String,
         val colors: FieldColors,
+        val mta: String,
+        val margin: String,
+        val marginLabel: String,
+        val marginColor: Int,
     )
 
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -109,8 +114,16 @@ class EtaMasterDataType(
                             R.id.tv_master_km, R.id.tv_master_ascent, R.id.tv_master_avgspeed))
                         views.setTextColor(id, c.value)
                     views.setTextColor(R.id.tv_master_delta, c.delta)
+                    views.setTextViewText(R.id.tv_master_mta, view.mta)
+                    views.setTextViewText(R.id.tv_master_margin, view.margin)
+                    views.setTextViewText(R.id.tv_master_lbl_margin, view.marginLabel)
+                    views.setTextColor(R.id.tv_master_lbl_mta, c.label)
+                    views.setTextColor(R.id.tv_master_lbl_margin, c.label)
+                    views.setTextColor(R.id.tv_master_mta, c.value)
+                    views.setTextColor(R.id.tv_master_margin, view.marginColor)
                     views.setInt(R.id.tv_master_div1, "setBackgroundColor", c.label)
                     views.setInt(R.id.tv_master_div2, "setBackgroundColor", c.label)
+                    views.setInt(R.id.tv_master_div3, "setBackgroundColor", c.label)
                     emitter.updateView(views)
                 }
         }
@@ -152,15 +165,35 @@ class EtaMasterDataType(
             else          -> Pace.ON_PACE
         }
 
+        // 5. MTA e margine: il colore del margine segue lo stato (verde/rosso)
+        // con la stessa palette del delta
+        val margin = state.marginSeconds
+        val mtaStr = if (state.mtaEpochMs > 0L)
+            DateFormat.getTimeFormat(context).format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
+            else "--:--"
+        val marginPace  = margin?.let(::marginPace)
+        val marginColor = style.marginColor(marginPace ?: Pace.UNKNOWN)
+
         return MasterView(
-            eta        = eta,
-            remaining  = remaining,
-            km         = "$distStr km",
-            ascent     = "$elevStr m",
-            avgSpeed   = avgStr,
-            delta      = formatDelta(delta),
-            colors     = style.colorsFor(pace),
+            eta         = eta,
+            remaining   = remaining,
+            km          = distStr,   // unità già nella label KM REMAINING: col suffisso andava a capo
+            ascent      = "$elevStr m",
+            avgSpeed    = avgStr,
+            delta       = formatDelta(delta),
+            colors      = style.colorsFor(pace),
+            mta         = mtaStr,
+            margin      = margin?.let(ArrivalMargin::formatShort) ?: "--",   // unità nella label
+            marginLabel = marginLabel(marginPace),
+            marginColor = marginColor,
         )
+    }
+
+    /** La parola nell'etichetta dice il segno anche dove il colore non basta (pieno sole, stili chiari). */
+    private fun marginLabel(pace: Pace?): String = when (pace) {
+        Pace.EARLY -> "AHEAD MIN"
+        Pace.LATE  -> "LATE MIN"
+        else       -> "MARGIN MIN"
     }
 
     private fun formatRemaining(seconds: Long): String {

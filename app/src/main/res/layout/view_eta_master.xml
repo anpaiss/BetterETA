@@ -14,7 +14,7 @@
         android:layout_height="wrap_content"
         android:text="ESTIMATED ARRIVAL"
         android:textColor="#9E9E9E"
-        android:textSize="12sp"
+        android:textSize="10sp"
         android:gravity="center"
         android:letterSpacing="0.1" />
 
@@ -24,7 +24,7 @@
         android:layout_height="wrap_content"
         android:text="--:--"
         android:textColor="#FF5823"
-        android:textSize="64sp"
+        android:textSize="51sp"
         android:textStyle="bold"
         android:gravity="center"
         android:includeFontPadding="false" />
@@ -35,7 +35,7 @@
         android:layout_height="wrap_content"
         android:text="--h --m"
         android:textColor="#FF5823"
-        android:textSize="20sp"
+        android:textSize="16sp"
         android:gravity="center" />
 
     <!-- DIVIDER (TextView with bg color, no <View>) -->
@@ -61,7 +61,7 @@
             android:orientation="vertical"
             android:gravity="center">
             <TextView android:id="@+id/tv_master_lbl_km" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="KM REMAINING" android:textColor="#9E9E9E" android:textSize="10sp" />
-            <TextView android:id="@+id/tv_master_km" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--.- km" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" />
+            <TextView android:id="@+id/tv_master_km" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--.-" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout
@@ -111,6 +111,44 @@
             android:gravity="center">
             <TextView android:id="@+id/tv_master_lbl_delta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PACE VS PLAN" android:textColor="#9E9E9E" android:textSize="10sp" />
             <TextView android:id="@+id/tv_master_delta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#9E9E9E" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- DIVIDER -->
+    <TextView
+        android:id="@+id/tv_master_div3"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="#9E9E9E" />
+
+    <!-- ROW 4: MTA + MARGIN, affiancati; segnaposto senza MTA come gli altri campi -->
+    <LinearLayout
+        android:id="@+id/row_master_mta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+            <TextView android:id="@+id/tv_master_lbl_mta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MTA" android:textColor="#9E9E9E" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_mta" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--:--" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+            <TextView android:id="@+id/tv_master_lbl_margin" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MARGIN MIN" android:textColor="#9E9E9E" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_margin" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#9E9E9E" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
         </LinearLayout>
     </LinearLayout>
 

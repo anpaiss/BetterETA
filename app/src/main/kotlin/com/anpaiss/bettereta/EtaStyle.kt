@@ -60,6 +60,20 @@ enum class EtaStyle(val label: String) {
         INK -> FieldColors(null, R.drawable.bg_ink, GREY, ACCENT, paceAccent(pace))
     }
 
+    /**
+     * Colore del testo del margine MTA. Il tile della dashboard esprime già il
+     * pace col fondo (VIVID/PASTEL), quindi il margine deve parlare col testo in
+     * ogni stile: verde/rosso pieni su nero (INK/OUTLINE), scuri sui fondi chiari.
+     */
+    fun marginColor(pace: Pace?): Int = when (this) {
+        INK, OUTLINE -> paceAccent(pace)
+        VIVID, PASTEL -> when (pace) {
+            Pace.EARLY -> 0xFF1B5E20.toInt()   // verde scuro: >= 4.5:1 su pastel, 3:1 su grigio vivid
+            Pace.LATE  -> 0xFFB71C1C.toInt()   // rosso scuro
+            else       -> colorsFor(pace).delta
+        }
+    }
+
     companion object {
         const val ACCENT = 0xFFFF5823.toInt()
         private const val BLACK = 0xFF000000.toInt()

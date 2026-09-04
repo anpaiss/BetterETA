@@ -37,4 +37,12 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <!-- Margin vs the mandatory time of arrival set at ride start -->
+    <DataType
+        typeId="eta-margin"
+        displayName="@string/eta_margin_name"
+        description="@string/eta_margin_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
 </ExtensionInfo>

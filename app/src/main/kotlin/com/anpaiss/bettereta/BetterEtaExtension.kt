@@ -5,6 +5,7 @@ import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.ActiveRidePage
 import io.hammerhead.karooext.models.DataType
+import io.hammerhead.karooext.models.InRideAlert
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
@@ -30,6 +31,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private lateinit var logger: BetterEtaLogger
     private lateinit var sampleLog: SampleLog
     private lateinit var surfaceClassifier: SurfaceClassifier
+    private lateinit var prefs: Prefs
+    private lateinit var mtaPopup: MtaPopupController
 
     internal val etaState = MutableStateFlow(EtaState())
 
@@ -98,6 +101,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     @Volatile private var routeClimbs: List<OnNavigationState.NavigationState.Climb> = emptyList()
     @Volatile private var rejoinActive = false
 
+    // Mandatory time of arrival (epoch ms, 0 = nessuno) e hash della polyline
+    // per cui il popup è già stato mostrato (risposto o chiuso): una domanda
+    // sola per route, mai sulle transizioni RideState successive né dopo un
+    // restart dell'estensione (entrambi persistiti in Prefs).
+    @Volatile private var mtaEpochMs = 0L
+    @Volatile private var mtaAskedRouteHash = 0
+    private val marginGate = MarginAlertGate()
+
     // Last set of our own data types seen on the active page, for transition logging.
     @Volatile private var lastVisibleOurs: Set<String>? = null
 
@@ -156,6 +167,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaRemainingDataType(extension, etaState, visibleDataTypeIds),
             EtaMasterDataType(extension, etaState, visibleDataTypeIds),
             EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
+            EtaMarginDataType(extension, etaState, visibleDataTypeIds),
         )
     }
 
@@ -165,6 +177,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         sampleLog = SampleLog(applicationContext)
         logger.log("SYS  ", "Sample log: ${sampleLog.path}")
         surfaceClassifier = SurfaceClassifier(applicationContext, logger)
+        prefs = Prefs(applicationContext)
+        mtaPopup = MtaPopupController(applicationContext, logger,
+            onSet = { h, m -> setMta(h, m) },
+            onDismiss = { logger.log("MTA  ", "Nessun MTA per questa route") })
 
         // Versione installata: correla il log al build effettivamente sul dispositivo
         runCatching {
@@ -252,17 +268,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     if (!surfacesApplied) {
                         val wps = lastWaypointsForSurfaces
                         if (wps != null) extensionScope.launch {
-                            val routeKey = "r${polyline.hashCode()}_${wps.size}"
-                            surfaceClassifier.classify(routeKey, wps)?.let { surfaces ->
-                                pipeline.applySurfaces(surfaces)
-                                surfacesApplied = true
-                                logger.log("SURF ", "Classificazione fondo riuscita al retry")
+                            surfaceClassifier.classify(wps)?.let { r ->
+                                pipeline.applySurfaces(r.surfaces)
+                                surfacesApplied = r.complete
+                                logger.log("SURF ", "Classificazione fondo al retry: " +
+                                    if (r.complete) "completa" else "parziale, si ritenta alla prossima riemissione")
                             }
                         }
                     }
                     return@addConsumer
                 }
 
+                val prevRouteHash = lastRoutePolyline.hashCode()
+                val routeHash     = polyline.hashCode()
                 lastRoutePolyline = polyline
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
@@ -281,6 +299,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     haversineM(lastRouteEnd!!.first, lastRouteEnd!!.second, newEnd.lat, newEnd.lon)
                     else Double.MAX_VALUE
                 lastRouteEnd = newEnd?.let { it.lat to it.lon }
+
+                // MTA: ripristinato se salvato per questa stessa polyline (restart
+                // dell'estensione a metà giro), portato sulla nuova polyline se la
+                // meta è la stessa (ricalcolo), azzerato se la meta cambia.
+                val askedRecently = System.currentTimeMillis() - prefs.mtaAskedAtMs < ArrivalMargin.STALE_AFTER_MS
+                when {
+                    prefs.mtaRouteHash == routeHash && askedRecently -> restoreMta(routeHash)
+                    endDist <= SAME_DEST_THRESHOLD_M && mtaAskedRouteHash == prevRouteHash -> {
+                        mtaAskedRouteHash = routeHash
+                        prefs.mtaRouteHash = routeHash
+                    }
+                    else -> clearMta()
+                }
 
                 if (endDist <= SAME_DEST_THRESHOLD_M) {
                     logger.log("STATS", "Route cambiata, stessa destinazione (Δ${endDist.toInt()}m) — " +
@@ -302,16 +333,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     if (waypoints.isNotEmpty()) {
                         logger.log("ROUTE", "Pipeline: ${waypoints.size} wp → $segCount segmenti")
                     }
+                    // Route caricata a registrazione già avviata: la domanda MTA
+                    // non è partita alla transizione a Recording, parte ora
+                    maybeAskMta()
                     // Classificazione fondo (OSM/cache) e riclassificazione segmenti:
                     // asincrona, l'ETA gira intanto coi bucket globali
                     surfacesApplied = false
                     lastWaypointsForSurfaces = waypoints
-                    val routeKey = "r${polyline.hashCode()}_${waypoints.size}"
-                    surfaceClassifier.classify(routeKey, waypoints)?.let { surfaces ->
-                        pipeline.applySurfaces(surfaces)
-                        surfacesApplied = true
+                    surfaceClassifier.classify(waypoints)?.let { r ->
+                        pipeline.applySurfaces(r.surfaces)
+                        surfacesApplied = r.complete
                         logger.log("SURF ", "Segmenti riclassificati col fondo: " +
-                            "${pipeline.remainingSegments().size} rimanenti")
+                            "${pipeline.remainingSegments().size} rimanenti" +
+                            if (r.complete) "" else " (parziale, si ritenta alla prossima riemissione)")
                     }
                 }
             }
@@ -416,6 +450,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
                     logger.log("RIDE ", "Avviata — model e posizione preservati")
+                    rideState = state
+                    maybeAskMta()
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
                     logger.log("RIDE ", "Sospesa — model salvato")
@@ -439,7 +475,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         // Preserva gli ultimi valori calcolati (ETA, distanza, dislivello):
                         // il Karoo va in auto-pausa a ogni fermata e azzerarli fa comparire
                         // i segnaposto "--" per tutta la sosta.
-                        etaState.value = etaState.value.copy(hasRoute = true, status = "Paused")
+                        val prev = etaState.value
+                        etaState.value = prev.copy(hasRoute = true, status = "Paused",
+                            mtaEpochMs = mtaEpochMs, marginSeconds = marginFor(prev.remainingSeconds))
                         continue
                     }
 
@@ -499,6 +537,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             remainingDistanceM     = 0.0,
                             remainingElevationM    = if (hasElevationData) 0.0 else -1.0,
                             farthestPointDistanceM = 0.0,
+                            mtaEpochMs             = mtaEpochMs,
+                            marginSeconds          = marginFor(0L),
                         )
                         continue
                     }
@@ -570,6 +610,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         status                 = if (remainingSec > 0) "OK" else "Calculating...",
                         deltaSeconds           = deltaSec,
                         farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
+                        mtaEpochMs             = mtaEpochMs,
+                        marginSeconds          = marginFor(remainingSec),
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita
@@ -601,6 +643,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     override fun onDestroy() {
         logger.log("SYS  ", "=== BetterETA fermato ===")
+        mtaPopup.hide()
         saveModel()
         sampleLog.close()
         tickerJob?.cancel()
@@ -818,6 +861,90 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         }.joinToString(" ")
         logger.log("MODEL", "Ripristinato: overall=%.2fm/s n=%d | %s"
             .format(snap.overallEma, snap.overallSamples, bucketStr))
+    }
+
+    // ── Mandatory time of arrival ────────────────────────────────────────
+
+    /**
+     * Mostra il popup MTA se c'è una route in navigazione, la registrazione è
+     * attiva e per questa route non è ancora stato chiesto. Senza permesso
+     * overlay non chiede nulla (l'MTA resta impostabile solo col popup).
+     */
+    private fun maybeAskMta() {
+        if (rideState !is RideState.Recording || !navActive) return
+        extensionScope.launch {
+            if (!pipeline.hasRoute()) return@launch
+            val routeHash = lastRoutePolyline.hashCode()
+            if (routeHash == 0 || mtaAskedRouteHash == routeHash) return@launch
+            mtaAskedRouteHash  = routeHash
+            prefs.mtaRouteHash = routeHash
+            prefs.mtaEpochMs   = 0L
+            prefs.mtaAskedAtMs = System.currentTimeMillis()
+            if (!mtaPopup.canShow()) {
+                logger.log("MTA  ", "Popup non mostrato: permesso overlay assente")
+                return@launch
+            }
+            val (h, m) = ArrivalMargin.defaultPickerTime(System.currentTimeMillis(), etaState.value.remainingSeconds)
+            mtaPopup.show(h, m)
+        }
+    }
+
+    private fun setMta(hour: Int, minute: Int) {
+        mtaEpochMs = ArrivalMargin.epochMsFor(hour, minute, System.currentTimeMillis())
+        prefs.mtaEpochMs = mtaEpochMs
+        marginGate.reset()
+        logger.log("MTA  ", "Impostato %02d:%02d (%s)".format(hour, minute,
+            SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(mtaEpochMs))))
+    }
+
+    /** Popup già mostrato oggi per la polyline [routeHash] (restart a metà giro): non richiedere, ripristina la risposta. */
+    private fun restoreMta(routeHash: Int) {
+        mtaAskedRouteHash = routeHash
+        val saved = prefs.mtaEpochMs
+        mtaEpochMs = saved
+        if (saved > 0L) {
+            marginGate.reset()
+            logger.log("MTA  ", "Ripristinato: " +
+                SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(saved)))
+        }
+    }
+
+    private fun clearMta() {
+        if (mtaEpochMs > 0L) logger.log("MTA  ", "Azzerato: destinazione cambiata")
+        mtaEpochMs         = 0L
+        mtaAskedRouteHash  = 0
+        prefs.mtaEpochMs   = 0L
+        prefs.mtaRouteHash = 0
+        prefs.mtaAskedAtMs = 0L
+        marginGate.reset()
+    }
+
+    /**
+     * Margine attuale (null senza MTA o senza ETA) e avviso al primo passaggio
+     * in negativo. Va chiamato anche in pausa: l'orologio corre, il margine cala.
+     */
+    private fun marginFor(remainingSec: Long): Long? {
+        val mta = mtaEpochMs
+        if (mta <= 0L || remainingSec < 0) return null
+        val now    = System.currentTimeMillis()
+        val margin = ArrivalMargin.marginSeconds(mta, now, remainingSec)
+        if (marginGate.onMargin(margin)) {
+            val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val eta = fmt.format(Date(now + remainingSec * 1000L))
+            logger.log("MTA  ", "Margine perso: ETA $eta vs MTA ${fmt.format(Date(mta))}")
+            karooSystem.dispatch(
+                InRideAlert(
+                    id              = "better-eta-mta-$mta",
+                    icon            = R.drawable.ic_launcher_foreground,
+                    title           = getString(R.string.mta_alert_title),
+                    detail          = "ETA $eta, MTA ${fmt.format(Date(mta))}",
+                    autoDismissMs   = 15_000L,
+                    backgroundColor = R.color.alert_bg,
+                    textColor       = R.color.alert_text,
+                )
+            )
+        }
+        return margin
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

@@ -1,34 +1,38 @@
 package com.anpaiss.bettereta
 
 import android.content.Context
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.sqrt
 
 /**
  * Classifica il fondo (PAVED/UNPAVED) di ogni waypoint della route usando le
  * way OSM nel corridoio del percorso, via Overpass API.
  *
- * Flusso: la route viene sottocampionata (~1 punto ogni 100 m) e usata come
- * catena `around` nella query; le way restituite (con geometria) vengono
- * indicizzate su una griglia spaziale; ogni waypoint prende il fondo della
- * way più vicina entro MATCH_MAX_DIST_M.
+ * Flusso: prima si abbinano i waypoint alle way già in cache ([SurfaceWayStore],
+ * geografica, indipendente dalla route); solo i tratti mai interrogati vengono
+ * sottocampionati (~1 punto ogni 100 m) e chiesti a Overpass come catene
+ * `around`. Le way tornate entrano in cache con i corridoi chiesti, così una
+ * route ricalcolata o una route nuova che condivide tratti con una vecchia
+ * riusa tutto quello che c'è e, senza rete, resta ignota solo la parte nuova.
  *
- * La classificazione di una route viene cachata su file (chiave: hash della
- * polyline): sopravvive ai riavvii del servizio, che a metà giro avvengono
- * senza connettività.
+ * La cache è su file e sopravvive ai riavvii del servizio, che a metà giro
+ * avvengono senza connettività.
  */
 class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
 
-    private val cacheFile = File(context.filesDir, "surface_cache.json")
+    private val cacheFile = File(context.filesDir, "surface_ways.txt")
+    // Formato precedente (fondo per indice, chiave = hash polyline): non riusabile
+    private val legacyCacheFile = File(context.filesDir, "surface_cache.json")
+    private var store: SurfaceWayStore? = null
+
+    /** @param complete false = una parte della route non è stata interrogata (offline): vale la pena ritentare. */
+    class Result(val surfaces: List<Surface>, val complete: Boolean)
 
     companion object {
         // Il primario ha finestre di congestione ("server too busy", visto il
@@ -41,9 +45,8 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         private const val CORRIDOR_M        = 25.0    // raggio della catena around
         private const val SAMPLE_SPACING_M  = 100.0   // spaziatura punti nella query
         private const val MAX_QUERY_POINTS  = 400     // cap sicurezza dimensione query
-        private const val MATCH_MAX_DIST_M  = 30.0    // waypoint→way oltre questa = UNKNOWN
-        private const val GRID_CELL_DEG     = 0.003   // ~330 m, per l'indice spaziale
-        private const val CACHE_MAX_ROUTES  = 8
+        private const val RUN_MERGE_GAP     = 5       // tratti scoperti separati da <= N waypoint → una catena
+        private const val MAX_RUNS          = 40      // oltre: una catena unica dal primo all'ultimo scoperto
 
         private val PAVED_SURFACES = setOf(
             "asphalt", "paved", "concrete", "concrete:plates", "concrete:lanes",
@@ -64,40 +67,72 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
     }
 
     /**
-     * Restituisce la classe di fondo per ogni waypoint (lista parallela), da
-     * cache se disponibile, altrimenti da Overpass. Chiamare fuori dal main
-     * thread. Restituisce null se la classificazione non è possibile (offline
-     * e nessuna cache).
+     * Restituisce la classe di fondo per ogni waypoint (lista parallela).
+     * Chiamare fuori dal main thread. Restituisce null se nessuna parte della
+     * route è classificabile (offline e niente in cache lì).
      */
-    fun classify(routeKey: String, waypoints: List<RouteWaypoint>): List<Surface>? {
+    @Synchronized
+    fun classify(waypoints: List<RouteWaypoint>): Result? {
         if (waypoints.size < 2) return null
+        val store = loadStore()
 
-        loadFromCache(routeKey, waypoints.size)?.let {
-            logger.log("SURF ", "Fondo da cache: ${summary(it, waypoints)}")
-            return it
+        var match = store.match(waypoints)
+        val missing = match.missing
+        if (missing.isEmpty()) {
+            logger.log("SURF ", "Fondo da cache: ${summary(match.surfaces, waypoints)}")
+            return Result(match.surfaces, true)
         }
 
+        // Corridoi = i waypoint reali dei tratti scoperti (per la copertura in
+        // cache); a Overpass va la loro versione sottocampionata
+        val runs   = missingRuns(waypoints, missing)
+        val chains = runs.map { sampleChain(it) }
         val ways = try {
-            fetchWays(waypoints)
+            fetchWays(chains)
         } catch (e: Exception) {
-            logger.log("SURF ", "Overpass non raggiungibile (${e.message}) — fondo sconosciuto per questo giro")
-            return null
+            if (match.coveredCount == 0) {
+                logger.log("SURF ", "Overpass non raggiungibile (${e.message}) — fondo sconosciuto per questo giro")
+                return null
+            }
+            logger.log("SURF ", "Overpass non raggiungibile (${e.message}) — fondo solo da cache, " +
+                "${missing.size}/${waypoints.size} waypoint scoperti: ${summary(match.surfaces, waypoints)}")
+            return Result(match.surfaces, false)
         }
 
-        val surfaces = matchWaypoints(waypoints, ways)
-        saveToCache(routeKey, surfaces)
-        logger.log("SURF ", "Fondo da OSM (${ways.size} way): ${summary(surfaces, waypoints)}")
-        return surfaces
+        store.add(SurfaceWayStore.Batch(System.currentTimeMillis(), runs.map { r -> r.map { it.lat to it.lon } }, ways))
+        saveStore(store)
+        match = store.match(waypoints)
+        logger.log("SURF ", "Fondo da OSM (${ways.size} way nuove per ${missing.size}/${waypoints.size} waypoint, " +
+            "${runs.size} tratti; cache ${store.wayCount} way): ${summary(match.surfaces, waypoints)}")
+        return Result(match.surfaces, true)
     }
 
     // ── Overpass ─────────────────────────────────────────────────────────
 
-    private class OsmWay(val surface: Surface, val points: List<Pair<Double, Double>>)
+    /**
+     * Tratti contigui di waypoint scoperti. Buchi piccoli tra tratti vengono
+     * fusi; troppi tratti diventano un unico tratto dal primo all'ultimo
+     * scoperto (query più grassa ma una sola).
+     */
+    private fun missingRuns(waypoints: List<RouteWaypoint>, missing: List<Int>): List<List<RouteWaypoint>> {
+        val ranges = mutableListOf<IntRange>()
+        var start = missing.first()
+        var prev  = start
+        for (i in missing.drop(1)) {
+            if (i - prev > RUN_MERGE_GAP) { ranges.add(start..prev); start = i }
+            prev = i
+        }
+        ranges.add(start..prev)
+        val merged = if (ranges.size > MAX_RUNS) listOf(ranges.first().first..ranges.last().last) else ranges
+        return merged.map { r -> waypoints.subList(r.first, r.last + 1) }
+    }
 
-    private fun fetchWays(waypoints: List<RouteWaypoint>): List<OsmWay> {
-        val chain = sampleChain(waypoints)
-        val query = "[out:json][timeout:40];" +
-            "way[\"highway\"](around:${CORRIDOR_M.toInt()},$chain);out geom;"
+    private fun fetchWays(runs: List<List<Pair<Double, Double>>>): List<OsmWay> {
+        val clauses = runs.joinToString("") { run ->
+            val chain = run.joinToString(",") { "%.5f,%.5f".format(java.util.Locale.ROOT, it.first, it.second) }
+            "way[\"highway\"](around:${CORRIDOR_M.toInt()},$chain);"
+        }
+        val query = "[out:json][timeout:40];($clauses);out geom;"
 
         var lastError: Exception? = null
         for (endpoint in ENDPOINTS) {
@@ -131,8 +166,8 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         }
     }
 
-    /** Sottocampiona la route a ~1 punto ogni SAMPLE_SPACING_M, formato "lat,lon,lat,lon,...". */
-    private fun sampleChain(waypoints: List<RouteWaypoint>): String {
+    /** Sottocampiona un tratto a ~1 punto ogni SAMPLE_SPACING_M, come coppie (lat, lon). */
+    private fun sampleChain(waypoints: List<RouteWaypoint>): List<Pair<Double, Double>> {
         val picked = mutableListOf(waypoints.first())
         var accum = 0.0
         for (i in 1 until waypoints.size) {
@@ -147,8 +182,8 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         }
         if (picked.last() !== waypoints.last()) picked.add(waypoints.last())
         val step = if (picked.size > MAX_QUERY_POINTS) picked.size / MAX_QUERY_POINTS + 1 else 1
-        return picked.filterIndexed { i, _ -> i % step == 0 }
-            .joinToString(",") { "%.5f,%.5f".format(it.lat, it.lon) }
+        return picked.filterIndexed { i, _ -> i % step == 0 || i == picked.lastIndex }
+            .map { it.lat to it.lon }
     }
 
     private fun parseWays(json: String): List<OsmWay> {
@@ -165,7 +200,7 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
                 val p = geom.getJSONObject(j)
                 pts.add(p.getDouble("lat") to p.getDouble("lon"))
             }
-            if (pts.size >= 2) result.add(OsmWay(surface, pts))
+            if (pts.size >= 2) result.add(OsmWay(el.optLong("id"), surface, pts))
         }
         return result
     }
@@ -188,75 +223,6 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         }
     }
 
-    // ── matching spaziale ────────────────────────────────────────────────
-
-    private class WaySeg(
-        val ax: Double, val ay: Double,
-        val bx: Double, val by: Double,
-        val surface: Surface,
-    )
-
-    private fun matchWaypoints(waypoints: List<RouteWaypoint>, ways: List<OsmWay>): List<Surface> {
-        if (ways.isEmpty()) return List(waypoints.size) { Surface.UNKNOWN }
-
-        // Proiezione equirettangolare locale (metri) + griglia per cella
-        val refLat = waypoints.first().lat
-        val cosRef = cos(Math.toRadians(refLat))
-        val mPerDegLat = 111_320.0
-        val mPerDegLon = 111_320.0 * cosRef
-        fun x(lon: Double) = lon * mPerDegLon
-        fun y(lat: Double) = lat * mPerDegLat
-        val cellM = GRID_CELL_DEG * mPerDegLat
-        fun cellKey(px: Double, py: Double) =
-            floor(px / cellM).toLong() * 1_000_003L + floor(py / cellM).toLong()
-
-        val grid = HashMap<Long, MutableList<WaySeg>>()
-        for (way in ways) {
-            for (j in 0 until way.points.size - 1) {
-                val seg = WaySeg(
-                    x(way.points[j].second),     y(way.points[j].first),
-                    x(way.points[j + 1].second), y(way.points[j + 1].first),
-                    way.surface,
-                )
-                // Registra il segmento in tutte le celle toccate dal suo bbox
-                val cx0 = floor(minOf(seg.ax, seg.bx) / cellM).toLong()
-                val cx1 = floor(maxOf(seg.ax, seg.bx) / cellM).toLong()
-                val cy0 = floor(minOf(seg.ay, seg.by) / cellM).toLong()
-                val cy1 = floor(maxOf(seg.ay, seg.by) / cellM).toLong()
-                for (cx in cx0..cx1) for (cy in cy0..cy1) {
-                    grid.getOrPut(cx * 1_000_003L + cy) { mutableListOf() }.add(seg)
-                }
-            }
-        }
-
-        return waypoints.map { wp ->
-            val px = x(wp.lon)
-            val py = y(wp.lat)
-            var best = Double.MAX_VALUE
-            var bestSurface = Surface.UNKNOWN
-            val cx = floor(px / cellM).toLong()
-            val cy = floor(py / cellM).toLong()
-            for (dx in -1..1) for (dy in -1..1) {
-                grid[(cx + dx) * 1_000_003L + (cy + dy)]?.forEach { seg ->
-                    val d = pointToSegM(px, py, seg)
-                    if (d < best) { best = d; bestSurface = seg.surface }
-                }
-            }
-            if (best <= MATCH_MAX_DIST_M) bestSurface else Surface.UNKNOWN
-        }
-    }
-
-    private fun pointToSegM(px: Double, py: Double, s: WaySeg): Double {
-        val dx = s.bx - s.ax
-        val dy = s.by - s.ay
-        val len2 = dx * dx + dy * dy
-        val t = if (len2 == 0.0) 0.0
-            else (((px - s.ax) * dx + (py - s.ay) * dy) / len2).coerceIn(0.0, 1.0)
-        val cx = s.ax + t * dx
-        val cy = s.ay + t * dy
-        return sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy))
-    }
-
     private fun approxDistM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val dy = (lat2 - lat1) * 111_320.0
         val dx = (lon2 - lon1) * 111_320.0 * cos(Math.toRadians(lat1))
@@ -265,26 +231,22 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
 
     // ── cache ────────────────────────────────────────────────────────────
 
-    private fun loadFromCache(routeKey: String, expectedSize: Int): List<Surface>? {
-        return runCatching {
-            if (!cacheFile.exists()) return null
-            val root = JSONObject(cacheFile.readText())
-            val entry = root.optJSONArray(routeKey) ?: return null
-            if (entry.length() != expectedSize) return null
-            List(entry.length()) { Surface.entries[entry.getInt(it)] }
-        }.getOrNull()
+    private fun loadStore(): SurfaceWayStore {
+        store?.let { return it }
+        if (legacyCacheFile.exists()) legacyCacheFile.delete()
+        val loaded = runCatching {
+            if (cacheFile.exists()) SurfaceWayStore.parse(cacheFile.readText()) else null
+        }.getOrNull() ?: SurfaceWayStore()
+        if (loaded.batchCount > 0) {
+            logger.log("SURF ", "Cache way caricata: ${loaded.batchCount} batch, ${loaded.wayCount} way, ${loaded.wayPointCount} punti")
+        }
+        store = loaded
+        return loaded
     }
 
-    @Synchronized
-    private fun saveToCache(routeKey: String, surfaces: List<Surface>) {
-        runCatching {
-            val root = if (cacheFile.exists()) JSONObject(cacheFile.readText()) else JSONObject()
-            root.put(routeKey, JSONArray().apply { surfaces.forEach { put(it.ordinal) } })
-            // Cap: elimina le entry più vecchie oltre il limite (ordine chiavi ~ inserimento)
-            val keys = root.keys().asSequence().toMutableList()
-            while (keys.size > CACHE_MAX_ROUTES) root.remove(keys.removeAt(0))
-            cacheFile.writeText(root.toString())
-        }.onFailure { logger.logError("SURF ", "Salvataggio cache fondo fallito", it) }
+    private fun saveStore(store: SurfaceWayStore) {
+        runCatching { cacheFile.writeText(store.serialize()) }
+            .onFailure { logger.logError("SURF ", "Salvataggio cache fondo fallito", it) }
     }
 
     private fun summary(surfaces: List<Surface>, waypoints: List<RouteWaypoint>): String {

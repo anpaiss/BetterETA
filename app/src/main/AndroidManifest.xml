@@ -4,6 +4,8 @@
 
     <!-- Classificazione fondo via Overpass API (solo con Karoo in tethering/WiFi) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Popup "mandatory arrival time?" alla partenza (overlay sopra il ride-app) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"

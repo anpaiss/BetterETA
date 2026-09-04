@@ -1,13 +1,17 @@
 package com.anpaiss.bettereta
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
@@ -40,6 +44,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
         bindStyleSpinner()
+        findViewById<Button>(R.id.btn_grant_overlay).setOnClickListener {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            )
+        }
     }
 
     // Stesso pattern del selettore stile di AxsRatio: i campi si ridisegnano
@@ -109,6 +118,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         renderModel()
         renderResults()
+        findViewById<TextView>(R.id.tv_overlay_status).text =
+            "Overlay permission: " + if (Settings.canDrawOverlays(this)) "granted" else "NOT granted"
     }
 
     /** Storico confronto ETA vs Karoo: media in testa, poi le ultime uscite. */

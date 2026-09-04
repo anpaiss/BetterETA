@@ -6,16 +6,17 @@ A [Hammerhead Karoo 3](https://www.hammerhead.io/karoo) extension that computes 
 
 ## Data Fields
 
-The extension registers four data fields you can add to any ride profile:
+The extension registers five data fields you can add to any ride profile:
 
 | Field | Content |
 |---|---|
-| **BetterETA Dashboard** | Full-page view: arrival time, time remaining, km remaining, ascent remaining, predicted average speed, pace vs plan |
+| **BetterETA Dashboard** | Full-page view: arrival time, time remaining, km remaining, ascent remaining, predicted average speed, pace vs plan, mandatory arrival time and margin |
 | **ETA (Better)** | Arrival time only (HH:mm) |
 | **Time Remaining (Better)** | Time remaining only (Xh Ym) |
 | **Distance to Farthest Point** | Distance left to the point geographically farthest from the start (the turnaround of an out-and-back) |
+| **Arrival Margin (MTA)** | Minutes of slack against the mandatory arrival time set at ride start (`+12 min` green, `-5 min` red, `--` when none is set) |
 
-The dashboard keeps the bottom band of the page empty on purpose: the Karoo draws its turn-by-turn "next cue" ticket over the bottom of the screen without notifying extensions, so nothing important lives there.
+The Karoo draws its turn-by-turn "next cue" ticket over the bottom of the screen without notifying extensions; the dashboard is sized so its last row still clears that band on the Karoo 3.
 
 ---
 
@@ -41,6 +42,22 @@ Both fallbacks share the same learned buckets, so the fallback is the only varia
 
 ### Display refresh
 The engine recomputes once a second, but each field redraws only when the text it shows actually changes, only while it is on the ride page the user is looking at, and at most once per its own interval (20 s for the time fields, 10 s for the distance, 5 s for the dashboard). On e-ink every redraw costs battery and leaves ghosting. The visibility gate fails open: if the active page is unknown, everything draws — a gate that wrongly filtered a field out would freeze it for a whole ride and fail silently.
+
+### Mandatory time of arrival (MTA)
+
+When recording starts with a route loaded (or a route is loaded while already recording), a popup asks for a mandatory arrival time: two wheels, hours and minutes in 15-minute steps, preset to the current ETA rounded up to the quarter hour, with **SET** and **DISMISS** (auto-dismiss after 45 s = no MTA). It is asked once per route — never again on the Karoo's pause/resume churn or after the extension restarts mid-ride, but the same route on a later day asks again. A recalculation towards the same destination keeps the MTA; a new destination clears it and asks again.
+
+The margin is `MTA − (now + time remaining)`, recomputed every second **including while paused**: the ETA is moving time, so a stop that drags on eats the margin exactly as it eats the clock. The dashboard shows MTA and margin side by side in the last row (the label reads AHEAD MIN / LATE MIN, the value is coloured in every style); the standalone field shows the same. An in-ride alert fires the first time the margin turns negative and re-arms only once it climbs back above two minutes.
+
+The popup is an overlay window, so it needs the "draw over other apps" permission: grant it from the app page (**Allow popup**). Without it no popup is shown and the log says so.
+
+### Surface classification
+
+Each waypoint is classified PAVED / UNPAVED from the OpenStreetMap ways along the route (`surface=*`, falling back to `highway=*`), fetched from the Overpass API in a 25 m corridor around the route. The speed model keeps per-surface gradient buckets on top of the global ones, so the same 6 % climb on gravel and on tarmac get their own learned speeds once each has a few samples.
+
+The cache is **geographic, not per route**: it stores the fetched ways (geometry + surface) and the stretches of route they were fetched for. A new route is first matched against every cached way; only the stretches never queried go to Overpass, as one request. So a recalculated polyline, or a new route that shares a climb with an old one, reuses everything already known and, when offline, only the genuinely new stretch stays unknown (the classification is then marked partial and retried when the Karoo re-emits the route). Oldest fetches are dropped past ~200k geometry points (a few MB).
+
+Overpass needs connectivity at route load (Wi-Fi or phone tethering); nothing in the ride depends on it afterwards. The Karoo's own offline maps do carry surface tags, but the karoo-ext SDK does not expose them and Android 12's scoped storage blocks reading the map files directly.
 
 ### Pace vs plan
 At the first valid ETA of the ride (with GPS locked) the predicted riding time is frozen as a baseline. From then on the dashboard shows the delta between current prediction and baseline, **counting moving time only** — stops do not move it. Green = ahead of plan, red = behind.
@@ -100,7 +117,7 @@ The extension writes two logs on the device.
 adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta.log
 ```
 
-Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), which fields are on the visible page (`VIEW`), one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
+Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), the mandatory arrival time popup, value and alert (`MTA`), which fields are on the visible page (`VIEW`), one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
 
 **Structured sample log** — one CSV row per second while recording, rotating at 4 MB:
 
