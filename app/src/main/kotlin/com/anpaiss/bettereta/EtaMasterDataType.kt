@@ -32,7 +32,8 @@ import java.util.Calendar
  *   - Dislivello positivo rimanente (GRANDE)
  *   - Velocità media prevista sul tratto rimanente
  *   - Delta vs prima stima del giro (verde = in anticipo, rosso = in ritardo)
- *   - MTA e margine (segnaposto finché non c'è un mandatory time of arrival)
+ *   - MTA e margine, solo con un mandatory time of arrival impostato: senza,
+ *     la riga sparisce e l'intestazione riprende le dimensioni grandi
  */
 class EtaMasterDataType(
     extension: String,
@@ -59,7 +60,8 @@ class EtaMasterDataType(
         val avgSpeed: String,
         val delta: String,
         val colors: FieldColors,
-        val mta: String,
+        /** null = nessun MTA: riga nascosta, intestazione grande */
+        val mta: String?,
         val margin: String,
         val marginLabel: String,
         val marginColor: Int,
@@ -98,7 +100,14 @@ class EtaMasterDataType(
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { view ->
                     val c = view.colors
-                    val views = RemoteViews(context.packageName, R.layout.view_eta_master)
+                    // Due layout: senza MTA quello originale (intestazione grande, niente
+                    // riga MTA), con MTA quello compatto. Il renderer del Karoo ignora
+                    // setViewVisibility e setTextViewTextSize (verificato 04/09), quindi
+                    // la scelta va fatta a monte, sul layout.
+                    val hasMta = view.mta != null
+                    val views = RemoteViews(context.packageName,
+                        if (hasMta) R.layout.view_eta_master else R.layout.view_eta_master_plain)
+                    Log.i("BetterETA", "MASTER redraw layout=${if (hasMta) "mta" else "plain"} eta=${view.eta}")
                     if (c.bgRes != null) views.setInt(R.id.root_master, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_master, "setBackgroundColor", c.bgColor ?: 0)
                     views.setTextViewText(R.id.tv_master_eta, view.eta)
@@ -114,16 +123,18 @@ class EtaMasterDataType(
                             R.id.tv_master_km, R.id.tv_master_ascent, R.id.tv_master_avgspeed))
                         views.setTextColor(id, c.value)
                     views.setTextColor(R.id.tv_master_delta, c.delta)
-                    views.setTextViewText(R.id.tv_master_mta, view.mta)
-                    views.setTextViewText(R.id.tv_master_margin, view.margin)
-                    views.setTextViewText(R.id.tv_master_lbl_margin, view.marginLabel)
-                    views.setTextColor(R.id.tv_master_lbl_mta, c.label)
-                    views.setTextColor(R.id.tv_master_lbl_margin, c.label)
-                    views.setTextColor(R.id.tv_master_mta, c.value)
-                    views.setTextColor(R.id.tv_master_margin, view.marginColor)
+                    if (hasMta) {
+                        views.setInt(R.id.tv_master_div3, "setBackgroundColor", c.label)
+                        views.setTextViewText(R.id.tv_master_mta, view.mta)
+                        views.setTextViewText(R.id.tv_master_margin, view.margin)
+                        views.setTextViewText(R.id.tv_master_lbl_margin, view.marginLabel)
+                        views.setTextColor(R.id.tv_master_lbl_mta, c.label)
+                        views.setTextColor(R.id.tv_master_lbl_margin, c.label)
+                        views.setTextColor(R.id.tv_master_mta, c.value)
+                        views.setTextColor(R.id.tv_master_margin, view.marginColor)
+                    }
                     views.setInt(R.id.tv_master_div1, "setBackgroundColor", c.label)
                     views.setInt(R.id.tv_master_div2, "setBackgroundColor", c.label)
-                    views.setInt(R.id.tv_master_div3, "setBackgroundColor", c.label)
                     emitter.updateView(views)
                 }
         }
@@ -170,7 +181,7 @@ class EtaMasterDataType(
         val margin = state.marginSeconds
         val mtaStr = if (state.mtaEpochMs > 0L)
             DateFormat.getTimeFormat(context).format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
-            else "--:--"
+            else null
         val marginPace  = margin?.let(::marginPace)
         val marginColor = style.marginColor(marginPace ?: Pace.UNKNOWN)
 

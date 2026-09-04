@@ -16,7 +16,7 @@ The extension registers five data fields you can add to any ride profile:
 | **Distance to Farthest Point** | Distance left to the point geographically farthest from the start (the turnaround of an out-and-back) |
 | **Arrival Margin (MTA)** | Minutes of slack against the mandatory arrival time set at ride start (`+12 min` green, `-5 min` red, `--` when none is set) |
 
-The Karoo draws its turn-by-turn "next cue" ticket over the bottom of the screen without notifying extensions; the dashboard is sized so its last row still clears that band on the Karoo 3.
+The MTA row only exists while a mandatory arrival time is set; without one the dashboard uses its original, larger layout. The Karoo draws its turn-by-turn "next cue" ticket over the bottom of the screen without notifying extensions; the compact layout is sized so its last row still clears that band on the Karoo 3.
 
 ---
 
@@ -47,7 +47,7 @@ The engine recomputes once a second, but each field redraws only when the text i
 
 When recording starts with a route loaded (or a route is loaded while already recording), a popup asks for a mandatory arrival time: two wheels, hours and minutes in 15-minute steps, preset to the current ETA rounded up to the quarter hour, with **SET** and **DISMISS** (auto-dismiss after 45 s = no MTA). It is asked once per route — never again on the Karoo's pause/resume churn or after the extension restarts mid-ride, but the same route on a later day asks again. A recalculation towards the same destination keeps the MTA; a new destination clears it and asks again.
 
-The margin is `MTA − (now + time remaining)`, recomputed every second **including while paused**: the ETA is moving time, so a stop that drags on eats the margin exactly as it eats the clock. The dashboard shows MTA and margin side by side in the last row (the label reads AHEAD MIN / LATE MIN, the value is coloured in every style); the standalone field shows the same. An in-ride alert fires the first time the margin turns negative and re-arms only once it climbs back above two minutes.
+The margin is `MTA − (now + time remaining)`, recomputed every second **including while paused**: the ETA is moving time, so a stop that drags on eats the margin exactly as it eats the clock. The dashboard shows MTA and margin side by side in a last row that exists only while an MTA is set — dismiss the popup and the page keeps its original, larger layout (the label reads AHEAD MIN / LATE MIN, the value is coloured in every style); the standalone field shows the same. An in-ride alert fires the first time the margin turns negative and re-arms only once it climbs back above two minutes.
 
 The popup is an overlay window, so it needs the "draw over other apps" permission: grant it from the app page (**Allow popup**). Without it no popup is shown and the log says so.
 
@@ -71,6 +71,8 @@ Once per minute the extension samples its own remaining-time prediction alongsid
 
 - Hammerhead Karoo 3 (Hardware ID: k24)
 - Karoo firmware with extension support
+
+Two RemoteViews details learned on the Karoo 3: the ride app ignores `setViewVisibility` and `setTextViewTextSize`, so a view that needs a different shape has to switch to a different layout resource; and after several rapid reinstalls the ride app may stop re-attaching the extension's views (it keeps showing the last picture) — a reboot fixes it.
 - A route with elevation data (e.g. Komoot) for ascent-aware estimates; routes without elevation still get distance-based ETA
 
 ---
