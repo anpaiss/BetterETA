@@ -162,10 +162,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val PREFS_NAME           = "better_eta_model"
         private const val LOG_INTERVAL_TICKS   = 60       // 1 riga ETA al minuto
         private const val SNAP_LOG_THRESHOLD   = 50.0     // logga snap solo se > 50m
-        // Popup MTA: attesa massima del primo ETA valido, così le rotelle partono
-        // dall'arrivo stimato (giro test 04/09: aperto 0,5 s dopo l'avvio, prima del
-        // primo tick → default "adesso + 1 h" invece di ETA)
-        private const val MTA_FIRST_ETA_WAIT_MS = 10_000L
+        // Popup MTA: attesa massima di un ETA con posizione agganciata dal GPS,
+        // così le rotelle partono dall'arrivo stimato da dove sei (giro 05/09:
+        // aperto prima dell'aggancio → ETA della route intera, 10:45 per un
+        // arrivo reale verso le 10:15). Oltre il limite, l'ETA che c'è.
+        private const val MTA_LOCATED_WAIT_MS = 90_000L
+        private const val MTA_ANY_ETA_WAIT_MS = 10_000L
 
         // Confronto ETA: cadenza campioni, minimo percorso reale davanti perché
         // un campione sia giudicabile (vicino all'arrivo l'errore relativo
@@ -1031,10 +1033,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 logger.log("MTA  ", "Popup non mostrato: permesso overlay assente")
                 return@launch
             }
-            val remaining = withTimeoutOrNull(MTA_FIRST_ETA_WAIT_MS) {
-                etaState.first { it.remainingSeconds > 0 }.remainingSeconds
-            } ?: etaState.value.remainingSeconds
-            if (remaining <= 0) logger.log("MTA  ", "Nessun ETA entro ${MTA_FIRST_ETA_WAIT_MS / 1000}s — default adesso + 1 h")
+            val t0 = System.currentTimeMillis()
+            val located = withTimeoutOrNull(MTA_LOCATED_WAIT_MS) {
+                etaState.first { it.remainingSeconds > 0 && !offRoute && pipeline.isLocated() }.remainingSeconds
+            }
+            val remaining = located
+                ?: withTimeoutOrNull(MTA_ANY_ETA_WAIT_MS) { etaState.first { it.remainingSeconds > 0 }.remainingSeconds }
+                ?: etaState.value.remainingSeconds
+            val waitedS = (System.currentTimeMillis() - t0) / 1000
+            when {
+                located != null  -> logger.log("MTA  ", "ETA con posizione agganciata dopo ${waitedS}s: ${remaining}s")
+                remaining > 0    -> logger.log("MTA  ", "Nessun aggancio entro ${MTA_LOCATED_WAIT_MS / 1000}s — default sull'ETA disponibile (${remaining}s)")
+                else             -> logger.log("MTA  ", "Nessun ETA entro ${waitedS}s — default adesso + 1 h")
+            }
             val (h, m) = ArrivalMargin.defaultPickerTime(System.currentTimeMillis(), remaining)
             mtaPopup.show(h, m)
         }
