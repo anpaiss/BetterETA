@@ -96,7 +96,7 @@ class SegmentPipeline(
      *
      * @return correzione applicata in metri (0.0 se nessuno snap effettuato)
      */
-    suspend fun snapToLocation(lat: Double, lon: Double): Double = mutex.withLock {
+    suspend fun snapToLocation(lat: Double, lon: Double, hintM: Double? = null): Double = mutex.withLock {
         if (waypoints.isEmpty()) return@withLock 0.0
 
         val windowStart = lowerBound(waypointCumDist, traveledM - SNAP_BACK_WINDOW_M)
@@ -130,11 +130,15 @@ class SegmentPipeline(
         // locale). Il waypoint in assoluto più vicino al fix può stare sul ramo
         // sbagliato — anelli con partenza=arrivo, andata/ritorno — e teleportare
         // la posizione a inizio o fine route.
+        // Riferimento per la coerenza: la posizione stimata; finché non siamo
+        // mai stati agganciati, la posizione lungo la route secondo il Karoo
+        // ([hintM]) se c'è — a inizio giro la stima vale 0 e non dice nulla.
+        val refM = if (!located && hintM != null) hintM else traveledM
         var globalIdx    = -1
         var globalOffset = Double.MAX_VALUE
         for (i in waypoints.indices) {
             if (haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon) >= SNAP_MAX_DIST_M) continue
-            val offset = abs(waypointCumDist[i] - traveledM)
+            val offset = abs(waypointCumDist[i] - refM)
             if (offset < globalOffset) { globalOffset = offset; globalIdx = i }
         }
         if (globalIdx == -1) {
@@ -172,6 +176,39 @@ class SegmentPipeline(
         val prevTraveledM = traveledM
         repositionTo(candidateM)
         return@withLock abs(traveledM - prevTraveledM)
+    }
+
+    /**
+     * Riaggancio forzato al rientro in route (ON_ROUTE del Karoo torna 1): tra
+     * i waypoint entro SNAP_MAX_DIST_M dal fix sceglie il più coerente con
+     * [hintM], la posizione lungo la route secondo il Karoo, e riposiziona
+     * saltando le guardie di plausibilità pensate per i fix spuri — qui è il
+     * Karoo stesso a dire che siamo sulla route. Giro 05/09: partenza a 310 m
+     * dallo start ma a pochi metri dal km 7,6 dell'anello, aggancio al km 7,6,
+     * poi 32 min fuori route con la posizione che avanzava sul ramo sbagliato.
+     *
+     * @return correzione applicata in metri; 0 se nessun waypoint vicino al fix
+     *   o se la posizione era già coerente (sotto RELOCATE_MIN_JUMP_M)
+     */
+    suspend fun relocateWithHint(lat: Double, lon: Double, hintM: Double): Double = mutex.withLock {
+        if (waypoints.isEmpty()) return@withLock 0.0
+        var bestIdx    = -1
+        var bestOffset = Double.MAX_VALUE
+        for (i in waypoints.indices) {
+            if (haversineM(lat, lon, waypoints[i].lat, waypoints[i].lon) >= SNAP_MAX_DIST_M) continue
+            val offset = abs(waypointCumDist[i] - hintM)
+            if (offset < bestOffset) { bestOffset = offset; bestIdx = i }
+        }
+        if (bestIdx == -1) return@withLock 0.0
+        val prevTraveledM = traveledM
+        if (abs(waypointCumDist[bestIdx] - prevTraveledM) < RELOCATE_MIN_JUMP_M) return@withLock 0.0
+        located            = true
+        offWindowTicks     = 0
+        rescueCandidateM   = -1.0
+        rescueConfirmCount = 0
+        lastGoodSnapMs     = nowMs()
+        repositionTo(waypointCumDist[bestIdx])
+        abs(traveledM - prevTraveledM)
     }
 
     /**
@@ -319,6 +356,8 @@ class SegmentPipeline(
         // (ebike in discesa con margine) e tolleranza base sul salto
         private const val RESCUE_MAX_SPEED_MS  = 20.0
         private const val RESCUE_JUMP_MARGIN_M = 500.0
+        // Sotto questo scarto il riaggancio al rientro in route non tocca la posizione
+        private const val RELOCATE_MIN_JUMP_M  = 300.0
     }
 
     private fun buildSegments(

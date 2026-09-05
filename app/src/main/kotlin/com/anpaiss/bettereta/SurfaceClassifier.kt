@@ -30,6 +30,9 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
     // Formato precedente (fondo per indice, chiave = hash polyline): non riusabile
     private val legacyCacheFile = File(context.filesDir, "surface_cache.json")
     private var store: SurfaceWayStore? = null
+    // Ultimo fallimento di rete: ogni riemissione della route (decine per giro
+    // fuori copertura) ritentava e scriveva tre righe di log
+    private var lastFetchFailMs = 0L
 
     /** @param complete false = una parte della route non è stata interrogata (offline): vale la pena ritentare. */
     class Result(val surfaces: List<Surface>, val complete: Boolean)
@@ -47,6 +50,7 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         private const val MAX_QUERY_POINTS  = 400     // cap sicurezza dimensione query
         private const val RUN_MERGE_GAP     = 5       // tratti scoperti separati da <= N waypoint → una catena
         private const val MAX_RUNS          = 40      // oltre: una catena unica dal primo all'ultimo scoperto
+        private const val RETRY_BACKOFF_MS  = 5 * 60_000L
 
         private val PAVED_SURFACES = setOf(
             "asphalt", "paved", "concrete", "concrete:plates", "concrete:lanes",
@@ -85,11 +89,19 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
 
         // Corridoi = i waypoint reali dei tratti scoperti (per la copertura in
         // cache); a Overpass va la loro versione sottocampionata
+        val sinceFailMs = System.currentTimeMillis() - lastFetchFailMs
+        if (lastFetchFailMs > 0L && sinceFailMs < RETRY_BACKOFF_MS) {
+            logger.log("SURF ", "Overpass fallito ${sinceFailMs / 1000}s fa — ritento tra ${(RETRY_BACKOFF_MS - sinceFailMs) / 1000}s; " +
+                "${missing.size}/${waypoints.size} waypoint scoperti")
+            return if (match.coveredCount == 0) null else Result(match.surfaces, false)
+        }
+
         val runs   = missingRuns(waypoints, missing)
         val chains = runs.map { sampleChain(it) }
         val ways = try {
-            fetchWays(chains)
+            fetchWays(chains).also { lastFetchFailMs = 0L }
         } catch (e: Exception) {
+            lastFetchFailMs = System.currentTimeMillis()
             if (match.coveredCount == 0) {
                 logger.log("SURF ", "Overpass non raggiungibile (${e.message}) — fondo sconosciuto per questo giro")
                 return null

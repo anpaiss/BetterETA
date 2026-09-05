@@ -95,6 +95,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // rides say they are trustworthy do they get promoted into the ETA path.
     @Volatile private var karooDistToDestM = -1.0
     @Volatile private var karooOnRoute: Double? = null
+    // Fuori route secondo il Karoo (ON_ROUTE=0): l'ETA viene sospeso e il dead
+    // reckoning congelato — avanzare sulla route mentre si è altrove ha dato
+    // 32 min di ETA sbagliato il 05/09 (partenza fuori route, aggancio al km 7,6)
+    @Volatile private var offRoute = false
     @Volatile private var karooAscentRemM = -1.0
 
     // Route metadata published by NavigatingRoute that used to be discarded.
@@ -298,6 +302,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 val prevRouteHash = lastRoutePolyline.hashCode()
                 val routeHash     = polyline.hashCode()
                 lastRoutePolyline = polyline
+                karooOnRoute      = null      // riferito alla route precedente
+                offRoute          = false
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
 
@@ -498,6 +504,28 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         continue
                     }
 
+                    // 0. Fuori route secondo il Karoo: transizioni e riaggancio al rientro
+                    val karooPosM = karooAlongRouteM()
+                    val nowOff    = karooOnRoute == 0.0
+                    if (nowOff != offRoute) {
+                        offRoute = nowOff
+                        if (nowOff) {
+                            logger.log("ROUTE", "Off route (Karoo ON_ROUTE=0) — ETA sospeso, posizione congelata a %.0fm".format(pipeline.distanceAlongRouteM()))
+                        } else {
+                            logger.log("ROUTE", "Rientro in route" + (karooPosM?.let { " — posizione Karoo %.0fm, nostra %.0fm".format(it, pipeline.distanceAlongRouteM()) } ?: ""))
+                            val loc = locationFlow.value
+                            if (karooPosM != null && loc != null) {
+                                val corr = pipeline.relocateWithHint(loc.first, loc.second, karooPosM)
+                                if (corr > 0.0) {
+                                    logger.log("GPS  ", "Riaggancio al rientro: correzione ${corr.toInt()}m verso la posizione Karoo — baseline pace azzerata")
+                                    initialRemainingSec = -1L
+                                    movingElapsedSec    = 0L
+                                    progressGate.reset()
+                                }
+                            }
+                        }
+                    }
+
                     // 1. Aggiorna modello (col fondo su cui ci troviamo, se noto),
                     // solo se si sta davvero avanzando sulla route: il GPS che
                     // balla da fermo dà velocità plausibili ma nessun progresso.
@@ -505,12 +533,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val currentGradePct = gradePctFlow.value
                     val currentSurface  = pipeline.currentSurface()
                     val progressing     = progressGate.onTick(pipeline.distanceAlongRouteM())
-                    val moving          = currentSpeedMs >= 0.5 && progressing
+                    val moving          = currentSpeedMs >= 0.5 && progressing && !offRoute
                     if (moving) {
                         speedModel.update(currentSpeedMs, currentGradePct, currentSurface)
                         physicsModel.update(currentSpeedMs, currentGradePct, currentSurface)
                     }
-                    if (currentSpeedMs >= 0.5 && !progressing && !learningPaused) {
+                    if (currentSpeedMs >= 0.5 && !progressing && !learningPaused && !offRoute) {
                         learningPaused = true
                         logger.log("MODEL", "Apprendimento sospeso: speed=%.1fm/s ma nessun avanzamento sulla route nell'ultimo minuto (GPS fermo?)".format(currentSpeedMs))
                     } else if (moving && learningPaused) {
@@ -518,8 +546,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         logger.log("MODEL", "Apprendimento ripreso: avanzamento sulla route rilevato")
                     }
 
-                    // 2. Avanzamento stimato
-                    pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
+                    // 2. Avanzamento stimato (congelato fuori route)
+                    if (!offRoute) pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
 
                     // 3. Snap GPS (solo se fix recente)
                     val now      = System.currentTimeMillis()
@@ -527,7 +555,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     if (!gpsStale) {
                         locationFlow.value?.let { (lat, lon) ->
-                            val correction = pipeline.snapToLocation(lat, lon)
+                            val correction = pipeline.snapToLocation(lat, lon, karooPosM)
                             if (correction > SNAP_LOG_THRESHOLD) {
                                 logger.log("GPS  ", "Snap: correzione ${correction.toInt()}m")
                             }
@@ -544,6 +572,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         gpsStaleLogged = false
                         val staleDurSec = (now - gpsStaleStartMs) / 1000
                         logger.log("GPS  ", "Recuperato dopo ${staleDurSec}s")
+                    }
+
+                    if (offRoute) {
+                        etaState.value = EtaState(
+                            hasRoute      = true,
+                            status        = "Off route",
+                            gpsStale      = gpsStale,
+                            mtaEpochMs    = mtaEpochMs,
+                        )
+                        continue
                     }
 
                     // 4. Calcolo ETA + statistiche percorso (un solo lock sulla pipeline)
@@ -761,6 +799,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
             "speed=%.1fm/s grade=%.1f%%%s%s%s%s".format(speedMs, gradePct, delta, karoo, mta, gps))
+    }
+
+    /** Posizione lungo la route secondo il Karoo (routeDistance − DISTANCE_TO_DESTINATION), se pubblicata e dentro la route. */
+    private fun karooAlongRouteM(): Double? {
+        if (routeTotalDistM <= 0.0 || karooDistToDestM < 0.0) return null
+        val pos = routeTotalDistM - karooDistToDestM
+        return if (pos >= 0.0 && pos <= routeTotalDistM) pos else null
     }
 
     private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
