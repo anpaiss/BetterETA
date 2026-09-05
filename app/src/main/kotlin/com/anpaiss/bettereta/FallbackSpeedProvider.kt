@@ -35,7 +35,8 @@ object GradientFactorFallback : FallbackSpeedProvider {
     override val name = "factors"
 
     // Speed relative to the flat bucket (index 1 = 1.0), for an e-bike.
-    private val FACTORS = doubleArrayOf(1.15, 1.0, 0.80, 0.65, 0.50)
+    // Un fattore per bucket: discesa, discesa dolce, piano, salita, ripida, muro
+    private val FACTORS = doubleArrayOf(1.15, 1.10, 1.0, 0.80, 0.65, 0.50)
 
     override fun fallbackSpeedMs(gradePct: Double, surface: Surface, flatSpeedMs: Double): Double =
         (flatSpeedMs * FACTORS[AdaptiveSpeedModel.bucketIndex(gradePct)]).coerceAtLeast(0.5)

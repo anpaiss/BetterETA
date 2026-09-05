@@ -13,7 +13,7 @@ class AdaptiveSpeedModelTest {
     @Test
     fun `fresh model returns default flat speed on flat terrain`() {
         val model = AdaptiveSpeedModel()
-        // Bucket pianura (−5%..+2%) → factor 1.0 × DEFAULT_FLAT_MS (5.0)
+        // Bucket pianura (−2%..+2%) → factor 1.0 × DEFAULT_FLAT_MS (5.0)
         assertApprox(5.0, model.predictSpeed(0.0))
     }
 

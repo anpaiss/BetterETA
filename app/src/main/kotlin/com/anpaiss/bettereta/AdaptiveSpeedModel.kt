@@ -3,12 +3,18 @@ package com.anpaiss.bettereta
 /**
  * Modello adattivo velocità/pendenza calibrato sull'uscita in corso.
  *
- * Usa 5 bucket di pendenza ottimizzati per ebike Bosch:
- *   0: < -5%          discesa libera
- *   1: -5% .. +2%     pianura / falsopiano
- *   2: +2% .. +6%     salita media
- *   3: +6% .. +10%    salita ripida
- *   4: > +10%         muro
+ * Usa 6 bucket di pendenza:
+ *   0: < -6%          discesa libera
+ *   1: -6% .. -2%     discesa dolce (pedalata + gravità: la fascia più veloce)
+ *   2: -2% .. +2%     pianura vera
+ *   3: +2% .. +6%     salita media
+ *   4: +6% .. +10%    salita ripida
+ *   5: > +10%         muro
+ *
+ * Fino al 05/09 erano cinque, con "pianura" da -5% a +2%: nel giro di quel
+ * giorno la fascia -6..-2% andava a 15,5 km/h e la 0..+2% a 9,9, e la media
+ * del bucket unico non descriveva nessuna delle due. Lo snapshot a cinque
+ * bucket viene migrato in [restore] sdoppiando il vecchio bucket 1.
  *
  * Per ogni bucket mantiene una EMA (Exponential Moving Average) della
  * velocità osservata. Quando un bucket non ha abbastanza campioni,
@@ -29,20 +35,30 @@ class AdaptiveSpeedModel {
         private const val MIN_TRUSTED        = 5      // campioni minimi per fidarsi del bucket
         private const val DEFAULT_FLAT_MS    = 5.0    // ~18 km/h, fallback iniziale
 
-        // Soglie di pendenza (%) che delimitano i bucket 0..4
-        private val THRESHOLDS = doubleArrayOf(-5.0, 2.0, 6.0, 10.0)
+        const val BUCKETS     = 6
+        const val FLAT_BUCKET = 2
+        private const val LEGACY_BUCKETS = 5
+
+        // Soglie di pendenza (%) che delimitano i bucket 0..5
+        private val THRESHOLDS = doubleArrayOf(-6.0, -2.0, 2.0, 6.0, 10.0)
 
         /**
          * Bucket a gradient. Public because rung 3 of the cascade lives in a
          * [FallbackSpeedProvider] now and some of them are bucket-based.
          */
-        fun bucketIndex(gradePct: Double): Int = when {
-            gradePct < THRESHOLDS[0] -> 0
-            gradePct < THRESHOLDS[1] -> 1
-            gradePct < THRESHOLDS[2] -> 2
-            gradePct < THRESHOLDS[3] -> 3
-            else                     -> 4
+        fun bucketIndex(gradePct: Double): Int {
+            for (i in THRESHOLDS.indices) if (gradePct < THRESHOLDS[i]) return i
+            return THRESHOLDS.size
         }
+
+        /**
+         * Snapshot a cinque bucket (fino al 05/09) → sei: il vecchio bucket 1
+         * (-5..+2%) diventa sia "discesa dolce" sia "pianura", che poi si
+         * riallineano da sole in una finestra EMA. Liste vuote o già a sei
+         * passano invariate.
+         */
+        fun <T> migrateLegacyFive(l: List<T>): List<T> =
+            if (l.size == LEGACY_BUCKETS) listOf(l[0], l[1], l[1], l[2], l[3], l[4]) else l
     }
 
     private data class Bucket(
@@ -50,11 +66,11 @@ class AdaptiveSpeedModel {
         val count: Int  = 0,
     )
 
-    private val buckets = Array(5) { Bucket() }
+    private val buckets = Array(BUCKETS) { Bucket() }
     // Bucket per-fondo: imparano solo quando il fondo corrente è noto.
     // I bucket globali restano la base (fondo ignoto, pochi campioni).
-    private val pavedBuckets   = Array(5) { Bucket() }
-    private val unpavedBuckets = Array(5) { Bucket() }
+    private val pavedBuckets   = Array(BUCKETS) { Bucket() }
+    private val unpavedBuckets = Array(BUCKETS) { Bucket() }
     private var overallEma     = 0.0
     private var overallSamples = 0
     private var smoothedGrade  = 0.0
@@ -170,19 +186,13 @@ class AdaptiveSpeedModel {
         overallEma     = snap.overallEma
         overallSamples = snap.overallSamples
         smoothedGrade  = 0.0
+        val bEma = migrateLegacyFive(snap.bucketEmas);  val bCnt = migrateLegacyFive(snap.bucketCounts)
+        val pEma = migrateLegacyFive(snap.pavedEmas);   val pCnt = migrateLegacyFive(snap.pavedCounts)
+        val uEma = migrateLegacyFive(snap.unpavedEmas); val uCnt = migrateLegacyFive(snap.unpavedCounts)
         for (i in buckets.indices) {
-            buckets[i] = Bucket(
-                ema   = snap.bucketEmas.getOrElse(i) { 0.0 },
-                count = snap.bucketCounts.getOrElse(i) { 0 },
-            )
-            pavedBuckets[i] = Bucket(
-                ema   = snap.pavedEmas.getOrElse(i) { 0.0 },
-                count = snap.pavedCounts.getOrElse(i) { 0 },
-            )
-            unpavedBuckets[i] = Bucket(
-                ema   = snap.unpavedEmas.getOrElse(i) { 0.0 },
-                count = snap.unpavedCounts.getOrElse(i) { 0 },
-            )
+            buckets[i]        = Bucket(bEma.getOrElse(i) { 0.0 }, bCnt.getOrElse(i) { 0 })
+            pavedBuckets[i]   = Bucket(pEma.getOrElse(i) { 0.0 }, pCnt.getOrElse(i) { 0 })
+            unpavedBuckets[i] = Bucket(uEma.getOrElse(i) { 0.0 }, uCnt.getOrElse(i) { 0 })
         }
     }
 
@@ -209,7 +219,7 @@ class AdaptiveSpeedModel {
 
     private fun flatSpeed(): Double {
         // Usa l'EMA del bucket pianura se disponibile, altrimenti overall, altrimenti default
-        val flat = buckets[1]
+        val flat = buckets[FLAT_BUCKET]
         return when {
             flat.count >= MIN_TRUSTED -> flat.ema
             overallSamples > 0        -> overallEma

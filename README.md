@@ -23,7 +23,7 @@ The MTA row only exists while a mandatory arrival time is set; without one the d
 ## How It Works
 
 ### Adaptive speed model
-- Five gradient buckets: descent (< -5%), flat (-5..+2%), climb (+2..+6%), steep (+6..+10%), wall (> +10%).
+- Six gradient buckets: descent (< -6%), gentle descent (-6..-2%), flat (-2..+2%), climb (+2..+6%), steep (+6..+10%), wall (> +10%). Until 05/09 there were five, with "flat" spanning -5..+2%: on that day's ride the -6..-2% band averaged 15.5 km/h and 0..+2% averaged 9.9, and one bucket described neither. A saved five-bucket model is migrated on load by splitting the old flat bucket; both halves re-learn within one EMA window.
 - Each bucket keeps an exponential moving average of your observed speed, sampled at 1 Hz while recording. Cumulative mean for the first 1200 samples, then an EMA with an equivalent window of **~20 minutes of riding at that gradient** — stable against traffic lights and short stops, still adaptive to how your legs feel today.
 - The model is persisted across rides and shown in the extension's app page.
 - Samples are taken only while actually progressing along the route (at least 20 m of net advance over the last minute, on top of the 0.5 m/s floor). Speed alone is not enough: a device left recording indoors reports GPS-jitter speeds around 1 m/s for hours and would drag the flat bucket down with it.

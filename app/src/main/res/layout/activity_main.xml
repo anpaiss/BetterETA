@@ -129,10 +129,11 @@
         android:layout_marginBottom="8dp" />
 
     <TextView android:id="@+id/tv_b0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Descent: --" android:textColor="#888888" android:textSize="15sp" />
-    <TextView android:id="@+id/tv_b1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Flat: --" android:textColor="#888888" android:textSize="15sp" />
-    <TextView android:id="@+id/tv_b2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Climb: --" android:textColor="#888888" android:textSize="15sp" />
-    <TextView android:id="@+id/tv_b3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Steep: --" android:textColor="#888888" android:textSize="15sp" />
-    <TextView android:id="@+id/tv_b4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wall: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Gentle descent: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Flat: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Climb: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Steep: --" android:textColor="#888888" android:textSize="15sp" />
+    <TextView android:id="@+id/tv_b5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Wall: --" android:textColor="#888888" android:textSize="15sp" />
 
     <TextView
         android:id="@+id/tv_model_overall"

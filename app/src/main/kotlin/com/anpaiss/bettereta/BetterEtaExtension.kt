@@ -921,6 +921,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             snap.pavedCounts.forEachIndexed   { i, c -> putInt("p${i}_cnt", c) }
             snap.unpavedEmas.forEachIndexed   { i, v -> putFloat("u${i}_ema", v.toFloat()) }
             snap.unpavedCounts.forEachIndexed { i, c -> putInt("u${i}_cnt", c) }
+            putInt("bucket_layout", AdaptiveSpeedModel.BUCKETS)   // assente = 5 bucket (fino al 05/09)
             // Physics model (shadow). Persisted for the same reason as the
             // learned buckets: a shadow that restarted cold every ride would be
             // judged on a handicap and the comparison would be biased.
@@ -962,20 +963,30 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             logger.log("MODEL", "Nessun modello salvato — si parte da zero")
             return
         }
+        // Layout salvato: 5 bucket fino al 05/09, 6 dopo. Le liste a cinque
+        // vengono migrate da AdaptiveSpeedModel.restore (bucket piano sdoppiato).
+        val savedBuckets = prefs.getInt("bucket_layout", 5)
+        val idx = 0 until savedBuckets
         val snap = AdaptiveSpeedModel.Snapshot(
             overallEma     = prefs.getFloat("overall_ema", 0f).toDouble(),
             overallSamples = prefs.getInt("overall_samples", 0),
-            bucketEmas     = (0..4).map { prefs.getFloat("b${it}_ema", 0f).toDouble() },
-            bucketCounts   = (0..4).map { prefs.getInt("b${it}_cnt", 0) },
-            pavedEmas      = (0..4).map { prefs.getFloat("p${it}_ema", 0f).toDouble() },
-            pavedCounts    = (0..4).map { prefs.getInt("p${it}_cnt", 0) },
-            unpavedEmas    = (0..4).map { prefs.getFloat("u${it}_ema", 0f).toDouble() },
-            unpavedCounts  = (0..4).map { prefs.getInt("u${it}_cnt", 0) },
+            bucketEmas     = idx.map { prefs.getFloat("b${it}_ema", 0f).toDouble() },
+            bucketCounts   = idx.map { prefs.getInt("b${it}_cnt", 0) },
+            pavedEmas      = idx.map { prefs.getFloat("p${it}_ema", 0f).toDouble() },
+            pavedCounts    = idx.map { prefs.getInt("p${it}_cnt", 0) },
+            unpavedEmas    = idx.map { prefs.getFloat("u${it}_ema", 0f).toDouble() },
+            unpavedCounts  = idx.map { prefs.getInt("u${it}_cnt", 0) },
         )
         speedModel.restore(snap)
+        if (savedBuckets != AdaptiveSpeedModel.BUCKETS) {
+            logger.log("MODEL", "Migrato da $savedBuckets a ${AdaptiveSpeedModel.BUCKETS} bucket: il vecchio piano (-5..+2%) sdoppiato in discesa dolce e piano")
+            saveModel()
+        }
 
-        val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
-            "b$i=%.1fm/s(n=${snap.bucketCounts[i]})".format(v)
+        // Log dello stato effettivo (dopo l'eventuale migrazione), non delle prefs lette
+        val restored  = speedModel.snapshot()
+        val bucketStr = restored.bucketEmas.mapIndexed { i, v ->
+            "b$i=%.1fm/s(n=${restored.bucketCounts[i]})".format(v)
         }.joinToString(" ")
         logger.log("MODEL", "Ripristinato: overall=%.2fm/s n=%d | %s"
             .format(snap.overallEma, snap.overallSamples, bucketStr))

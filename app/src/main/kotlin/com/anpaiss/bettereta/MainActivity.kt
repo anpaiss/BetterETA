@@ -25,7 +25,7 @@ import androidx.appcompat.app.AppCompatActivity
  */
 class MainActivity : AppCompatActivity() {
 
-    private val bucketLabels = listOf("Descent", "Flat", "Climb", "Steep", "Wall")
+    private val bucketLabels = listOf("Descent", "Gentle descent", "Flat", "Climb", "Steep", "Wall")
 
     private lateinit var prefs: Prefs
     private val styleValues = EtaStyle.values()
@@ -179,11 +179,16 @@ class MainActivity : AppCompatActivity() {
     private fun renderModel() {
         // Stessi nomi usati da BetterEtaExtension.saveModel()
         val prefs = getSharedPreferences("better_eta_model", Context.MODE_PRIVATE)
-        val ids = listOf(R.id.tv_b0, R.id.tv_b1, R.id.tv_b2, R.id.tv_b3, R.id.tv_b4)
+        val ids = listOf(R.id.tv_b0, R.id.tv_b1, R.id.tv_b2, R.id.tv_b3, R.id.tv_b4, R.id.tv_b5)
 
+        // Prefs ancora a cinque bucket (prima del primo salvataggio dopo l'update):
+        // stessa migrazione del modello, così le etichette restano giuste
+        val saved  = prefs.getInt("bucket_layout", 5)
+        val emas   = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getFloat("b${it}_ema", 0f) })
+        val counts = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getInt("b${it}_cnt", 0) })
         bucketLabels.forEachIndexed { i, label ->
-            val ema   = prefs.getFloat("b${i}_ema", 0f)
-            val count = prefs.getInt("b${i}_cnt", 0)
+            val ema   = emas.getOrElse(i) { 0f }
+            val count = counts.getOrElse(i) { 0 }
             val tv    = findViewById<TextView>(ids[i])
             tv.text = "$label: %.1f km/h (%d)".format(ema * 3.6f, count)
             tv.setTextColor(if (count > 0) Color.parseColor("#FF5823") else Color.parseColor("#888888"))
