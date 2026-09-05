@@ -475,7 +475,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 RideState.Params, { _ -> }, {}
             ) { state: RideState ->
                 if (rideState !is RideState.Recording && state is RideState.Recording) {
-                    logger.log("RIDE ", "Avviata — model e posizione preservati")
+                    // Idle → Recording = giro nuovo: il fattore di giornata riparte da 1.
+                    // Paused → Recording è una ripresa: resta com'è.
+                    val newRide = rideState is RideState.Idle
+                    if (newRide) {
+                        speedModel.newRide()
+                        logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
+                    } else {
+                        logger.log("RIDE ", "Ripresa — model e posizione preservati")
+                    }
                     rideState = state
                     maybeAskMta()
                 }
@@ -826,11 +834,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val gps   = if (gpsStale) " [GPS stale]" else ""
         val delta = deltaSec?.let { " delta=%+ds".format(it) } ?: ""
         val karoo = if (karooSec > 0) " karoo=${karooSec.roundToInt()}s" else ""
+        val fact  = " f=%.2f".format(speedModel.currentDayFactor)
         val mta   = if (mtaEpochMs > 0L) " mta=%s margin=%s".format(
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)),
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
-            "speed=%.1fm/s grade=%.1f%%%s%s%s%s".format(speedMs, gradePct, delta, karoo, mta, gps))
+            "speed=%.1fm/s grade=%.1f%%%s%s%s%s%s".format(speedMs, gradePct, fact, delta, karoo, mta, gps))
     }
 
     /** Posizione lungo la route secondo il Karoo (routeDistance − DISTANCE_TO_DESTINATION), se pubblicata e dentro la route. */
@@ -922,6 +931,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             snap.unpavedEmas.forEachIndexed   { i, v -> putFloat("u${i}_ema", v.toFloat()) }
             snap.unpavedCounts.forEachIndexed { i, c -> putInt("u${i}_cnt", c) }
             putInt("bucket_layout", AdaptiveSpeedModel.BUCKETS)   // assente = 5 bucket (fino al 05/09)
+            putFloat("day_f", snap.dayFactor.toFloat())
+            putInt("day_n", snap.dayCount)
+            snap.bucketFactors.forEachIndexed      { i, v -> putFloat("f${i}_ema", v.toFloat()) }
+            snap.bucketFactorCounts.forEachIndexed { i, c -> putInt("f${i}_cnt", c) }
             // Physics model (shadow). Persisted for the same reason as the
             // learned buckets: a shadow that restarted cold every ride would be
             // judged on a handicap and the comparison would be biased.
@@ -940,7 +953,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             "%.1f(n=${snap.pavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
             "] unpav[" + snap.unpavedEmas.mapIndexed { i, v ->
             "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
-        logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s"
+        val factStr = "f=%.2f [".format(snap.dayFactor) + speedModel.effectiveFactors().joinToString(",") { "%.2f".format(it) } + "]"
+        logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s | $factStr"
             .format(snap.overallEma, snap.overallSamples, bucketStr, surfStr))
         logger.log("MODEL", "Physics (shadow): pLow=%s W (n=%d) pHigh=%s W (n=%d) massa=%.1fkg".format(
             physicsModel.powerLowW?.let { "%.0f".format(it) } ?: "-", physicsModel.lowSamples,
@@ -976,6 +990,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             pavedCounts    = idx.map { prefs.getInt("p${it}_cnt", 0) },
             unpavedEmas    = idx.map { prefs.getFloat("u${it}_ema", 0f).toDouble() },
             unpavedCounts  = idx.map { prefs.getInt("u${it}_cnt", 0) },
+            dayFactor      = prefs.getFloat("day_f", 1f).toDouble(),
+            dayCount       = prefs.getInt("day_n", 0),
+            bucketFactors      = idx.map { prefs.getFloat("f${it}_ema", 1f).toDouble() },
+            bucketFactorCounts = idx.map { prefs.getInt("f${it}_cnt", 0) },
         )
         speedModel.restore(snap)
         if (savedBuckets != AdaptiveSpeedModel.BUCKETS) {
