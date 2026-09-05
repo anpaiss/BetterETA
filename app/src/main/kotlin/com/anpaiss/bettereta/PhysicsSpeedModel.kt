@@ -48,7 +48,8 @@ class PhysicsSpeedModel {
         // Rolling resistance by surface. UNKNOWN sits just above paved: most
         // roads are paved, but assuming perfectly so is optimistic.
         private const val CRR_PAVED   = 0.005
-        private const val CRR_UNPAVED = 0.015
+        private const val CRR_GRAVEL  = 0.012
+        private const val CRR_TRAIL   = 0.020
         private const val CRR_UNKNOWN = 0.006
 
         /** EU pedelec assist cutoff, a little under 25 km/h to catch the regime cleanly. */
@@ -80,7 +81,8 @@ class PhysicsSpeedModel {
 
         internal fun crrFor(surface: Surface): Double = when (surface) {
             Surface.PAVED   -> CRR_PAVED
-            Surface.UNPAVED -> CRR_UNPAVED
+            Surface.GRAVEL  -> CRR_GRAVEL
+            Surface.TRAIL   -> CRR_TRAIL
             Surface.UNKNOWN -> CRR_UNKNOWN
         }
     }

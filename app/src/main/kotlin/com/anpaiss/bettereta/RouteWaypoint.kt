@@ -8,12 +8,14 @@ data class RouteWaypoint(
 )
 
 /**
- * Classe di fondo stradale. Due sole classi: di più frammenterebbe
- * l'apprendimento (i bucket per-fondo imparano da zero).
+ * Classe di fondo stradale, tre classi dal 05/09: nel vecchio "non asfalto"
+ * la strada bianca battuta e il sentiero di radici avevano la stessa media.
+ * Vedi SurfaceTagClassifier per la mappatura dai tag OSM.
  */
 enum class Surface {
     PAVED,    // asfalto, cemento, autobloccanti
-    UNPAVED,  // ghiaia, sterrato, sentiero, fondo smosso
+    GRAVEL,   // ghiaia, sterrato battuto, strada forestale
+    TRAIL,    // sentiero, terra, erba, sabbia, roccia
     UNKNOWN,  // dato OSM assente o route non classificata
 }
 

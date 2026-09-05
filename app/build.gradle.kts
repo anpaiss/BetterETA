@@ -23,7 +23,11 @@ android {
     defaultConfig {
         applicationId = "com.anpaiss.bettereta"
         minSdk        = 23
-        targetSdk     = 34
+        // 28 (storage legacy): unica via per leggere le mappe offline del Karoo in
+        // /sdcard/offline/maps su Android 12; karoo-routegraph, nella libreria
+        // ufficiale Hammerhead, fa lo stesso.
+        //noinspection ExpiredTargetSdkVersion
+        targetSdk     = 28
         versionCode   = appVersionCode
         versionName   = releaseVersion
     }
@@ -97,6 +101,7 @@ kotlin {
 
 dependencies {
     implementation(libs.hammerhead.karoo.ext)
+    implementation(libs.mapsforge.map.reader)   // fondo dalle mappe offline del Karoo (file Mapsforge)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.lifecycle.runtime)

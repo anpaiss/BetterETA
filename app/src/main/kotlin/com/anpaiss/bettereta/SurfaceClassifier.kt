@@ -11,8 +11,9 @@ import kotlin.math.cos
 import kotlin.math.sqrt
 
 /**
- * Classifica il fondo (PAVED/UNPAVED) di ogni waypoint della route usando le
- * way OSM nel corridoio del percorso, via Overpass API.
+ * Classifica il fondo (PAVED/GRAVEL/TRAIL) di ogni waypoint della route
+ * usando le way OSM nel corridoio del percorso: dalle mappe offline del
+ * Karoo se leggibili (vedi MapsforgeSurfaceSource), altrimenti via Overpass.
  *
  * Flusso: prima si abbinano i waypoint alle way già in cache ([SurfaceWayStore],
  * geografica, indipendente dalla route); solo i tratti mai interrogati vengono
@@ -24,7 +25,11 @@ import kotlin.math.sqrt
  * La cache è su file e sopravvive ai riavvii del servizio, che a metà giro
  * avvengono senza connettività.
  */
-class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
+class SurfaceClassifier(
+    context: Context,
+    private val logger: BetterEtaLogger,
+    private val offlineMaps: MapsforgeSurfaceSource? = null,
+) {
 
     private val cacheFile = File(context.filesDir, "surface_ways.txt")
     // Formato precedente (fondo per indice, chiave = hash polyline): non riusabile
@@ -55,22 +60,6 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         private const val MAX_RUNS          = 40      // oltre: una catena unica dal primo all'ultimo scoperto
         private const val RETRY_BACKOFF_MS  = 5 * 60_000L
 
-        private val PAVED_SURFACES = setOf(
-            "asphalt", "paved", "concrete", "concrete:plates", "concrete:lanes",
-            "paving_stones", "sett", "chipseal", "metal", "wood",
-        )
-        private val UNPAVED_SURFACES = setOf(
-            "gravel", "fine_gravel", "compacted", "ground", "dirt", "earth",
-            "unpaved", "sand", "grass", "mud", "rock", "stone", "pebblestone",
-            "cobblestone", "woodchips", "grass_paver",
-        )
-        private val UNPAVED_HIGHWAYS = setOf("path", "track", "bridleway")
-        private val PAVED_HIGHWAYS = setOf(
-            "motorway", "trunk", "primary", "secondary", "tertiary", "unclassified",
-            "residential", "service", "living_street", "cycleway", "footway",
-            "pedestrian", "motorway_link", "trunk_link", "primary_link",
-            "secondary_link", "tertiary_link",
-        )
     }
 
     /**
@@ -101,6 +90,18 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
 
         val runs   = missingRuns(waypoints, missing)
         val chains = runs.map { sampleChain(it) }
+
+        // Prima le mappe offline del Karoo (nessuna rete), poi Overpass
+        val offline = offlineMaps?.fetchWays(chains)
+        if (offline != null) {
+            store.add(SurfaceWayStore.Batch(System.currentTimeMillis(), runs.map { r -> r.map { it.lat to it.lon } }, offline.ways))
+            saveStore(store)
+            match = store.match(waypoints)
+            logger.log("SURF ", "Fondo da mappe offline (${offline.ways.size} way [${offline.classCounts()}] da ${offline.tiles} tile in ${offline.files} file, " +
+                "${offline.millis}ms, per ${missing.size}/${waypoints.size} waypoint; cache ${store.wayCount} way): ${summary(match.surfaces, waypoints)}")
+            return Result(match.surfaces, match.wayKeys, true)
+        }
+
         val ways = try {
             fetchWays(chains).also { lastFetchFailMs = 0L }
         } catch (e: Exception) {
@@ -220,22 +221,11 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         return result
     }
 
-    /** Classifica una way dai tag; null se non classificabile (esclusa dal match). */
+    /** Classifica una way dai tag (stessa regola delle mappe offline); null se non classificabile. */
     private fun classifyTags(tags: JSONObject): Surface? {
-        val surface = tags.optString("surface")
-        if (surface.isNotBlank()) {
-            return when {
-                surface in PAVED_SURFACES   -> Surface.PAVED
-                surface in UNPAVED_SURFACES -> Surface.UNPAVED
-                else                        -> null
-            }
-        }
-        // Senza tag surface: il tipo di strada come proxy
-        return when (tags.optString("highway")) {
-            in UNPAVED_HIGHWAYS -> Surface.UNPAVED
-            in PAVED_HIGHWAYS   -> Surface.PAVED
-            else                -> null
-        }
+        val map = HashMap<String, String>()
+        for (k in tags.keys()) map[k] = tags.optString(k)
+        return SurfaceTagClassifier.classify(map)
     }
 
     private fun approxDistM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -265,20 +255,14 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
     }
 
     private fun summary(surfaces: List<Surface>, waypoints: List<RouteWaypoint>): String {
-        var paved = 0.0; var unpaved = 0.0; var unknown = 0.0
+        val km = DoubleArray(Surface.entries.size)
         for (i in 0 until waypoints.size - 1) {
             val d = approxDistM(waypoints[i].lat, waypoints[i].lon, waypoints[i+1].lat, waypoints[i+1].lon)
-            when (surfaces.getOrElse(i) { Surface.UNKNOWN }) {
-                Surface.PAVED   -> paved += d
-                Surface.UNPAVED -> unpaved += d
-                Surface.UNKNOWN -> unknown += d
-            }
+            km[surfaces.getOrElse(i) { Surface.UNKNOWN }.ordinal] += d
         }
-        val tot = (paved + unpaved + unknown).coerceAtLeast(1.0)
-        return "%.1fkm paved (%d%%), %.1fkm unpaved (%d%%), %.1fkm ? (%d%%)".format(
-            paved / 1000, (paved / tot * 100).toInt(),
-            unpaved / 1000, (unpaved / tot * 100).toInt(),
-            unknown / 1000, (unknown / tot * 100).toInt(),
-        )
+        val tot = km.sum().coerceAtLeast(1.0)
+        return Surface.entries.joinToString(", ") { s ->
+            "%.1fkm %s (%d%%)".format(km[s.ordinal] / 1000, s.name.lowercase(), (km[s.ordinal] / tot * 100).toInt())
+        }
     }
 }

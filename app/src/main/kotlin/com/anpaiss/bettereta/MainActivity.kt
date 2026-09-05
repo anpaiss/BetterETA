@@ -44,6 +44,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
         bindStyleSpinner()
+        findViewById<Button>(R.id.btn_grant_storage).setOnClickListener {
+            requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
+        }
         findViewById<Button>(R.id.btn_grant_overlay).setOnClickListener {
             startActivity(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
@@ -120,6 +124,57 @@ class MainActivity : AppCompatActivity() {
         renderResults()
         findViewById<TextView>(R.id.tv_overlay_status).text =
             "Overlay permission: " + if (Settings.canDrawOverlays(this)) "granted" else "NOT granted"
+        renderStorageStatus()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        renderStorageStatus()
+    }
+
+    /**
+     * Stato delle mappe offline con una lettura di prova: apre ogni file .map e
+     * legge un tile al centro della sua area. Dice subito se permesso, file e
+     * libreria funzionano, senza aspettare una route (log SURF nel file).
+     */
+    private fun renderStorageStatus() {
+        val tv = findViewById<TextView>(R.id.tv_storage_status)
+        val granted = checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) { tv.text = "Offline maps: storage permission NOT granted (tap the button)"; return }
+        val dir  = java.io.File(android.os.Environment.getExternalStorageDirectory(), "offline/maps")
+        val maps = dir.listFiles { f -> f.name.endsWith(".map") }?.sortedBy { it.name }.orEmpty()
+        if (maps.isEmpty()) { tv.text = "Offline maps: none found in ${dir.absolutePath}"; return }
+        tv.text = "Offline maps: ${maps.joinToString { it.name }} — probing…"
+        Thread {
+            val logger = BetterEtaLogger.shared ?: BetterEtaLogger(this, announce = false)
+            val lines = maps.map { f ->
+                runCatching {
+                    val reader = org.mapsforge.map.reader.MapFile(f)
+                    try {
+                        val bb = reader.boundingBox()
+                        // Punto di prova: l'ultimo fix GPS se dentro la mappa, altrimenti il
+                        // centro dell'area (che per l'Italia cade in mare: zero way è normale)
+                        val fixLat = prefs.lastFixLat; val fixLon = prefs.lastFixLon
+                        val useFix = fixLat != 0.0 && bb.contains(fixLat, fixLon)
+                        val cLat = if (useFix) fixLat else (bb.minLatitude + bb.maxLatitude) / 2
+                        val cLon = if (useFix) fixLon else (bb.minLongitude + bb.maxLongitude) / 2
+                        val src = MapsforgeSurfaceSource(this, logger, dir)
+                        val fetch = src.fetchWays(listOf(listOf(cLat to cLon)))
+                        val msg = "${f.name}: %.1f MB, ${fetch?.ways?.size ?: 0} highway ways [${fetch?.classCounts() ?: "-"}] in the tile at %.4f,%.4f (%s, ${fetch?.millis ?: 0} ms)"
+                            .format(f.length() / 1e6, cLat, cLon, if (useFix) "last GPS fix" else "map center")
+                        logger.log("SURF ", "Prova mappe offline — $msg")
+                        msg
+                    } finally { reader.close() }
+                }.getOrElse { e ->
+                    logger.logError("SURF ", "Prova mappe offline fallita su ${f.name}", e)
+                    "${f.name}: ERROR ${e::class.simpleName}: ${e.message}"
+                }
+            }
+            runOnUiThread { tv.text = "Offline maps:" + (10).toChar() + lines.joinToString((10).toChar().toString()) }
+        }.start()
     }
 
     /** Storico confronto ETA vs Karoo: media in testa, poi le ultime uscite. */

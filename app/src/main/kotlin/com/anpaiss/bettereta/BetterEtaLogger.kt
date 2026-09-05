@@ -27,7 +27,7 @@ import java.util.Locale
  * `adb logcat -s BetterEta`; se la scrittura su file fallisce, l'errore finisce
  * su Logcat invece di sparire in silenzio.
  */
-class BetterEtaLogger(context: Context) {
+class BetterEtaLogger(context: Context, announce: Boolean = true) {
 
     private val file: File
     private val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
@@ -53,9 +53,11 @@ class BetterEtaLogger(context: Context) {
             context.filesDir
         }
         file = File(dir, "better_eta.log")
-        log("SYS", "=== BetterETA avviato ===")
-        log("SYS", "Log: ${file.absolutePath}")
-        log("SYS", "Recupero: adb pull \"${file.absolutePath}\"")
+        if (announce) {
+            log("SYS", "=== BetterETA avviato ===")
+            log("SYS", "Log: ${file.absolutePath}")
+            log("SYS", "Recupero: adb pull \"${file.absolutePath}\"")
+        }
     }
 
     /** Scrive una riga timestampata. Thread-safe. */

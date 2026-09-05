@@ -140,7 +140,7 @@ class PhysicsSpeedModelTest {
         val a = PhysicsSpeedModel().apply { setRiderMassKg(70.0); learn(5.0, 6.0); learn(6.8, 0.0) }
         val b = PhysicsSpeedModel().apply { restore(a.snapshot()) }
         assertEquals(a.snapshot(), b.snapshot())
-        assertEquals(a.predictSpeedMs(4.0, Surface.UNPAVED), b.predictSpeedMs(4.0, Surface.UNPAVED))
+        assertEquals(a.predictSpeedMs(4.0, Surface.GRAVEL), b.predictSpeedMs(4.0, Surface.GRAVEL))
     }
 
     // ── wiring into the cascade ─────────────────────────────────────────

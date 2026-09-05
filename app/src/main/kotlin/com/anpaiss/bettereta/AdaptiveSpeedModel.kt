@@ -90,7 +90,8 @@ class AdaptiveSpeedModel {
     // Bucket per-fondo: imparano solo quando il fondo corrente è noto.
     // I bucket globali restano la base (fondo ignoto, pochi campioni).
     private val pavedBuckets   = Array(BUCKETS) { Bucket() }
-    private val unpavedBuckets = Array(BUCKETS) { Bucket() }
+    private val unpavedBuckets = Array(BUCKETS) { Bucket() }   // GRAVEL (erede del vecchio "unpaved")
+    private val trailBuckets   = Array(BUCKETS) { Bucket() }
     private var overallEma     = 0.0
     private var overallSamples = 0
     private var smoothedGrade  = 0.0
@@ -227,7 +228,8 @@ class AdaptiveSpeedModel {
 
     private fun surfaceBuckets(surface: Surface): Array<Bucket>? = when (surface) {
         Surface.PAVED   -> pavedBuckets
-        Surface.UNPAVED -> unpavedBuckets
+        Surface.GRAVEL  -> unpavedBuckets
+        Surface.TRAIL   -> trailBuckets
         Surface.UNKNOWN -> null
     }
 
@@ -241,6 +243,8 @@ class AdaptiveSpeedModel {
         val pavedCounts: List<Int>     = emptyList(),
         val unpavedEmas: List<Double>  = emptyList(),
         val unpavedCounts: List<Int>   = emptyList(),
+        val trailEmas: List<Double>    = emptyList(),
+        val trailCounts: List<Int>     = emptyList(),
         // Fattore di giornata (persistito perché l'estensione può ripartire a metà giro)
         val dayFactor: Double          = 1.0,
         val dayCount: Int              = 0,
@@ -258,6 +262,8 @@ class AdaptiveSpeedModel {
         pavedCounts    = pavedBuckets.map { it.count },
         unpavedEmas    = unpavedBuckets.map { it.ema },
         unpavedCounts  = unpavedBuckets.map { it.count },
+        trailEmas      = trailBuckets.map { it.ema },
+        trailCounts    = trailBuckets.map { it.count },
         dayFactor      = dayFactor,
         dayCount       = dayCount,
         bucketFactors  = bucketFactor.toList(),
@@ -272,10 +278,12 @@ class AdaptiveSpeedModel {
         val bEma = migrateLegacyFive(snap.bucketEmas);  val bCnt = migrateLegacyFive(snap.bucketCounts)
         val pEma = migrateLegacyFive(snap.pavedEmas);   val pCnt = migrateLegacyFive(snap.pavedCounts)
         val uEma = migrateLegacyFive(snap.unpavedEmas); val uCnt = migrateLegacyFive(snap.unpavedCounts)
+        val tEma = migrateLegacyFive(snap.trailEmas);   val tCnt = migrateLegacyFive(snap.trailCounts)
         for (i in buckets.indices) {
             buckets[i]        = Bucket(bEma.getOrElse(i) { 0.0 }, bCnt.getOrElse(i) { 0 })
             pavedBuckets[i]   = Bucket(pEma.getOrElse(i) { 0.0 }, pCnt.getOrElse(i) { 0 })
             unpavedBuckets[i] = Bucket(uEma.getOrElse(i) { 0.0 }, uCnt.getOrElse(i) { 0 })
+            trailBuckets[i]   = Bucket(tEma.getOrElse(i) { 0.0 }, tCnt.getOrElse(i) { 0 })
             bucketFactor[i]   = snap.bucketFactors.getOrElse(i) { 1.0 }
             bucketFactorN[i]  = snap.bucketFactorCounts.getOrElse(i) { 0 }
         }
@@ -289,6 +297,7 @@ class AdaptiveSpeedModel {
             buckets[i]        = Bucket()
             pavedBuckets[i]   = Bucket()
             unpavedBuckets[i] = Bucket()
+            trailBuckets[i]   = Bucket()
         }
         overallEma     = 0.0
         overallSamples = 0

@@ -33,7 +33,7 @@ class SurfaceWayStoreTest {
         runs = listOf(line(0.0, 1000.0, 100.0)),
         ways = listOf(
             OsmWay(1, Surface.PAVED,   line(0.0, 500.0, 250.0)),
-            OsmWay(2, Surface.UNPAVED, line(500.0, 1000.0, 250.0, northM = 5.0)),
+            OsmWay(2, Surface.GRAVEL, line(500.0, 1000.0, 250.0, northM = 5.0)),
         ),
     )
 
@@ -44,8 +44,8 @@ class SurfaceWayStoreTest {
         assertTrue(m.missing.isEmpty())
         assertEquals(Surface.PAVED,   m.surfaces[0])     // x = 0
         assertEquals(Surface.PAVED,   m.surfaces[8])     // x = 400
-        assertEquals(Surface.UNPAVED, m.surfaces[14])    // x = 700
-        assertEquals(Surface.UNPAVED, m.surfaces[20])    // x = 1000
+        assertEquals(Surface.GRAVEL, m.surfaces[14])    // x = 700
+        assertEquals(Surface.GRAVEL, m.surfaces[20])    // x = 1000
     }
 
     @Test
@@ -64,7 +64,7 @@ class SurfaceWayStoreTest {
         assertEquals((11..20).toList(), m.missing)          // x = 1100 .. 2000
         assertEquals(11, m.coveredCount)
         assertEquals(Surface.UNKNOWN, m.surfaces[15])       // no way there yet
-        assertEquals(Surface.UNPAVED, m.surfaces[9])        // x = 900, cached way
+        assertEquals(Surface.GRAVEL, m.surfaces[9])        // x = 900, cached way
     }
 
     @Test

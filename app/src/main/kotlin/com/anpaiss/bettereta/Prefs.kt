@@ -51,8 +51,18 @@ class Prefs(ctx: Context) {
         get() = sp.getLong(KEY_MTA_ASKED_AT_MS, 0L)
         set(v) = sp.edit().putLong(KEY_MTA_ASKED_AT_MS, v).apply()
 
+    /** Ultimo fix GPS (per la prova delle mappe offline nella schermata dell'app); 0 = mai. */
+    var lastFixLat: Double
+        get() = sp.getFloat(KEY_LAST_FIX_LAT, 0f).toDouble()
+        set(v) = sp.edit().putFloat(KEY_LAST_FIX_LAT, v.toFloat()).apply()
+    var lastFixLon: Double
+        get() = sp.getFloat(KEY_LAST_FIX_LON, 0f).toDouble()
+        set(v) = sp.edit().putFloat(KEY_LAST_FIX_LON, v.toFloat()).apply()
+
     companion object {
         private const val NAME = "better_eta_prefs"
+        private const val KEY_LAST_FIX_LAT = "last_fix_lat"
+        private const val KEY_LAST_FIX_LON = "last_fix_lon"
         const val KEY_TILE_STYLE = "tile_style"
         private const val KEY_MTA_EPOCH_MS   = "mta_epoch_ms"
         private const val KEY_MTA_ROUTE_HASH = "mta_route_hash"

@@ -22,7 +22,7 @@ class SampleLogFormatTest {
         gpsAgeMs      = 1200L,
         speedMs       = 6.5,
         gradePct      = -3.25,
-        surface       = Surface.UNPAVED,
+        surface       = Surface.GRAVEL,
         posOursM      = 1234.56,
         posKarooM     = posKarooM,
         onRoute       = onRoute,

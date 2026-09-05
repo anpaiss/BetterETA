@@ -108,7 +108,7 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
     //  SURF2
     //  B <timeMs>
     //  R lat,lon;lat,lon;...
-    //  W <id> <surface ordinal> lat,lon;lat,lon;...
+    //  W <id> <surface name> lat,lon;lat,lon;...   (SURF2: ordinale a due classi 0=PAVED 1=UNPAVED→GRAVEL)
 
     fun serialize(): String = buildString {
         append(HEADER).append('\n')
@@ -116,7 +116,7 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
             append("B ").append(b.timeMs).append('\n')
             for (r in b.runs) append("R ").append(encodePoints(r)).append('\n')
             for (w in b.ways) {
-                append("W ").append(w.id).append(' ').append(w.surface.ordinal).append(' ')
+                append("W ").append(w.id).append(' ').append(w.surface.name).append(' ')
                     .append(encodePoints(w.points)).append('\n')
             }
         }
@@ -126,14 +126,22 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
         const val MATCH_MAX_DIST_M = 30.0     // waypoint→way oltre questa = UNKNOWN
         const val COVER_M          = 40.0     // waypoint→corridoio già chiesto oltre questa = da chiedere
         const val MAX_WAY_POINTS   = 200_000  // ~5 MB di file, decine di route
-        private const val HEADER   = "SURF2"
+        private const val HEADER   = "SURF3"
+        private const val LEGACY_HEADER = "SURF2"
         private const val GRID_CELL_M = 330.0
 
         /** Store vuoto se il testo non è nel formato atteso (incluso il file legacy JSON). */
         fun parse(text: String, maxWayPoints: Int = MAX_WAY_POINTS): SurfaceWayStore {
             val store = SurfaceWayStore(maxWayPoints)
             val lines = text.lineSequence().iterator()
-            if (!lines.hasNext() || lines.next().trim() != HEADER) return store
+            val header = if (lines.hasNext()) lines.next().trim() else ""
+            if (header != HEADER && header != LEGACY_HEADER) return store
+            fun surfaceOf(token: String): Surface = when (token) {
+                "0" -> Surface.PAVED
+                "1" -> Surface.GRAVEL
+                "2" -> Surface.UNKNOWN
+                else -> runCatching { Surface.valueOf(token) }.getOrDefault(Surface.UNKNOWN)
+            }
 
             var time = 0L
             var runs = mutableListOf<List<Pair<Double, Double>>>()
@@ -152,7 +160,7 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
                         line.startsWith("W ") -> {
                             val p = line.split(' ', limit = 4)
                             val pts = decodePoints(p[3])
-                            if (pts.isNotEmpty()) ways.add(OsmWay(p[1].toLong(), Surface.entries[p[2].toInt()], pts))
+                            if (pts.isNotEmpty()) ways.add(OsmWay(p[1].toLong(), surfaceOf(p[2]), pts))
                         }
                     }
                 }

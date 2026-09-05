@@ -131,6 +131,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     // Timestamp dell'ultimo fix GPS ricevuto (0 = mai ricevuto)
     @Volatile private var lastGpsUpdateMs  = 0L
+    @Volatile private var lastFixSavedMs   = 0L
     // Stato GPS per logging (evita righe duplicate)
     @Volatile private var gpsStaleLogged  = false
     @Volatile private var gpsStaleStartMs = 0L
@@ -214,7 +215,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         BetterEtaLogger.shared = logger
         sampleLog = SampleLog(applicationContext)
         logger.log("SYS  ", "Sample log: ${sampleLog.path}")
-        surfaceClassifier = SurfaceClassifier(applicationContext, logger)
+        surfaceClassifier = SurfaceClassifier(applicationContext, logger,
+            MapsforgeSurfaceSource(applicationContext, logger))
         prefs = Prefs(applicationContext)
         loadWayMemory()
         mtaPopup = MtaPopupController(applicationContext, logger,
@@ -472,7 +474,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     logger.log("GPS  ", "Primo fix: %.5f, %.5f".format(event.lat, event.lng))
                 }
                 locationFlow.value = event.lat to event.lng
-                lastGpsUpdateMs    = System.currentTimeMillis()
+                val nowFix = System.currentTimeMillis()
+                // Ultimo fix nelle prefs una volta al minuto (prova mappe offline nell'app)
+                if (nowFix - lastFixSavedMs > 60_000L) {
+                    lastFixSavedMs = nowFix
+                    prefs.lastFixLat = event.lat; prefs.lastFixLon = event.lng
+                }
+                lastGpsUpdateMs    = nowFix
             }
 
             // ── Profilo utente: massa per il modello fisico ───────────────────────
@@ -1035,6 +1043,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             snap.pavedCounts.forEachIndexed   { i, c -> putInt("p${i}_cnt", c) }
             snap.unpavedEmas.forEachIndexed   { i, v -> putFloat("u${i}_ema", v.toFloat()) }
             snap.unpavedCounts.forEachIndexed { i, c -> putInt("u${i}_cnt", c) }
+            snap.trailEmas.forEachIndexed     { i, v -> putFloat("t${i}_ema", v.toFloat()) }
+            snap.trailCounts.forEachIndexed   { i, c -> putInt("t${i}_cnt", c) }
             putInt("bucket_layout", AdaptiveSpeedModel.BUCKETS)   // assente = 5 bucket (fino al 05/09)
             putFloat("day_f", snap.dayFactor.toFloat())
             putInt("day_n", snap.dayCount)
@@ -1056,8 +1066,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         }.joinToString(" ")
         val surfStr = "pav[" + snap.pavedEmas.mapIndexed { i, v ->
             "%.1f(n=${snap.pavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
-            "] unpav[" + snap.unpavedEmas.mapIndexed { i, v ->
-            "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
+            "] gravel[" + snap.unpavedEmas.mapIndexed { i, v ->
+            "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
+            "] trail[" + snap.trailEmas.mapIndexed { i, v ->
+            "%.1f(n=${snap.trailCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
         val factStr = "f=%.2f [".format(snap.dayFactor) + speedModel.effectiveFactors().joinToString(",") { "%.2f".format(it) } + "]"
         logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s | $factStr"
             .format(snap.overallEma, snap.overallSamples, bucketStr, surfStr))
@@ -1095,6 +1107,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             pavedCounts    = idx.map { prefs.getInt("p${it}_cnt", 0) },
             unpavedEmas    = idx.map { prefs.getFloat("u${it}_ema", 0f).toDouble() },
             unpavedCounts  = idx.map { prefs.getInt("u${it}_cnt", 0) },
+            trailEmas      = idx.map { prefs.getFloat("t${it}_ema", 0f).toDouble() },
+            trailCounts    = idx.map { prefs.getInt("t${it}_cnt", 0) },
             dayFactor      = prefs.getFloat("day_f", 1f).toDouble(),
             dayCount       = prefs.getInt("day_n", 0),
             bucketFactors      = idx.map { prefs.getFloat("f${it}_ema", 1f).toDouble() },

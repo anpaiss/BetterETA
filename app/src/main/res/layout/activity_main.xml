@@ -111,6 +111,42 @@
         android:layout_height="wrap_content"
         android:text="Allow popup (overlay permission)" />
 
+    <!-- Fondo dalle mappe offline del Karoo: serve la lettura dello storage -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="SURFACE FROM OFFLINE MAPS"
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:letterSpacing="0.1"
+        android:layout_marginTop="24dp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Road surface (paved / gravel / trail) is read from the Karoo's own offline maps, no network needed. Overpass is the fallback."
+        android:textColor="#CCCCCC"
+        android:textSize="13sp"
+        android:gravity="center"
+        android:lineSpacingMultiplier="1.3"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tv_storage_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Offline maps: --"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btn_grant_storage"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Allow reading offline maps" />
+
     <!-- INFO: modello velocità appreso (snapshot salvato a ogni pausa/stop) -->
     <TextView
         android:layout_width="match_parent"
