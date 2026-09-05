@@ -75,6 +75,7 @@ class SampleLogFormatTest {
         assertEquals("", cells[header.indexOf("eta_physics_s")])
         assertEquals("", cells[header.indexOf("p_low_w")])
         assertEquals("", cells[header.indexOf("model_rung")])
+        assertEquals("", cells[header.indexOf("mta_margin_s")])
     }
 
     @Test

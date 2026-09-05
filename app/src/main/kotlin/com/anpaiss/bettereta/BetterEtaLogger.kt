@@ -20,7 +20,9 @@ import java.util.Locale
  * Se il log è nel filesDir interno (Android < 10 / storage non disponibile):
  *   adb shell run-as com.anpaiss.bettereta cat files/better_eta.log
  *
- * Rotazione automatica a 1 MB → il file precedente viene rinominato better_eta.old.log.
+ * Rotazione automatica a 4 MB; si conservano tre generazioni precedenti
+ * (better_eta.old.log, .old2.log, .old3.log), così un giro non copiato in
+ * tempo non sparisce alla rotazione successiva.
  * Ogni riga è replicata anche su Logcat (tag "BetterEta") per il debug live via
  * `adb logcat -s BetterEta`; se la scrittura su file fallisce, l'errore finisce
  * su Logcat invece di sparire in silenzio.
@@ -32,8 +34,16 @@ class BetterEtaLogger(context: Context) {
     private var writeFailLogged = false
 
     companion object {
-        private const val MAX_SIZE_BYTES = 1024 * 1024L  // 1 MB
-        private const val LOGCAT_TAG     = "BetterEta"
+        private const val MAX_SIZE_BYTES = 4 * 1024 * 1024L  // 4 MB ≈ 40k righe
+        private const val GENERATIONS    = 3
+        const val LOGCAT_TAG             = "BetterEta"
+
+        /**
+         * Istanza dell'estensione, per i DataType che non ricevono il logger
+         * nel costruttore (il ciclo di vita delle viste va nel file: il
+         * ride-app che non riaggancia le viste, 04/09, si è visto solo da logcat).
+         */
+        @Volatile var shared: BetterEtaLogger? = null
     }
 
     init {
@@ -75,10 +85,12 @@ class BetterEtaLogger(context: Context) {
     }
 
     private fun rotate() {
-        val old = File(file.parent, "better_eta.old.log")
-        old.delete()
-        file.renameTo(old)
+        // .old2 → .old3, .old → .old2, corrente → .old (la più vecchia cade)
+        fun gen(i: Int) = File(file.parent, if (i == 1) "better_eta.old.log" else "better_eta.old$i.log")
+        gen(GENERATIONS).delete()
+        for (i in GENERATIONS - 1 downTo 1) gen(i).takeIf { it.exists() }?.renameTo(gen(i + 1))
+        file.renameTo(gen(1))
         file.createNewFile()
-        file.appendText("${fmt.format(Date())} [SYS  ] === Log ruotato (file precedente → .old.log) ===\n")
+        file.appendText("${fmt.format(Date())} [SYS  ] === Log ruotato (file precedente → .old.log, $GENERATIONS generazioni) ===\n")
     }
 }

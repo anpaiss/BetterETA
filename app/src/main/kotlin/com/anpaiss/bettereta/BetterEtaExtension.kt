@@ -126,6 +126,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     // Log ETA ogni LOG_INTERVAL_TICKS secondi (non ogni tick)
     private var logTickCounter = 0
+    // Campioni CSV: 1 Hz in movimento, 1/min da fermo (un giro finto lasciato
+    // acceso una notte ha riempito il file di 40k righe a velocità zero)
+    private var stationarySampleTicks = 0
+
+    // "In movimento" = velocità sopra soglia E avanzamento reale sulla route
+    // nell'ultimo minuto (vedi ProgressGate). Governa apprendimento del
+    // modello, tempo in movimento del pace e cadenza dei campioni.
+    private val progressGate = ProgressGate()
+    @Volatile private var learningPaused = false
 
     // ── Confronto ETA BetterEta vs ETA nativa Karoo ──────────────────────
     // Un campione al minuto (movingAt = tempo in movimento dalla baseline,
@@ -180,6 +189,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     override fun onCreate() {
         super.onCreate()
         logger = BetterEtaLogger(applicationContext)
+        BetterEtaLogger.shared = logger
         sampleLog = SampleLog(applicationContext)
         logger.log("SYS  ", "Sample log: ${sampleLog.path}")
         surfaceClassifier = SurfaceClassifier(applicationContext, logger)
@@ -333,6 +343,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         etaSamples.clear()
                     }
                 }
+                progressGate.reset()
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
                     val segCount = pipeline.remainingSegments().size
@@ -487,12 +498,25 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         continue
                     }
 
-                    // 1. Aggiorna modello (col fondo su cui ci troviamo, se noto)
+                    // 1. Aggiorna modello (col fondo su cui ci troviamo, se noto),
+                    // solo se si sta davvero avanzando sulla route: il GPS che
+                    // balla da fermo dà velocità plausibili ma nessun progresso.
                     val currentSpeedMs  = speedMsFlow.value
                     val currentGradePct = gradePctFlow.value
                     val currentSurface  = pipeline.currentSurface()
-                    speedModel.update(currentSpeedMs, currentGradePct, currentSurface)
-                    physicsModel.update(currentSpeedMs, currentGradePct, currentSurface)
+                    val progressing     = progressGate.onTick(pipeline.distanceAlongRouteM())
+                    val moving          = currentSpeedMs >= 0.5 && progressing
+                    if (moving) {
+                        speedModel.update(currentSpeedMs, currentGradePct, currentSurface)
+                        physicsModel.update(currentSpeedMs, currentGradePct, currentSurface)
+                    }
+                    if (currentSpeedMs >= 0.5 && !progressing && !learningPaused) {
+                        learningPaused = true
+                        logger.log("MODEL", "Apprendimento sospeso: speed=%.1fm/s ma nessun avanzamento sulla route nell'ultimo minuto (GPS fermo?)".format(currentSpeedMs))
+                    } else if (moving && learningPaused) {
+                        learningPaused = false
+                        logger.log("MODEL", "Apprendimento ripreso: avanzamento sulla route rilevato")
+                    }
 
                     // 2. Avanzamento stimato
                     pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
@@ -586,7 +610,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             sampleTickCounter   = 0
                             synchronized(etaSamples) { etaSamples.clear() }
                             logger.log("ETA  ", "Baseline pace catturata: ${remainingSec}s previsti")
-                        } else if (initialRemainingSec >= 0 && currentSpeedMs >= 0.5) {
+                        } else if (initialRemainingSec >= 0 && moving) {
                             movingElapsedSec += TICK_MS / 1000
                         }
                         if (initialRemainingSec >= 0) {
@@ -607,6 +631,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         }
                     }
 
+                    val marginSec = marginFor(remainingSec)
                     etaState.value = EtaState(
                         remainingSeconds       = remainingSec,
                         hasRoute               = true,
@@ -617,10 +642,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         deltaSeconds           = deltaSec,
                         farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
                         mtaEpochMs             = mtaEpochMs,
-                        marginSeconds          = marginFor(remainingSec),
+                        marginSeconds          = marginSec,
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita
+                    stationarySampleTicks = if (moving) 0 else stationarySampleTicks + 1
+                    if (moving || stationarySampleTicks >= 60) {
+                        if (!moving) stationarySampleTicks = 0
                     recordSample(
                         now             = now,
                         speedMs         = currentSpeedMs,
@@ -633,14 +661,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         remainingSec    = remainingSec,
                         shadowSec       = shadow.seconds,
                         fallbackShare   = primary.fallbackDistanceShare,
+                        mtaMarginS      = marginSec,
                     )
+                    }
 
                     // 6. Log periodico ETA
                     logTickCounter++
                     if (logTickCounter >= LOG_INTERVAL_TICKS) {
                         logTickCounter = 0
                         logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale,
-                            remainDistM, deltaSec, karooEtaSec)
+                            remainDistM, deltaSec, karooEtaSec, marginSec)
                     }
                 }
             }
@@ -681,6 +711,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         remainingSec: Long,
         shadowSec: Long,
         fallbackShare: Double,
+        mtaMarginS: Long?,
     ) {
         val karooDist = karooDistToDestM.takeIf { it >= 0.0 }
         sampleLog.record(
@@ -710,13 +741,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 // rather than a learned bucket. If this is small, no fallback —
                 // however good — can move the ETA much.
                 modelRung     = String.format(Locale.US, "%.2f", fallbackShare),
+                mtaMarginS    = mtaMarginS,
             )
         )
     }
 
     private fun logEtaSnapshot(
         remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean,
-        remainDistM: Double, deltaSec: Long?, karooSec: Double,
+        remainDistM: Double, deltaSec: Long?, karooSec: Double, marginSec: Long?,
     ) {
         if (remainingSec <= 0L) return
         val h     = remainingSec / 3600
@@ -724,8 +756,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val gps   = if (gpsStale) " [GPS stale]" else ""
         val delta = deltaSec?.let { " delta=%+ds".format(it) } ?: ""
         val karoo = if (karooSec > 0) " karoo=${karooSec.roundToInt()}s" else ""
+        val mta   = if (mtaEpochMs > 0L) " mta=%s margin=%s".format(
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)),
+            marginSec?.let { "%+ds".format(it) } ?: "-") else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
-            "speed=%.1fm/s grade=%.1f%%%s%s%s".format(speedMs, gradePct, delta, karoo, gps))
+            "speed=%.1fm/s grade=%.1f%%%s%s%s%s".format(speedMs, gradePct, delta, karoo, mta, gps))
     }
 
     private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

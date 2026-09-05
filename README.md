@@ -26,6 +26,7 @@ The MTA row only exists while a mandatory arrival time is set; without one the d
 - Five gradient buckets: descent (< -5%), flat (-5..+2%), climb (+2..+6%), steep (+6..+10%), wall (> +10%).
 - Each bucket keeps an exponential moving average of your observed speed, sampled at 1 Hz while recording. Cumulative mean for the first 1200 samples, then an EMA with an equivalent window of **~20 minutes of riding at that gradient** — stable against traffic lights and short stops, still adaptive to how your legs feel today.
 - The model is persisted across rides and shown in the extension's app page.
+- Samples are taken only while actually progressing along the route (at least 20 m of net advance over the last minute, on top of the 0.5 m/s floor). Speed alone is not enough: a device left recording indoors reports GPS-jitter speeds around 1 m/s for hours and would drag the flat bucket down with it.
 - Buckets without enough samples fall back to observed flat speed × a per-gradient factor (these factors are the only e-bike-specific tuning; on a regular bike the model simply learns different bucket speeds).
 
 ### Physics fallback (shadow, under evaluation)
@@ -113,13 +114,13 @@ The `karoo-ext` library is served from GitHub Packages, which always needs a tok
 
 The extension writes two logs on the device.
 
-**Human-readable log** — rotating at 1 MB with one `.old` generation:
+**Human-readable log** — rotating at 4 MB, three previous generations kept (`better_eta.old.log`, `.old2.log`, `.old3.log`):
 
 ```bash
 adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta.log
 ```
 
-Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), the mandatory arrival time popup, value and alert (`MTA`), which fields are on the visible page (`VIEW`), one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
+Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), the mandatory arrival time popup, value and alert (`MTA`), the view lifecycle — which fields are on the visible page, every `startView`/stop the ride app performs, the dashboard layout in use (`VIEW`) — one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
 
 **Structured sample log** — one CSV row per second while recording, rotating at 4 MB:
 
@@ -127,7 +128,7 @@ Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state 
 adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta_samples.csv
 ```
 
-Every quantity the extension computes sits next to the Karoo's own answer for the same thing: our position along the route against `routeDistance - DISTANCE_TO_DESTINATION`, our remaining ascent against `ASCENT_REMAINING` and against the route's climb list, our ETA against `TIME_TO_DESTINATION`. That is what makes changes to the model judgeable after a ride rather than a matter of opinion. Columns for values not produced yet are present and empty, so files recorded weeks apart stay comparable and can be concatenated. `eta_physics_s` is the shadow ETA and `model_rung` the share (0..1) of the remaining distance whose speed came from the fallback rather than a learned bucket — if that share is small, no fallback can move the ETA much. Rides are separated by `# ride ...` marker lines. Numbers always use a dot as the decimal separator, whatever the device locale.
+Every quantity the extension computes sits next to the Karoo's own answer for the same thing: our position along the route against `routeDistance - DISTANCE_TO_DESTINATION`, our remaining ascent against `ASCENT_REMAINING` and against the route's climb list, our ETA against `TIME_TO_DESTINATION`. That is what makes changes to the model judgeable after a ride rather than a matter of opinion. Columns for values not produced yet are present and empty, so files recorded weeks apart stay comparable and can be concatenated. `eta_physics_s` is the shadow ETA and `model_rung` the share (0..1) of the remaining distance whose speed came from the fallback rather than a learned bucket — if that share is small, no fallback can move the ETA much. `mta_margin_s` is the slack against the mandatory arrival time, empty when none is set. Rows are written at 1 Hz while moving and once a minute while stationary; the file rotates at 4 MB with three previous generations kept. Rides are separated by `# ride ...` marker lines. Numbers always use a dot as the decimal separator, whatever the device locale.
 
 ---
 

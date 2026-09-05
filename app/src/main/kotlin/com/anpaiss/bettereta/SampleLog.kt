@@ -46,6 +46,7 @@ class SampleLog(context: Context) {
 
     companion object {
         private const val MAX_SIZE_BYTES = 4 * 1024 * 1024L  // 4 MB ≈ 7-8 h of riding
+        private const val GENERATIONS    = 3
         private const val LOGCAT_TAG     = "BetterEtaSamples"
 
         /**
@@ -58,7 +59,7 @@ class SampleLog(context: Context) {
             "rem_dist_ours_m,rem_dist_karoo_m," +
             "rem_asc_thresh_m,rem_asc_full_m,rem_asc_karoo_m,rem_asc_climbs_m," +
             "eta_learned_s,eta_physics_s,eta_karoo_s," +
-            "p_low_w,p_high_w,model_rung"
+            "p_low_w,p_high_w,model_rung,mta_margin_s"
 
         /**
          * Serialises one row. Pure and in the companion object on purpose: the
@@ -92,6 +93,7 @@ class SampleLog(context: Context) {
                 num(pLowW, 1),
                 num(pHighW, 1),
                 modelRung.orEmpty(),
+                mtaMarginS?.toString().orEmpty(),
             ).joinToString(",")
         }
 
@@ -129,6 +131,8 @@ class SampleLog(context: Context) {
         val pLowW: Double? = null,
         val pHighW: Double? = null,
         val modelRung: String? = null,
+        /** Seconds of slack against the mandatory arrival time; null when none is set. */
+        val mtaMarginS: Long? = null,
     )
 
     init {
@@ -205,9 +209,11 @@ class SampleLog(context: Context) {
     }
 
     private fun rotate() {
-        val old = File(file.parent, "better_eta_samples.old.csv")
-        old.delete()
-        file.renameTo(old)
+        // Three generations kept: a ride not pulled in time survives the next rotation
+        fun gen(i: Int) = File(file.parent, if (i == 1) "better_eta_samples.old.csv" else "better_eta_samples.old$i.csv")
+        gen(GENERATIONS).delete()
+        for (i in GENERATIONS - 1 downTo 1) gen(i).takeIf { it.exists() }?.renameTo(gen(i + 1))
+        file.renameTo(gen(1))
         file.createNewFile()
         writeHeader()
     }

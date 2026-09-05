@@ -11,7 +11,6 @@ import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UpdateGraphicConfig
 import io.hammerhead.karooext.models.ViewConfig
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -89,9 +88,10 @@ class EtaMasterDataType(
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
-        Log.i("BetterETA", "MASTER startView called: gridSize=${config.gridSize}, viewSize=${config.viewSize}, preview=${config.preview}")
+        BetterEtaLogger.shared?.log("VIEW ", "startView $dataTypeId size=${config.viewSize} preview=${config.preview}")
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val prefs = Prefs(context)
+        var lastLayoutHasMta: Boolean? = null
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             combine(etaState, prefs.styleFlow()) { state, style -> render(context, state, style) }
@@ -107,7 +107,10 @@ class EtaMasterDataType(
                     val hasMta = view.mta != null
                     val views = RemoteViews(context.packageName,
                         if (hasMta) R.layout.view_eta_master else R.layout.view_eta_master_plain)
-                    Log.i("BetterETA", "MASTER redraw layout=${if (hasMta) "mta" else "plain"} eta=${view.eta}")
+                    if (hasMta != lastLayoutHasMta) {
+                        lastLayoutHasMta = hasMta
+                        BetterEtaLogger.shared?.log("VIEW ", "$dataTypeId layout=${if (hasMta) "mta" else "plain"}")
+                    }
                     if (c.bgRes != null) views.setInt(R.id.root_master, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_master, "setBackgroundColor", c.bgColor ?: 0)
                     views.setTextViewText(R.id.tv_master_eta, view.eta)
@@ -138,7 +141,10 @@ class EtaMasterDataType(
                     emitter.updateView(views)
                 }
         }
-        emitter.setCancellable { scope.cancel() }
+        emitter.setCancellable {
+            BetterEtaLogger.shared?.log("VIEW ", "stop $dataTypeId")
+            scope.cancel()
+        }
     }
 
     private fun render(context: Context, state: EtaState, style: EtaStyle): MasterView {

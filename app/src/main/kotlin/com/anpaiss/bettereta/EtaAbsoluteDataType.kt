@@ -62,6 +62,7 @@ class EtaAbsoluteDataType(
     }
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
+        BetterEtaLogger.shared?.log("VIEW ", "startView $dataTypeId size=${config.viewSize} preview=${config.preview}")
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val prefs = Prefs(context)
         scope.launch {
@@ -84,7 +85,10 @@ class EtaAbsoluteDataType(
                     emitter.updateView(views)
                 }
         }
-        emitter.setCancellable { scope.cancel() }
+        emitter.setCancellable {
+            BetterEtaLogger.shared?.log("VIEW ", "stop $dataTypeId")
+            scope.cancel()
+        }
     }
 
     private fun formatEta(context: Context, state: EtaState): String {
