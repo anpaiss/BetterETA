@@ -98,6 +98,6 @@ class EtaAbsoluteDataType(
         val cal  = Calendar.getInstance().apply { timeInMillis = arrivalMs }
         val time = DateFormat.getTimeFormat(context).format(cal.time)
         // "~" indica che il GPS non è disponibile: l'orario è stima per dead reckoning
-        return if (state.gpsStale) "~$time" else time
+        return if (state.gpsStale || state.estimateApprox) "~$time" else time
     }
 }

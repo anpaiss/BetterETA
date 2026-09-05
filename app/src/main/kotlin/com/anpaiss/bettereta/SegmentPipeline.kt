@@ -274,6 +274,25 @@ class SegmentPipeline(
         return result
     }
 
+    /**
+     * Segmenti dal punto [alongM] alla fine, senza toccare la posizione: serve
+     * all'ETA fuori route, calcolato dal punto in cui il Karoo farà rientrare.
+     */
+    suspend fun remainingSegmentsFrom(alongM: Double): List<RouteSegment> = mutex.withLock {
+        var rem = alongM.coerceAtLeast(0.0)
+        var idx = 0
+        while (idx < segments.size && rem >= segments[idx].distanceM) {
+            rem -= segments[idx].distanceM
+            idx++
+        }
+        if (idx >= segments.size) return@withLock emptyList()
+        val result = mutableListOf<RouteSegment>()
+        val first  = segments[idx]
+        if (first.distanceM - rem > 0.0) result.add(first.copy(distanceM = first.distanceM - rem))
+        for (i in idx + 1 until segments.size) result.add(segments[i])
+        result
+    }
+
     // ── private helpers ──────────────────────────────────────────────────
 
     /** Sposta traveledM/currentIndex/consumedInCurrentM al punto targetM dall'inizio. */

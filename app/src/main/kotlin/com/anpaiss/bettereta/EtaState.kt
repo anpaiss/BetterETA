@@ -12,6 +12,8 @@ package com.anpaiss.bettereta
  * @param farthestPointDistanceM  distanza rimanente al punto geograficamente più
  *                          lontano dalla partenza (svolta di un andata/ritorno);
  *                          0 dopo averlo superato, -1 se non disponibile
+ * @param estimateApprox    true se l'ETA è una stima grossolana (fuori route: deviazione
+ *                          di rientro del Karoo a velocità piana + route dal punto di rientro)
  * @param mtaEpochMs        mandatory time of arrival impostato dall'utente (epoch ms);
  *                          0 = nessuno
  * @param marginSeconds     MTA - (adesso + remainingSeconds): secondi di margine,
@@ -28,4 +30,5 @@ data class EtaState(
     val farthestPointDistanceM: Double = -1.0,
     val mtaEpochMs: Long = 0L,
     val marginSeconds: Long? = null,
+    val estimateApprox: Boolean = false,
 )

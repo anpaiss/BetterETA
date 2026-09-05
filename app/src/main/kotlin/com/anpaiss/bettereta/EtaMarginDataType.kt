@@ -86,9 +86,9 @@ class EtaMarginDataType(
 
     private fun render(state: EtaState, style: EtaStyle): MarginView {
         val margin = state.marginSeconds
-            ?: return MarginView("--", "MTA MARGIN", style.colorsFor(Pace.UNKNOWN), style.marginColor(Pace.UNKNOWN))
+            ?: return MarginView("--", "MTA\nMARGIN", style.colorsFor(Pace.UNKNOWN), style.marginColor(Pace.UNKNOWN))
         val pace  = marginPace(margin)
-        val label = if (pace == Pace.LATE) "LATE VS MTA" else "AHEAD OF MTA"
+        val label = if (pace == Pace.LATE) "LATE VS\nMTA" else "AHEAD OF\nMTA"
         return MarginView(ArrivalMargin.format(margin), label, style.colorsFor(pace), style.marginColor(pace))
     }
 }

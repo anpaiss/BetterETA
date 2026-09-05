@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Campo singolo: didascalia a sinistra, valore a destra che riempie l'altezza
-     (autosize). Il layout verticale con valore a 28sp era illeggibile in sella. -->
+<!-- Campo singolo: didascalia a sinistra su due righe e valore a destra, entrambi
+     autosize per riempire l'altezza della cella. Il layout verticale con valore
+     a 28sp e didascalia a 10sp era illeggibile in sella. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root_eta"
     android:layout_width="match_parent"
@@ -9,27 +10,33 @@
     android:gravity="center_vertical"
     android:paddingStart="8dp"
     android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
     android:background="@android:color/transparent">
 
     <TextView
         android:id="@+id/tv_eta_label"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:maxWidth="120dp"
-        android:paddingEnd="8dp"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.34"
+        android:gravity="center_vertical|start"
+        android:paddingEnd="6dp"
         android:text="ETA"
-        android:textSize="14sp"
         android:textStyle="bold"
         android:textColor="#9E9E9E"
         android:textAllCaps="true"
-        android:letterSpacing="0.05"
-        android:maxLines="2" />
+        android:maxLines="2"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="12sp"
+        android:autoSizeMaxTextSize="40sp"
+        android:autoSizeStepGranularity="1sp" />
 
     <TextView
         android:id="@+id/tv_eta_value"
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="1"
+        android:layout_weight="0.66"
         android:gravity="center_vertical|end"
         android:text="--:--"
         android:textStyle="bold"

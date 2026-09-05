@@ -106,6 +106,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     @Volatile private var routeTotalDistM = -1.0
     @Volatile private var routeClimbs: List<OnNavigationState.NavigationState.Climb> = emptyList()
     @Volatile private var rejoinActive = false
+    @Volatile private var karooRejoinDistM: Double? = null   // deviazione di rientro proposta dal Karoo
 
     // Mandatory time of arrival (epoch ms, 0 = nessuno) e hash della polyline
     // per cui il popup è già stato mostrato (risposto o chiuso): una domanda
@@ -239,12 +240,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         routeTotalDistM = nav.routeDistance
                         routeClimbs     = nav.climbs
                         rejoinActive    = nav.rejoinDistance != null || nav.rejoinPolyline != null
+                        karooRejoinDistM = nav.rejoinDistance
                     }
                     is OnNavigationState.NavigationState.NavigatingToDestination -> {
                         routeName       = nav.destination.name ?: "destination"
                         routeTotalDistM = -1.0   // not published for a free destination
                         routeClimbs     = nav.climbs
                         rejoinActive    = false
+                        karooRejoinDistM = null
                     }
                     else -> Unit
                 }
@@ -575,12 +578,41 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     if (offRoute) {
-                        etaState.value = EtaState(
-                            hasRoute      = true,
-                            status        = "Off route",
-                            gpsStale      = gpsStale,
-                            mtaEpochMs    = mtaEpochMs,
-                        )
+                        // Fuori route ma il Karoo sta facendo rientrare: ETA = deviazione
+                        // di rientro (rejoinDistance, senza quote → velocità piana del
+                        // modello) + route dal punto di rientro, che è la posizione lungo
+                        // la route secondo il Karoo. Stima grossolana, marcata "~".
+                        val rejoinM = karooRejoinDistM
+                        if (rejoinM != null && karooPosM != null) {
+                            val segs      = pipeline.remainingSegmentsFrom(karooPosM)
+                            val routeSec  = etaEngine.computeBreakdown(segs).seconds
+                            val flatMs    = speedModel.predict(0.0).speedMs.coerceAtLeast(0.5)
+                            val detourSec = (rejoinM / flatMs).toLong()
+                            val totalSec  = detourSec + routeSec
+                            etaState.value = EtaState(
+                                remainingSeconds   = totalSec,
+                                hasRoute           = true,
+                                status             = "Rejoin",
+                                gpsStale           = gpsStale,
+                                remainingDistanceM = rejoinM + segs.sumOf { it.distanceM },
+                                mtaEpochMs         = mtaEpochMs,
+                                marginSeconds      = marginFor(totalSec),
+                                estimateApprox     = true,
+                            )
+                            logTickCounter++
+                            if (logTickCounter >= LOG_INTERVAL_TICKS) {
+                                logTickCounter = 0
+                                logger.log("ETA  ", "Rejoin: deviazione %.0fm a %.1fm/s (%ds) + route da %.0fm (%ds) = %ds".format(
+                                    rejoinM, flatMs, detourSec, karooPosM, routeSec, totalSec))
+                            }
+                        } else {
+                            etaState.value = EtaState(
+                                hasRoute      = true,
+                                status        = "Off route",
+                                gpsStale      = gpsStale,
+                                mtaEpochMs    = mtaEpochMs,
+                            )
+                        }
                         continue
                     }
 

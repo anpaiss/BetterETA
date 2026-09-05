@@ -96,6 +96,6 @@ class EtaFarthestDataType(
         val km = state.farthestPointDistanceM / 1000.0
         val text = "%.1f".format(km)
         // "~" indica che il GPS non è disponibile: la posizione è stima per dead reckoning
-        return if (state.gpsStale) "~$text" else text
+        return if (state.gpsStale || state.estimateApprox) "~$text" else text
     }
 }

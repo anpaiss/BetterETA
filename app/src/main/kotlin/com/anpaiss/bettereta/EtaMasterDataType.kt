@@ -154,7 +154,7 @@ class EtaMasterDataType(
         if (state.hasRoute && state.remainingSeconds >= 0) {
             val arrivalMs = System.currentTimeMillis() + state.remainingSeconds * 1000L
             val cal = Calendar.getInstance().apply { timeInMillis = arrivalMs }
-            eta       = DateFormat.getTimeFormat(context).format(cal.time)
+            eta       = (if (state.estimateApprox) "~" else "") + DateFormat.getTimeFormat(context).format(cal.time)
             remaining = formatRemaining(state.remainingSeconds)
         } else {
             eta       = "--:--"
