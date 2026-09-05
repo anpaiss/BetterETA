@@ -99,6 +99,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // reckoning congelato — avanzare sulla route mentre si è altrove ha dato
     // 32 min di ETA sbagliato il 05/09 (partenza fuori route, aggancio al km 7,6)
     @Volatile private var offRoute = false
+    // Il suggerimento di posizione del Karoo arriva ~1 min dopo la partenza: al
+    // primo valore si verifica l'aggancio iniziale fatto senza di lui
+    @Volatile private var hintChecked = false
     @Volatile private var karooAscentRemM = -1.0
 
     // Route metadata published by NavigatingRoute that used to be discarded.
@@ -168,6 +171,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // arrivo reale verso le 10:15). Oltre il limite, l'ETA che c'è.
         private const val MTA_LOCATED_WAIT_MS = 90_000L
         private const val MTA_ANY_ETA_WAIT_MS = 10_000L
+        // Posizione Karoo negativa (prima dello start) fino a questa distanza = start
+        private const val BEFORE_START_TOLERANCE_M = 1000.0
 
         // Confronto ETA: cadenza campioni, minimo percorso reale davanti perché
         // un campione sia giudicabile (vicino all'arrivo l'errore relativo
@@ -309,6 +314,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 lastRoutePolyline = polyline
                 karooOnRoute      = null      // riferito alla route precedente
                 offRoute          = false
+                hintChecked       = false
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
 
@@ -519,6 +525,22 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     // 0. Fuori route secondo il Karoo: transizioni e riaggancio al rientro
                     val karooPosM = karooAlongRouteM()
+                    if (karooPosM != null && !hintChecked && pipeline.isLocated()) {
+                        hintChecked = true
+                        val loc = locationFlow.value
+                        val ours = pipeline.distanceAlongRouteM()
+                        if (loc != null) {
+                            val corr = pipeline.relocateWithHint(loc.first, loc.second, karooPosM)
+                            if (corr > 0.0) {
+                                logger.log("GPS  ", "Primo suggerimento Karoo (%.0fm) contro aggancio iniziale (%.0fm): riagganciato, correzione ${corr.toInt()}m — baseline pace azzerata".format(karooPosM, ours))
+                                initialRemainingSec = -1L
+                                movingElapsedSec    = 0L
+                                progressGate.reset()
+                            } else {
+                                logger.log("GPS  ", "Primo suggerimento Karoo (%.0fm) coerente con l'aggancio iniziale (%.0fm)".format(karooPosM, ours))
+                            }
+                        }
+                    }
                     val nowOff    = karooOnRoute == 0.0
                     if (nowOff != offRoute) {
                         offRoute = nowOff
@@ -712,6 +734,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     val marginSec = marginFor(remainingSec)
+                    val locatedNow = pipeline.isLocated()
                     etaState.value = EtaState(
                         remainingSeconds       = remainingSec,
                         hasRoute               = true,
@@ -723,6 +746,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
                         mtaEpochMs             = mtaEpochMs,
                         marginSeconds          = marginSec,
+                        // Non ancora agganciati (aspettiamo il GPS o il suggerimento del
+                        // Karoo): l'ETA vale dallo start, mostrato come stima "~"
+                        estimateApprox         = !locatedNow,
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita
@@ -848,7 +874,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private fun karooAlongRouteM(): Double? {
         if (routeTotalDistM <= 0.0 || karooDistToDestM < 0.0) return null
         val pos = routeTotalDistM - karooDistToDestM
-        return if (pos >= 0.0 && pos <= routeTotalDistM) pos else null
+        return when {
+            // Poco prima dello start (il Karoo conta anche l'avvicinamento): vale lo start
+            pos < 0.0 && pos > -BEFORE_START_TOLERANCE_M -> 0.0
+            pos >= 0.0 && pos <= routeTotalDistM         -> pos
+            else                                          -> null
+        }
     }
 
     private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

@@ -201,7 +201,8 @@ class SegmentPipelineTest {
         val total = p.remainingSegments().sumOf { it.distanceM }
         // Rider a ~2780m dall'inizio, oltre la finestra locale: senza mai essere
         // stati agganciati la ricerca globale parte subito (niente attesa di 30 tick)
-        repeat(3) { p.snapToLocation(45.025, 9.0) }
+        // — se il Karoo ha già detto dove siamo; senza suggerimento aspetterebbe un minuto
+        repeat(3) { p.snapToLocation(45.025, 9.0, hintM = 2700.0) }
 
         val remaining = p.remainingSegments().sumOf { it.distanceM }
         assertApprox(total - 2780.0, remaining, delta = 60.0)

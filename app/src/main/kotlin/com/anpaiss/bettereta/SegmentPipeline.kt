@@ -34,6 +34,7 @@ class SegmentPipeline(
     private var rescueCandidateM   = -1.0   // posizione proposta dalla ricerca globale
     private var rescueConfirmCount = 0      // conferme consecutive coerenti della proposta
     private var lastGoodSnapMs     = 0L     // orologio reale dell'ultimo aggancio riuscito
+    private var unlocatedWaitTicks = 0      // tick passati ad aspettare il suggerimento del Karoo
 
     /** Carica un nuovo percorso e riparte dall'inizio. */
     suspend fun setRoute(newWaypoints: List<RouteWaypoint>) = mutex.withLock {
@@ -48,6 +49,7 @@ class SegmentPipeline(
         offWindowTicks     = 0
         rescueCandidateM   = -1.0
         rescueConfirmCount = 0
+        unlocatedWaitTicks = 0
         farthestPointCumDistM = findFarthestPointCumDist(newWaypoints, waypointCumDist)
     }
 
@@ -125,6 +127,30 @@ class SegmentPipeline(
         offWindowTicks++
         if (located && offWindowTicks < RESCUE_AFTER_TICKS) return@withLock 0.0
 
+        if (!located && hintM == null) {
+            // Aggancio iniziale senza il suggerimento del Karoo (arriva ~1 min dopo
+            // la partenza). Giro 05/09: parcheggio a 310 m dallo start ma a pochi
+            // metri dal km 7,6 dell'anello → agganciati al km 7,6.
+            // 1) Vicino allo start: lo start, anche se il waypoint più vicino è altrove.
+            val startDistM = haversineM(lat, lon, waypoints[0].lat, waypoints[0].lon)
+            if (startDistM <= START_PREFER_M) {
+                located            = true
+                offWindowTicks     = 0
+                rescueCandidateM   = -1.0
+                rescueConfirmCount = 0
+                lastGoodSnapMs     = nowMs()
+                val prevTraveledM = traveledM
+                repositionTo(0.0)
+                return@withLock abs(traveledM - prevTraveledM)
+            }
+            // 2) Altrimenti aspetta il suggerimento per un po' prima di agganciare
+            //    un punto interno alla route
+            if (unlocatedWaitTicks < HINT_WAIT_TICKS) {
+                unlocatedWaitTicks++
+                return@withLock 0.0
+            }
+        }
+
         // Ricerca globale: tra i waypoint di tutta la route vicini al fix sceglie
         // quello più coerente con la posizione stimata (stesso criterio dello snap
         // locale). Il waypoint in assoluto più vicino al fix può stare sul ramo
@@ -201,7 +227,11 @@ class SegmentPipeline(
         }
         if (bestIdx == -1) return@withLock 0.0
         val prevTraveledM = traveledM
-        if (abs(waypointCumDist[bestIdx] - prevTraveledM) < RELOCATE_MIN_JUMP_M) return@withLock 0.0
+        val candM = waypointCumDist[bestIdx]
+        // Solo se il candidato è più coerente col suggerimento di dove siamo già:
+        // se l'unico waypoint vicino al fix è quello sbagliato, restiamo dove siamo
+        if (abs(candM - hintM) >= abs(prevTraveledM - hintM)) return@withLock 0.0
+        if (abs(candM - prevTraveledM) < RELOCATE_MIN_JUMP_M) return@withLock 0.0
         located            = true
         offWindowTicks     = 0
         rescueCandidateM   = -1.0
@@ -377,6 +407,10 @@ class SegmentPipeline(
         private const val RESCUE_JUMP_MARGIN_M = 500.0
         // Sotto questo scarto il riaggancio al rientro in route non tocca la posizione
         private const val RELOCATE_MIN_JUMP_M  = 300.0
+        // Aggancio iniziale: entro questa distanza dallo start si parte dallo start;
+        // altrimenti si aspettano fino a tanti tick il suggerimento del Karoo
+        private const val START_PREFER_M       = 400.0
+        private const val HINT_WAIT_TICKS      = 60
     }
 
     private fun buildSegments(
