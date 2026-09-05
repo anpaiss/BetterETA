@@ -205,6 +205,9 @@ class AdaptiveSpeedModel {
     /** Fattore di giornata globale (1.0 = come la base). */
     val currentDayFactor: Double get() = dayFactor
 
+    /** Fattore di giornata efficace per una pendenza: riscala velocità di base esterne (memoria per tratto). */
+    fun dayFactorFor(gradePct: Double): Double = effectiveFactor(bucketIndex(gradePct))
+
     /** Fattori efficaci per bucket, per log e diagnostica. */
     fun effectiveFactors(): List<Double> = (0 until BUCKETS).map { effectiveFactor(it) }
 

@@ -18,6 +18,7 @@ class SegmentPipeline(
     private var segments           = listOf<RouteSegment>()
     private var waypoints          = listOf<RouteWaypoint>()
     private var waypointSurfaces   = listOf<Surface>()   // parallelo a waypoints; vuoto = non classificato
+    private var waypointWayKeys    = listOf<Long>()      // parallelo a waypoints; vuoto = way ignote
     private var waypointCumDist    = DoubleArray(0)  // distanza cumulativa al waypoint[i]
     private var currentIndex       = 0
     private var consumedInCurrentM = 0.0
@@ -40,7 +41,8 @@ class SegmentPipeline(
     suspend fun setRoute(newWaypoints: List<RouteWaypoint>) = mutex.withLock {
         waypoints          = newWaypoints
         waypointSurfaces   = emptyList()
-        segments           = buildSegments(newWaypoints, emptyList())
+        waypointWayKeys    = emptyList()
+        segments           = buildSegments(newWaypoints, emptyList(), emptyList())
         waypointCumDist    = buildCumDist(newWaypoints)
         currentIndex       = 0
         consumedInCurrentM = 0.0
@@ -246,17 +248,23 @@ class SegmentPipeline(
      * e ricostruisce i segmenti preservando la posizione raggiunta. Arriva in
      * ritardo rispetto a setRoute perché la classificazione OSM è asincrona.
      */
-    suspend fun applySurfaces(surfaces: List<Surface>) = mutex.withLock {
+    suspend fun applySurfaces(surfaces: List<Surface>, wayKeys: List<Long> = emptyList()) = mutex.withLock {
         if (waypoints.isEmpty() || surfaces.size != waypoints.size) return@withLock
         waypointSurfaces = surfaces
+        waypointWayKeys  = if (wayKeys.size == waypoints.size) wayKeys else emptyList()
         val savedM = traveledM
-        segments = buildSegments(waypoints, surfaces)
+        segments = buildSegments(waypoints, surfaces, waypointWayKeys)
         repositionTo(savedM)
     }
 
     /** Fondo del segmento su cui si trova ora il ciclista. */
     suspend fun currentSurface(): Surface = mutex.withLock {
         segments.getOrNull(currentIndex)?.surface ?: Surface.UNKNOWN
+    }
+
+    /** (way, verso) del segmento su cui si trova ora il ciclista; 0 se ignota. */
+    suspend fun currentWayKey(): Long = mutex.withLock {
+        segments.getOrNull(currentIndex)?.wayKey ?: 0L
     }
 
     /**
@@ -416,6 +424,7 @@ class SegmentPipeline(
     private fun buildSegments(
         rawWaypoints: List<RouteWaypoint>,
         surfaces: List<Surface>,
+        wayKeys: List<Long>,
     ): List<RouteSegment> {
         if (rawWaypoints.size < 2) return emptyList()
         val waypoints = smoothElevations(rawWaypoints, ELEVATION_SMOOTH_WINDOW_M)
@@ -429,6 +438,7 @@ class SegmentPipeline(
                 distanceM = dist,
                 gradePct  = grade,
                 surface   = surfaces.getOrElse(i) { Surface.UNKNOWN },
+                wayKey    = wayKeys.getOrElse(i) { 0L },
             ))
         }
         return simplify(raw)
@@ -473,13 +483,15 @@ class SegmentPipeline(
         var current = raw[0]
         for (i in 1 until raw.size) {
             val next = raw[i]
-            // Si fondono solo segmenti con pendenza simile E stesso fondo:
-            // il confine asfalto/sterrato è un confine di velocità
-            if (abs(next.gradePct - current.gradePct) <= 2.0 && next.surface == current.surface) {
+            // Si fondono solo segmenti con pendenza simile, stesso fondo e stessa
+            // way: il confine asfalto/sterrato è un confine di velocità, e la
+            // memoria dei tempi per tratto lavora per way
+            if (abs(next.gradePct - current.gradePct) <= 2.0 && next.surface == current.surface &&
+                next.wayKey == current.wayKey) {
                 val total    = current.distanceM + next.distanceM
                 val avgGrade = (current.gradePct * current.distanceM +
                                 next.gradePct    * next.distanceM) / total
-                current = RouteSegment(distanceM = total, gradePct = avgGrade, surface = current.surface)
+                current = RouteSegment(distanceM = total, gradePct = avgGrade, surface = current.surface, wayKey = current.wayKey)
             } else {
                 out.add(current)
                 current = next

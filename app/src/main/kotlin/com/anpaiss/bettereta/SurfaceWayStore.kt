@@ -42,8 +42,13 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
         val wayPointCount: Int = ways.sumOf { it.points.size }
     }
 
-    /** Esito dell'abbinamento di una route: fondo per waypoint e copertura. */
-    class Match(val surfaces: List<Surface>, val covered: BooleanArray) {
+    /**
+     * Esito dell'abbinamento di una route: fondo per waypoint, copertura e
+     * chiave (way, verso) per waypoint (0 = nessuna way entro MATCH_MAX_DIST_M).
+     * Il verso è quello in cui la route percorre la way: ordine crescente o
+     * decrescente della posizione lungo la way tra waypoint consecutivi.
+     */
+    class Match(val surfaces: List<Surface>, val covered: BooleanArray, val wayKeys: List<Long> = emptyList()) {
         val missing: List<Int> get() = covered.indices.filter { !covered[it] }
         val coveredCount: Int get() = covered.count { it }
     }
@@ -66,20 +71,37 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
         val wayIndex = SegmentIndex(proj)
         val runIndex = SegmentIndex(proj)
         for (b in batches) {
-            for (w in b.ways) wayIndex.addPolyline(w.points, w.surface)
-            for (r in b.runs) runIndex.addPolyline(r, Surface.UNKNOWN)
+            for (w in b.ways) wayIndex.addPolyline(w.points, w.surface, w.id)
+            for (r in b.runs) runIndex.addPolyline(r, Surface.UNKNOWN, 0L)
         }
 
         val surfaces = ArrayList<Surface>(waypoints.size)
         val covered  = BooleanArray(waypoints.size)
+        val wayIds   = LongArray(waypoints.size)
+        val along    = DoubleArray(waypoints.size)
         waypoints.forEachIndexed { i, wp ->
             val px = proj.x(wp.lon)
             val py = proj.y(wp.lat)
-            val (wayDist, surface) = wayIndex.nearest(px, py)
-            surfaces.add(if (wayDist <= MATCH_MAX_DIST_M) surface else Surface.UNKNOWN)
-            covered[i] = runIndex.nearest(px, py).first <= COVER_M
+            val hit = wayIndex.nearest(px, py)
+            val onWay = hit.distM <= MATCH_MAX_DIST_M
+            surfaces.add(if (onWay) hit.surface else Surface.UNKNOWN)
+            if (onWay) { wayIds[i] = hit.wayId; along[i] = hit.alongM }
+            covered[i] = runIndex.nearest(px, py).distM <= COVER_M
         }
-        return Match(surfaces, covered)
+        // Verso: dal vicino sulla stessa way (avanti, altrimenti indietro); senza
+        // vicino sulla stessa way, o fermi, si assume in avanti
+        val keys = List(waypoints.size) { i ->
+            val id = wayIds[i]
+            if (id == 0L) 0L else {
+                val delta = when {
+                    i + 1 < waypoints.size && wayIds[i + 1] == id -> along[i + 1] - along[i]
+                    i > 0 && wayIds[i - 1] == id                  -> along[i] - along[i - 1]
+                    else                                          -> 0.0
+                }
+                WaySpeedMemory.wayKey(id, forward = delta >= 0.0)
+            }
+        }
+        return Match(surfaces, covered, keys)
     }
 
     // ── serializzazione ──────────────────────────────────────────────────
@@ -159,7 +181,13 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
         fun y(lat: Double) = lat * mPerDegLat
     }
 
-    private class Seg(val ax: Double, val ay: Double, val bx: Double, val by: Double, val surface: Surface)
+    private class Seg(
+        val ax: Double, val ay: Double, val bx: Double, val by: Double,
+        val surface: Surface, val wayId: Long, val cumStartM: Double, val lenM: Double,
+    )
+
+    /** Segmento più vicino a un punto: distanza, fondo, way e posizione lungo la way. */
+    private class Hit(val distM: Double, val surface: Surface, val wayId: Long, val alongM: Double)
 
     /** Indice a griglia di segmenti: risponde con il segmento più vicino a un punto. */
     private class SegmentIndex(private val proj: LocalProjection) {
@@ -167,14 +195,19 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
 
         private fun key(cx: Long, cy: Long) = cx * 1_000_003L + cy
 
-        fun addPolyline(points: List<Pair<Double, Double>>, surface: Surface) {
+        fun addPolyline(points: List<Pair<Double, Double>>, surface: Surface, wayId: Long) {
             if (points.isEmpty()) return
             // Un punto solo (run degenere): segmento di lunghezza zero
             val n = if (points.size == 1) 1 else points.size - 1
+            var cum = 0.0
             for (j in 0 until n) {
                 val a = points[j]
                 val b = points[minOf(j + 1, points.size - 1)]
-                val seg = Seg(proj.x(a.second), proj.y(a.first), proj.x(b.second), proj.y(b.first), surface)
+                val ax = proj.x(a.second); val ay = proj.y(a.first)
+                val bx = proj.x(b.second); val by = proj.y(b.first)
+                val len = sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
+                val seg = Seg(ax, ay, bx, by, surface, wayId, cum, len)
+                cum += len
                 val cx0 = floor(minOf(seg.ax, seg.bx) / GRID_CELL_M).toLong()
                 val cx1 = floor(maxOf(seg.ax, seg.bx) / GRID_CELL_M).toLong()
                 val cy0 = floor(minOf(seg.ay, seg.by) / GRID_CELL_M).toLong()
@@ -185,22 +218,22 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
             }
         }
 
-        /** (distanza in metri, fondo) del segmento più vicino nelle celle attorno; MAX_VALUE se nessuno. */
-        fun nearest(px: Double, py: Double): Pair<Double, Surface> {
-            var best = Double.MAX_VALUE
-            var bestSurface = Surface.UNKNOWN
+        /** Segmento più vicino nelle celle attorno; distM = MAX_VALUE se nessuno. */
+        fun nearest(px: Double, py: Double): Hit {
+            var best = Hit(Double.MAX_VALUE, Surface.UNKNOWN, 0L, 0.0)
             val cx = floor(px / GRID_CELL_M).toLong()
             val cy = floor(py / GRID_CELL_M).toLong()
             for (dx in -1..1) for (dy in -1..1) {
                 grid[key(cx + dx, cy + dy)]?.forEach { seg ->
-                    val d = pointToSegM(px, py, seg)
-                    if (d < best) { best = d; bestSurface = seg.surface }
+                    val (d, t) = project(px, py, seg)
+                    if (d < best.distM) best = Hit(d, seg.surface, seg.wayId, seg.cumStartM + t * seg.lenM)
                 }
             }
-            return best to bestSurface
+            return best
         }
 
-        private fun pointToSegM(px: Double, py: Double, s: Seg): Double {
+        /** (distanza dal segmento, parametro 0..1 della proiezione lungo il segmento). */
+        private fun project(px: Double, py: Double, s: Seg): Pair<Double, Double> {
             val dx = s.bx - s.ax
             val dy = s.by - s.ay
             val len2 = dx * dx + dy * dy
@@ -208,7 +241,7 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
                 else (((px - s.ax) * dx + (py - s.ay) * dy) / len2).coerceIn(0.0, 1.0)
             val cx = s.ax + t * dx
             val cy = s.ay + t * dy
-            return sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy))
+            return sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy)) to t
         }
     }
 }

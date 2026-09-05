@@ -34,8 +34,11 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
     // fuori copertura) ritentava e scriveva tre righe di log
     private var lastFetchFailMs = 0L
 
-    /** @param complete false = una parte della route non è stata interrogata (offline): vale la pena ritentare. */
-    class Result(val surfaces: List<Surface>, val complete: Boolean)
+    /**
+     * @param wayKeys  (way, verso) per waypoint, 0 = nessuna way vicina — per la memoria dei tempi per tratto
+     * @param complete false = una parte della route non è stata interrogata (offline): vale la pena ritentare.
+     */
+    class Result(val surfaces: List<Surface>, val wayKeys: List<Long>, val complete: Boolean)
 
     companion object {
         // Il primario ha finestre di congestione ("server too busy", visto il
@@ -84,7 +87,7 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         val missing = match.missing
         if (missing.isEmpty()) {
             logger.log("SURF ", "Fondo da cache: ${summary(match.surfaces, waypoints)}")
-            return Result(match.surfaces, true)
+            return Result(match.surfaces, match.wayKeys, true)
         }
 
         // Corridoi = i waypoint reali dei tratti scoperti (per la copertura in
@@ -93,7 +96,7 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         if (lastFetchFailMs > 0L && sinceFailMs < RETRY_BACKOFF_MS) {
             logger.log("SURF ", "Overpass fallito ${sinceFailMs / 1000}s fa — ritento tra ${(RETRY_BACKOFF_MS - sinceFailMs) / 1000}s; " +
                 "${missing.size}/${waypoints.size} waypoint scoperti")
-            return if (match.coveredCount == 0) null else Result(match.surfaces, false)
+            return if (match.coveredCount == 0) null else Result(match.surfaces, match.wayKeys, false)
         }
 
         val runs   = missingRuns(waypoints, missing)
@@ -108,7 +111,7 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
             }
             logger.log("SURF ", "Overpass non raggiungibile (${e.message}) — fondo solo da cache, " +
                 "${missing.size}/${waypoints.size} waypoint scoperti: ${summary(match.surfaces, waypoints)}")
-            return Result(match.surfaces, false)
+            return Result(match.surfaces, match.wayKeys, false)
         }
 
         store.add(SurfaceWayStore.Batch(System.currentTimeMillis(), runs.map { r -> r.map { it.lat to it.lon } }, ways))
@@ -116,7 +119,7 @@ class SurfaceClassifier(context: Context, private val logger: BetterEtaLogger) {
         match = store.match(waypoints)
         logger.log("SURF ", "Fondo da OSM (${ways.size} way nuove per ${missing.size}/${waypoints.size} waypoint, " +
             "${runs.size} tratti; cache ${store.wayCount} way): ${summary(match.surfaces, waypoints)}")
-        return Result(match.surfaces, true)
+        return Result(match.surfaces, match.wayKeys, true)
     }
 
     // ── Overpass ─────────────────────────────────────────────────────────

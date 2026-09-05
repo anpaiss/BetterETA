@@ -44,14 +44,21 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private val speedModel = AdaptiveSpeedModel()
     private val pipeline   = SegmentPipeline()
-    private val etaEngine  = EtaEngine(speedModel, pipeline)
+    // Memoria dei tempi per (way, verso): caricata in onCreate, salvata con il modello
+    private val wayMemory  = WaySpeedMemory()
+    private val etaEngine  = EtaEngine(speedModel, pipeline, wayMemory = wayMemory)
 
     // Shadow ETA: same learned buckets, physics-based rung 3 instead of the
     // hand-tuned factors. Never displayed — it only goes to the sample log and
     // to the end-of-ride comparison, which is what decides whether it gets
     // promoted. See PhysicsSpeedModel for why this holds on an e-bike.
     private val physicsModel = PhysicsSpeedModel()
-    private val shadowEngine = EtaEngine(speedModel, pipeline, PhysicsFallback(physicsModel))
+    private val shadowEngine = EtaEngine(speedModel, pipeline, PhysicsFallback(physicsModel), wayMemory)
+
+    // Passaggio in corso su una way: chiave, metri e secondi accumulati in movimento
+    private var passKey   = 0L
+    private var passDistM = 0.0
+    private var passSec   = 0
 
     private val speedMsFlow  = MutableStateFlow(0.0)
     private val gradePctFlow = MutableStateFlow(0.0)
@@ -183,6 +190,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val SAME_DEST_THRESHOLD_M     = 200.0
         private const val ARRIVAL_NET_MAX_REMAINING_SEC = 300L
         private const val MAX_SAMPLES                = 600
+        // Memoria tratti: un passaggio conta solo se lungo/durato almeno tanto
+        private const val WAY_PASS_MIN_M             = 50.0
+        private const val WAY_PASS_MIN_SEC           = 10
         internal const val RESULTS_PREFS             = "better_eta_results"
         internal const val RESULTS_KEY               = "history"
         internal const val RESULTS_MAX               = 20
@@ -206,6 +216,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         logger.log("SYS  ", "Sample log: ${sampleLog.path}")
         surfaceClassifier = SurfaceClassifier(applicationContext, logger)
         prefs = Prefs(applicationContext)
+        loadWayMemory()
         mtaPopup = MtaPopupController(applicationContext, logger,
             onSet = { h, m -> setMta(h, m) },
             onDismiss = { logger.log("MTA  ", "Nessun MTA per questa route") })
@@ -299,7 +310,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         val wps = lastWaypointsForSurfaces
                         if (wps != null) extensionScope.launch {
                             surfaceClassifier.classify(wps)?.let { r ->
-                                pipeline.applySurfaces(r.surfaces)
+                                pipeline.applySurfaces(r.surfaces, r.wayKeys)
                                 surfacesApplied = r.complete
                                 logger.log("SURF ", "Classificazione fondo al retry: " +
                                     if (r.complete) "completa" else "parziale, si ritenta alla prossima riemissione")
@@ -361,6 +372,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
                 }
                 progressGate.reset()
+                closeWayPass()
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
                     val segCount = pipeline.remainingSegments().size
@@ -375,7 +387,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     surfacesApplied = false
                     lastWaypointsForSurfaces = waypoints
                     surfaceClassifier.classify(waypoints)?.let { r ->
-                        pipeline.applySurfaces(r.surfaces)
+                        pipeline.applySurfaces(r.surfaces, r.wayKeys)
                         surfacesApplied = r.complete
                         logger.log("SURF ", "Segmenti riclassificati col fondo: " +
                             "${pipeline.remainingSegments().size} rimanenti" +
@@ -497,6 +509,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
                     logger.log("RIDE ", "Sospesa — model salvato")
+                    closeWayPass()
                     saveModel()
                 }
                 rideState = state
@@ -583,6 +596,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     // 2. Avanzamento stimato (congelato fuori route)
                     if (!offRoute) pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
+
+                    // 2b. Memoria dei tempi per tratto: accumula il passaggio sulla way corrente
+                    trackWayPass(if (offRoute) 0L else pipeline.currentWayKey(), moving, currentSpeedMs)
 
                     // 3. Snap GPS (solo se fix recente)
                     val now      = System.currentTimeMillis()
@@ -776,7 +792,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     if (logTickCounter >= LOG_INTERVAL_TICKS) {
                         logTickCounter = 0
                         logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale,
-                            remainDistM, deltaSec, karooEtaSec, marginSec)
+                            remainDistM, deltaSec, karooEtaSec, marginSec, primary.memoryDistanceShare)
                     }
                 }
             }
@@ -786,6 +802,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     override fun onDestroy() {
         logger.log("SYS  ", "=== BetterETA fermato ===")
         mtaPopup.hide()
+        closeWayPass()
         saveModel()
         sampleLog.close()
         tickerJob?.cancel()
@@ -855,6 +872,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private fun logEtaSnapshot(
         remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean,
         remainDistM: Double, deltaSec: Long?, karooSec: Double, marginSec: Long?,
+        memoryShare: Double = 0.0,
     ) {
         if (remainingSec <= 0L) return
         val h     = remainingSec / 3600
@@ -862,7 +880,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val gps   = if (gpsStale) " [GPS stale]" else ""
         val delta = deltaSec?.let { " delta=%+ds".format(it) } ?: ""
         val karoo = if (karooSec > 0) " karoo=${karooSec.roundToInt()}s" else ""
-        val fact  = " f=%.2f".format(speedModel.currentDayFactor)
+        val fact  = " f=%.2f".format(speedModel.currentDayFactor) +
+            (if (memoryShare > 0.0) " mem=%d%%".format((memoryShare * 100).toInt()) else "")
         val mta   = if (mtaEpochMs > 0L) " mta=%s margin=%s".format(
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)),
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""
@@ -949,9 +968,62 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             "physics-shadow ${result.errPhysicsPct?.let { "$it%" } ?: "n/a"}) su ${valid.size} campioni")
     }
 
+    // ── memoria dei tempi per tratto ─────────────────────────────────────
+
+    /**
+     * Un passaggio = tratto continuo sulla stessa (way, verso). Alla chiusura,
+     * se abbastanza lungo, la velocità media divisa per il fattore di giornata
+     * finisce nella memoria: è la velocità "di base" su quel tratto.
+     */
+    private fun trackWayPass(key: Long, moving: Boolean, speedMs: Double) {
+        if (key != passKey) {
+            closeWayPass()
+            passKey = key
+        }
+        if (moving && key != 0L) {
+            passDistM += speedMs * (TICK_MS / 1000.0)
+            passSec++
+        }
+    }
+
+    private fun closeWayPass() {
+        val key = passKey
+        if (key != 0L && passDistM >= WAY_PASS_MIN_M && passSec >= WAY_PASS_MIN_SEC) {
+            val speed  = passDistM / passSec
+            val factor = speedModel.currentDayFactor.coerceIn(0.3, 3.0)
+            val base   = speed / factor
+            wayMemory.record(key, base, System.currentTimeMillis())
+            val est = wayMemory.estimate(key)
+            logger.log("WAY  ", "way %d %s: %.1fm/s su %.0fm in %ds → base %.1fm/s (f=%.2f), passaggi %d, media %.1fm/s".format(
+                WaySpeedMemory.wayIdOf(key), if (WaySpeedMemory.isForward(key)) "→" else "←",
+                speed, passDistM, passSec, base, factor, est?.passes ?: 0, est?.speedMs ?: 0.0))
+        }
+        passKey   = 0L
+        passDistM = 0.0
+        passSec   = 0
+    }
+
+    private fun wayMemoryFile() = java.io.File(filesDir, "way_speeds.txt")
+
+    private fun loadWayMemory() {
+        runCatching {
+            val f = wayMemoryFile()
+            if (f.exists()) {
+                wayMemory.loadFrom(f.readText())
+                logger.log("WAY  ", "Memoria tratti caricata: ${wayMemory.size} (way, verso)")
+            }
+        }.onFailure { logger.logError("WAY  ", "Caricamento memoria tratti fallito", it) }
+    }
+
+    private fun saveWayMemory() {
+        runCatching { wayMemoryFile().writeText(wayMemory.serialize()) }
+            .onFailure { logger.logError("WAY  ", "Salvataggio memoria tratti fallito", it) }
+    }
+
     // ── persistenza modello ──────────────────────────────────────────────
 
     private fun saveModel() {
+        saveWayMemory()
         val snap  = speedModel.snapshot()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().apply {

@@ -23,9 +23,12 @@ enum class Surface {
  * @param distanceM  lunghezza in metri
  * @param gradePct   pendenza media in % (positivo = salita, negativo = discesa)
  * @param surface    classe di fondo (da OSM; UNKNOWN se non classificato)
+ * @param wayKey     (way OSM, verso) su cui corre il segmento — vedi WaySpeedMemory.wayKey;
+ *                   0 = non abbinato a una way
  */
 data class RouteSegment(
     val distanceM: Double,
     val gradePct: Double,
     val surface: Surface = Surface.UNKNOWN,
+    val wayKey: Long = 0L,
 )

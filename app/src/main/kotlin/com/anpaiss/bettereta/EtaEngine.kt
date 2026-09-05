@@ -17,13 +17,16 @@ class EtaEngine(
     private val speedModel: AdaptiveSpeedModel,
     private val pipeline:   SegmentPipeline,
     private val fallback:   FallbackSpeedProvider = GradientFactorFallback,
+    private val wayMemory:  WaySpeedMemory? = null,
 ) {
     /**
      * @param seconds               predicted moving time for the segments
      * @param fallbackDistanceShare fraction (0..1) of the distance whose speed
      *   came from the fallback rather than a learned bucket
+     * @param memoryDistanceShare   fraction (0..1) of the distance on ways already
+     *   ridden in this direction, where the remembered speed blended in
      */
-    data class Breakdown(val seconds: Long, val fallbackDistanceShare: Double)
+    data class Breakdown(val seconds: Long, val fallbackDistanceShare: Double, val memoryDistanceShare: Double = 0.0)
 
     /** Versione suspend: fetcha i segmenti dalla pipeline. */
     suspend fun computeRemainingSeconds(): Long =
@@ -38,13 +41,27 @@ class EtaEngine(
         var totalSec = 0.0
         var totalM = 0.0
         var fallbackM = 0.0
+        var memoryM = 0.0
         for (seg in segments) {
             // predict guarantees >= 0.5 m/s (coerceAtLeast in AdaptiveSpeedModel)
             val p = speedModel.predict(seg.gradePct, seg.surface, fallback)
-            totalSec += seg.distanceM / p.speedMs
+            var v = p.speedMs
+            // Memoria per tratto: velocità di base ricordata × fattore di giornata,
+            // fusa col bucket pesando i passaggi (n/(n+1))
+            val mem = if (seg.wayKey != 0L) wayMemory?.estimate(seg.wayKey) else null
+            if (mem != null) {
+                val w = mem.passes / (mem.passes + 1.0)
+                v = (w * mem.speedMs * speedModel.dayFactorFor(seg.gradePct) + (1.0 - w) * v).coerceAtLeast(0.5)
+                memoryM += seg.distanceM
+            }
+            totalSec += seg.distanceM / v
             totalM   += seg.distanceM
             if (p.fromFallback) fallbackM += seg.distanceM
         }
-        return Breakdown(totalSec.toLong(), if (totalM > 0.0) fallbackM / totalM else 0.0)
+        return Breakdown(
+            totalSec.toLong(),
+            if (totalM > 0.0) fallbackM / totalM else 0.0,
+            if (totalM > 0.0) memoryM / totalM else 0.0,
+        )
     }
 }
