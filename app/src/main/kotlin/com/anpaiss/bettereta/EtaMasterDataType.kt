@@ -54,9 +54,15 @@ class EtaMasterDataType(
         val eta: String,
         val remainingLabel: String,
         val remaining: String,
-        val thirdLabel: String,
+        /** Terza riga: didascalia piccola sopra, grande sotto ("PACE"/"VS PLAN" o "MTA"/ora) */
+        val thirdTop: String,
+        val thirdBottom: String,
         val third: String,
+        /** Parola sotto il valore (AHEAD/LATE/MARGIN), vuota senza MTA */
+        val thirdTag: String,
         val thirdColor: Int,
+        /** Fondo della cella del valore; 0 = trasparente (senza MTA) */
+        val thirdBg: Int,
         val colors: FieldColors,
     )
 
@@ -99,13 +105,18 @@ class EtaMasterDataType(
                     views.setTextViewText(R.id.tv_master_eta, view.eta)
                     views.setTextViewText(R.id.tv_master_lbl_remaining, view.remainingLabel)
                     views.setTextViewText(R.id.tv_master_remaining, view.remaining)
-                    views.setTextViewText(R.id.tv_master_lbl_third, view.thirdLabel)
+                    views.setTextViewText(R.id.tv_master_lbl_third, view.thirdTop)
+                    views.setTextViewText(R.id.tv_master_third_sub, view.thirdBottom)
                     views.setTextViewText(R.id.tv_master_third, view.third)
+                    views.setTextViewText(R.id.tv_master_third_tag, view.thirdTag)
                     for (id in intArrayOf(R.id.tv_master_lbl_eta, R.id.tv_master_lbl_remaining, R.id.tv_master_lbl_third))
                         views.setTextColor(id, c.label)
+                    views.setTextColor(R.id.tv_master_third_sub, c.value)
                     views.setTextColor(R.id.tv_master_eta, c.value)
                     views.setTextColor(R.id.tv_master_remaining, c.value)
                     views.setTextColor(R.id.tv_master_third, view.thirdColor)
+                    views.setTextColor(R.id.tv_master_third_tag, view.thirdColor)
+                    views.setInt(R.id.cell_master_third, "setBackgroundColor", view.thirdBg)
                     views.setInt(R.id.tv_master_div1, "setBackgroundColor", c.label)
                     views.setInt(R.id.tv_master_div2, "setBackgroundColor", c.label)
                     emitter.updateView(views)
@@ -147,35 +158,48 @@ class EtaMasterDataType(
         }
         val colors = style.colorsFor(pace)
 
-        // Con un MTA la terza riga diventa MTA + margine: la parola nella didascalia
+        // Con un MTA la terza riga diventa MTA + margine: a sinistra "MTA" e l'ora,
+        // a destra i minuti su una cella verde/rossa con la parola AHEAD/LATE, che
         // dice il segno anche dove il colore non basta (pieno sole, stili chiari).
-        val thirdLabel: String
+        val thirdTop: String
+        val thirdBottom: String
         val third: String
+        val thirdTag: String
         val thirdColor: Int
+        val thirdBg: Int
         if (state.mtaEpochMs > 0L) {
             val margin     = state.marginSeconds
-            val marginPace = margin?.let(::marginPace)
-            val mtaStr     = timeFmt.format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
-            thirdLabel = "MTA $mtaStr\n" + when (marginPace) {
+            val marginPace = margin?.let(::marginPace) ?: Pace.UNKNOWN
+            val cell       = style.marginCell(marginPace)
+            thirdTop    = "MTA"
+            thirdBottom = timeFmt.format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
+            third       = formatDelta(margin)
+            thirdTag    = when (marginPace) {
                 Pace.EARLY -> "AHEAD"
                 Pace.LATE  -> "LATE"
                 else       -> "MARGIN"
             }
-            third      = formatDelta(margin)
-            thirdColor = style.marginColor(marginPace ?: Pace.UNKNOWN)
+            thirdBg     = cell.first
+            thirdColor  = cell.second
         } else {
-            thirdLabel = "PACE\nVS PLAN"
-            third      = formatDelta(delta)
-            thirdColor = colors.delta
+            thirdTop    = "PACE"
+            thirdBottom = "VS PLAN"
+            third       = formatDelta(delta)
+            thirdTag    = ""
+            thirdBg     = 0
+            thirdColor  = colors.delta
         }
 
         return MasterView(
             eta            = eta,
             remainingLabel = remainingLabel,
             remaining      = remaining,
-            thirdLabel     = thirdLabel,
+            thirdTop       = thirdTop,
+            thirdBottom    = thirdBottom,
             third          = third,
+            thirdTag       = thirdTag,
             thirdColor     = thirdColor,
+            thirdBg        = thirdBg,
             colors         = colors,
         )
     }

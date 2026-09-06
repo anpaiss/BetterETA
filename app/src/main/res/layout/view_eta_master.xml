@@ -117,7 +117,10 @@
         android:layout_height="1dp"
         android:background="#9E9E9E" />
 
-    <!-- ROW 3: PACE VS PLAN, or MTA + margin -->
+    <!-- ROW 3: PACE VS PLAN, or MTA + margin. A sinistra una riga piccola
+         ("PACE" / "MTA") sopra una grande ("VS PLAN" / l'ora dell'MTA); a destra
+         una cella col valore grande e sotto la parola AHEAD/LATE, colorata di
+         verde/rosso solo con un MTA (senza, fondo trasparente e parola vuota). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -125,37 +128,81 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:baselineAligned="false">
-        <TextView
-            android:id="@+id/tv_master_lbl_third"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.34"
+            android:layout_weight="0.40"
+            android:orientation="vertical"
             android:gravity="center_vertical|start"
             android:paddingEnd="6dp"
-            android:text="PACE\nVS PLAN"
-            android:textStyle="bold"
-            android:textColor="#9E9E9E"
-            android:maxLines="2"
-            android:includeFontPadding="false"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="12sp"
-            android:autoSizeMaxTextSize="34sp"
-            android:autoSizeStepGranularity="1sp" />
-        <TextView
-            android:id="@+id/tv_master_third"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp">
+            <TextView
+                android:id="@+id/tv_master_lbl_third"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="start"
+                android:text="PACE"
+                android:textStyle="bold"
+                android:textColor="#9E9E9E"
+                android:textSize="18sp"
+                android:maxLines="1"
+                android:includeFontPadding="false" />
+            <TextView
+                android:id="@+id/tv_master_third_sub"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical|start"
+                android:text="VS PLAN"
+                android:textStyle="bold"
+                android:textColor="#9E9E9E"
+                android:maxLines="1"
+                android:includeFontPadding="false"
+                android:autoSizeTextType="uniform"
+                android:autoSizeMinTextSize="12sp"
+                android:autoSizeMaxTextSize="44sp"
+                android:autoSizeStepGranularity="1sp" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/cell_master_third"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.66"
+            android:layout_weight="0.60"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:orientation="vertical"
             android:gravity="center_vertical|end"
-            android:text="--"
-            android:textStyle="bold"
-            android:textColor="#9E9E9E"
-            android:maxLines="1"
-            android:includeFontPadding="false"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="16sp"
-            android:autoSizeMaxTextSize="56sp"
-            android:autoSizeStepGranularity="2sp" />
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:background="@android:color/transparent">
+            <TextView
+                android:id="@+id/tv_master_third"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center_vertical|end"
+                android:text="--"
+                android:textStyle="bold"
+                android:textColor="#9E9E9E"
+                android:maxLines="1"
+                android:includeFontPadding="false"
+                android:autoSizeTextType="uniform"
+                android:autoSizeMinTextSize="16sp"
+                android:autoSizeMaxTextSize="56sp"
+                android:autoSizeStepGranularity="2sp" />
+            <TextView
+                android:id="@+id/tv_master_third_tag"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text=""
+                android:textStyle="bold"
+                android:textColor="#9E9E9E"
+                android:textSize="18sp"
+                android:maxLines="1"
+                android:includeFontPadding="false" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Bottom band left to the Karoo's "next cue" ticket -->

@@ -81,6 +81,23 @@ enum class EtaStyle(val label: String) {
         }
     }
 
+    /**
+     * Cella del margine MTA nella dashboard: (fondo, testo). Il margine sta su un
+     * fondo pieno verde/rosso in ogni stile con colori di stato, testo nero
+     * (>= 5.2:1) o bianco sul rosso scuro di VIVID; grigio quando il segno non
+     * si sa. KAROO resta monocromo: cella bianca, testo nero.
+     */
+    fun marginCell(pace: Pace): Pair<Int, Int> = when (this) {
+        KAROO  -> WHITE to BLACK
+        PASTEL -> colorsFor(pace).let { (it.bgColor ?: BLACK) to it.value }
+        VIVID  -> when (pace) {
+            Pace.EARLY -> 0xFF4CAF50.toInt() to BLACK
+            Pace.LATE  -> 0xFFD32F2F.toInt() to WHITE
+            else       -> 0xFF9E9E9E.toInt() to BLACK
+        }
+        INK, OUTLINE -> paceAccent(pace) to BLACK
+    }
+
     companion object {
         const val ACCENT = 0xFFFF5823.toInt()
         private const val BLACK = 0xFF000000.toInt()
