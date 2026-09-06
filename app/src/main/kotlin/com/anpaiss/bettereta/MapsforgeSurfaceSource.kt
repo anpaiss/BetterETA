@@ -112,7 +112,11 @@ class MapsforgeSurfaceSource(
         return Fetch(ways.values.toList(), tilesRead, filesUsed, System.currentTimeMillis() - t0, tagKeys)
     }
 
-    /** Hash FNV-1a a 64 bit delle coordinate arrotondate a 1e-6°: stabile tra letture dello stesso file. */
+    /**
+     * Hash FNV-1a delle coordinate arrotondate a 1e-6°, ridotto a 62 bit: la chiave
+     * (way, verso) di WaySpeedMemory è id×2+verso e con 63 bit andava in overflow
+     * (trovato col replay del 06/09: chiavi irrisolvibili).
+     */
     private fun geometryId(pts: List<Pair<Double, Double>>): Long {
         var h = -0x340d631b7bdddcdbL   // FNV offset basis
         fun mix(v: Long) {
@@ -122,7 +126,7 @@ class MapsforgeSurfaceSource(
         for ((lat, lon) in pts) {
             mix(Math.round(lat * 1e6)); mix(Math.round(lon * 1e6))
         }
-        val id = h and Long.MAX_VALUE
+        val id = h and 0x3FFFFFFFFFFFFFFFL
         return if (id == 0L) 1L else id
     }
 }

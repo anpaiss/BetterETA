@@ -20,6 +20,14 @@ class SurfaceTagClassifierTest {
     }
 
     @Test
+    fun `on a track the tracktype outranks the material`() {
+        assertEquals(Surface.GRAVEL, c("highway" to "track", "surface" to "ground", "tracktype" to "grade2"))   // ridden 05/09: forest road
+        assertEquals(Surface.TRAIL,  c("highway" to "track", "surface" to "ground", "tracktype" to "grade4"))
+        assertEquals(Surface.TRAIL,  c("highway" to "path", "surface" to "ground"))                             // no tracktype: material
+        assertEquals(Surface.PAVED,  c("highway" to "track", "surface" to "asphalt", "tracktype" to "grade3"))  // asphalt always wins
+    }
+
+    @Test
     fun `tracktype grades a track when surface is missing`() {
         assertEquals(Surface.PAVED,  c("highway" to "track", "tracktype" to "grade1"))
         assertEquals(Surface.GRAVEL, c("highway" to "track", "tracktype" to "grade2"))
@@ -41,18 +49,17 @@ class SurfaceTagClassifierTest {
 
     @Test
     fun `mtb difficulty makes a trail gnarly, whatever the surface says`() {
+        assertEquals(Surface.GNARLY, c("highway" to "path", "mtb_difficulty" to "3"))      // the 29/08 "gnarly" stretch
         assertEquals(Surface.GNARLY, c("highway" to "path", "mtb_difficulty" to "4"))
         assertEquals(Surface.GNARLY, c("highway" to "path", "surface" to "gravel", "mtb_difficulty" to "5"))
-        assertEquals(Surface.GNARLY, c("highway" to "path", "mtb:scale" to "3"))
+        assertEquals(Surface.GNARLY, c("highway" to "path", "mtb:scale" to "2"))
         assertEquals(Surface.GNARLY, c("highway" to "path", "mtb:scale" to "4+"))
-        assertEquals(Surface.TRAIL,  c("highway" to "track", "surface" to "gravel", "mtb_difficulty" to "3"))   // blue: trail even on gravel
-        assertEquals(Surface.PAVED,  c("highway" to "track", "surface" to "asphalt", "mtb_difficulty" to "3"))
         assertEquals(Surface.TRAIL,  c("highway" to "path", "mtb_difficulty" to "2"))      // green singletrack
         assertEquals(Surface.GRAVEL, c("highway" to "track", "mtb_difficulty" to "2"))     // green forest road
         assertEquals(Surface.GRAVEL, c("highway" to "track", "mtb_difficulty" to "1"))
         assertEquals(Surface.GRAVEL, c("highway" to "track", "surface" to "gravel", "mtb_difficulty" to "1"))
         assertEquals(Surface.TRAIL,  c("highway" to "path", "mtb:scale" to "0"))
-        assertEquals(Surface.TRAIL,  c("highway" to "path", "mtb:scale" to "2"))
+        assertEquals(Surface.TRAIL,  c("highway" to "path", "mtb:scale" to "1"))
         assertEquals(3, SurfaceTagClassifier.mtbDifficulty(mapOf("mtb:scale" to "2")))
         assertEquals(0, SurfaceTagClassifier.mtbDifficulty(mapOf("highway" to "path")))
     }
