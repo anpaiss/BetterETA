@@ -18,6 +18,7 @@ package com.anpaiss.bettereta
  *                          0 = nessuno
  * @param marginSeconds     MTA - (adesso + remainingSeconds): secondi di margine,
  *                          negativo = arrivo oltre l'MTA; null senza MTA o senza ETA
+ * @param uncertaintySeconds larghezza del "±" della stima (EtaUncertainty); -1 = nessuna
  */
 data class EtaState(
     val remainingSeconds: Long = -1L,
@@ -31,6 +32,7 @@ data class EtaState(
     val mtaEpochMs: Long = 0L,
     val marginSeconds: Long? = null,
     val estimateApprox: Boolean = false,
-    /** Fattore di giornata del modello (1.0 = come la base); mostrato in dashboard come DAY PACE */
+    /** Fattore di giornata del modello (1.0 = come la base) */
     val dayFactor: Double = 1.0,
+    val uncertaintySeconds: Long = -1L,
 )

@@ -698,7 +698,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         val rejoinM = karooRejoinDistM
                         if (rejoinM != null && karooPosM != null) {
                             val segs      = pipeline.remainingSegmentsFrom(karooPosM)
-                            val routeSec  = etaEngine.computeBreakdown(segs).seconds
+                            val routeBd   = etaEngine.computeBreakdown(segs)
+                            val routeSec  = routeBd.seconds
                             val flatMs    = speedModel.predict(0.0).speedMs.coerceAtLeast(0.5)
                             val detourSec = (rejoinM / flatMs).toLong()
                             val totalSec  = detourSec + routeSec
@@ -712,6 +713,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                                 marginSeconds      = marginFor(totalSec),
                                 estimateApprox     = true,
                                 dayFactor          = speedModel.currentDayFactor,
+                                uncertaintySeconds = EtaUncertainty.seconds(totalSec, routeBd.memoryDistanceShare, routeBd.fallbackDistanceShare, approx = true),
                             )
                             logTickCounter++
                             if (logTickCounter >= LOG_INTERVAL_TICKS) {
@@ -817,6 +819,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     val marginSec = marginFor(remainingSec)
                     val locatedNow = pipeline.isLocated()
+                    val uncertaintySec = EtaUncertainty.seconds(remainingSec,
+                        primary.memoryDistanceShare, primary.fallbackDistanceShare, approx = !locatedNow)
                     etaState.value = EtaState(
                         remainingSeconds       = remainingSec,
                         hasRoute               = true,
@@ -832,6 +836,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         // Karoo): l'ETA vale dallo start, mostrato come stima "~"
                         estimateApprox         = !locatedNow,
                         dayFactor              = speedModel.currentDayFactor,
+                        uncertaintySeconds     = uncertaintySec,
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita
@@ -859,7 +864,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     if (logTickCounter >= LOG_INTERVAL_TICKS) {
                         logTickCounter = 0
                         logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale,
-                            remainDistM, deltaSec, karooEtaSec, marginSec, primary.memoryDistanceShare)
+                            remainDistM, deltaSec, karooEtaSec, marginSec, primary.memoryDistanceShare, uncertaintySec)
                     }
                 }
             }
@@ -941,6 +946,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         remainingSec: Long, speedMs: Double, gradePct: Double, gpsStale: Boolean,
         remainDistM: Double, deltaSec: Long?, karooSec: Double, marginSec: Long?,
         memoryShare: Double = 0.0,
+        uncertaintySec: Long = -1L,
     ) {
         if (remainingSec <= 0L) return
         val h     = remainingSec / 3600
@@ -949,7 +955,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val delta = deltaSec?.let { " delta=%+ds".format(it) } ?: ""
         val karoo = if (karooSec > 0) " karoo=${karooSec.roundToInt()}s" else ""
         val fact  = " f=%.2f".format(speedModel.currentDayFactor) +
-            (if (memoryShare > 0.0) " mem=%d%%".format((memoryShare * 100).toInt()) else "")
+            (if (memoryShare > 0.0) " mem=%d%%".format((memoryShare * 100).toInt()) else "") +
+            (if (uncertaintySec >= 0) " ±%dm".format((uncertaintySec + 30) / 60) else "")
         val mta   = if (mtaEpochMs > 0L) " mta=%s margin=%s".format(
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)),
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""

@@ -18,13 +18,16 @@ data class FieldColors(
  * testo/sfondo garantisce contrasto WCAG >= 4.5:1 (rapporto documentato a
  * fianco). Ogni stile esprime lo stato pace nel canale che usa in AxsRatio
  * per le zone HR: VIVID e PASTEL col fondo, OUTLINE col bordo, INK col colore
- * del testo del delta.
+ * del testo del delta. KAROO è l'eccezione: bianco su nero come i campi nativi
+ * del Karoo, nessun colore di stato — il segno lo dicono le parole nelle
+ * didascalie (AHEAD/LATE) e il "+"/"-" del valore.
  */
 enum class EtaStyle(val label: String) {
     VIVID("Vivid"),
     OUTLINE("Outline"),
     PASTEL("Pastel"),
     INK("Ink"),
+    KAROO("Karoo standard"),
     ;
 
     /** Colori del campo; [pace] null = campo singolo senza stato (ETA, REM, TO FAR POINT). */
@@ -58,6 +61,9 @@ enum class EtaStyle(val label: String) {
         // Valori in accent su fondo nero (6.9:1), delta nel colore dello stato
         // (min 5.3:1); bordo sottile per staccare il campo dalle mappe scure.
         INK -> FieldColors(null, R.drawable.bg_ink, GREY, ACCENT, paceAccent(pace))
+
+        // Come i campi nativi: bianco su nero (21:1), didascalia grigia (7.8:1).
+        KAROO -> FieldColors(BLACK, null, GREY, WHITE, WHITE)
     }
 
     /**
@@ -66,6 +72,7 @@ enum class EtaStyle(val label: String) {
      * ogni stile: verde/rosso pieni su nero (INK/OUTLINE), scuri sui fondi chiari.
      */
     fun marginColor(pace: Pace?): Int = when (this) {
+        KAROO -> WHITE
         INK, OUTLINE -> paceAccent(pace)
         VIVID, PASTEL -> when (pace) {
             Pace.EARLY -> 0xFF1B5E20.toInt()   // verde scuro: >= 4.5:1 su pastel, 3:1 su grigio vivid
