@@ -622,7 +622,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
                     if (currentSpeedMs >= 0.5 && !progressing && !learningPaused && !offRoute) {
                         learningPaused = true
-                        logger.log("MODEL", "Apprendimento sospeso: speed=%.1fm/s ma nessun avanzamento sulla route nell'ultimo minuto (GPS fermo?)".format(currentSpeedMs))
+                        logger.log("MODEL", "Apprendimento sospeso: speed=%.1fkm/h ma nessun avanzamento sulla route nell'ultimo minuto (GPS fermo?)".format(currentSpeedMs * 3.6))
                     } else if (moving && learningPaused) {
                         learningPaused = false
                         logger.log("MODEL", "Apprendimento ripreso: avanzamento sulla route rilevato")
@@ -684,8 +684,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             logTickCounter++
                             if (logTickCounter >= LOG_INTERVAL_TICKS) {
                                 logTickCounter = 0
-                                logger.log("ETA  ", "Rejoin: deviazione %.0fm a %.1fm/s (%ds) + route da %.0fm (%ds) = %ds".format(
-                                    rejoinM, flatMs, detourSec, karooPosM, routeSec, totalSec))
+                                logger.log("ETA  ", "Rejoin: deviazione %.0fm a %.1fkm/h (%ds) + route da %.0fm (%ds) = %ds".format(
+                                    rejoinM, flatMs * 3.6, detourSec, karooPosM, routeSec, totalSec))
                             }
                         } else {
                             etaState.value = EtaState(
@@ -921,7 +921,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)),
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
-            "speed=%.1fm/s grade=%.1f%%%s%s%s%s%s".format(speedMs, gradePct, fact, delta, karoo, mta, gps))
+            "speed=%.1fkm/h grade=%.1f%%%s%s%s%s%s".format(speedMs * 3.6, gradePct, fact, delta, karoo, mta, gps))
     }
 
     /** Posizione lungo la route secondo il Karoo (routeDistance − DISTANCE_TO_DESTINATION), se pubblicata e dentro la route. */
@@ -1155,9 +1155,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             val base   = speed / factor
             wayMemory.record(key, base, System.currentTimeMillis())
             val est = wayMemory.estimate(key)
-            logger.log("WAY  ", "way %d %s: %.1fm/s su %.0fm in %ds → base %.1fm/s (f=%.2f), passaggi %d, media %.1fm/s".format(
+            logger.log("WAY  ", "way %d %s: %.1fkm/h su %.0fm in %ds → base %.1fkm/h (f=%.2f), passaggi %d, media %.1fkm/h".format(
                 WaySpeedMemory.wayIdOf(key), if (WaySpeedMemory.isForward(key)) "→" else "←",
-                speed, passDistM, passSec, base, factor, est?.passes ?: 0, est?.speedMs ?: 0.0))
+                speed * 3.6, passDistM, passSec, base * 3.6, factor, est?.passes ?: 0, (est?.speedMs ?: 0.0) * 3.6))
         }
         passKey   = 0L
         passDistM = 0.0
@@ -1216,20 +1216,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             putFloat("phys_mass",     ps.totalMassKg.toFloat())
         }.commit()  // sincrono: garantisce scrittura su disco prima che il processo venga ucciso
 
+        // Nel log le velocità sono in km/h (i m/s restano dentro il modello)
         val bucketStr = snap.bucketEmas.mapIndexed { i, v ->
-            "b$i=%.1fm/s(n=${snap.bucketCounts[i]})".format(v)
+            "b$i=%.1f(n=${snap.bucketCounts[i]})".format(v * 3.6)
         }.joinToString(" ")
-        val surfStr = "pav[" + snap.pavedEmas.mapIndexed { i, v ->
-            "%.1f(n=${snap.pavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
-            "] gravel[" + snap.unpavedEmas.mapIndexed { i, v ->
-            "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
-            "] trail[" + snap.trailEmas.mapIndexed { i, v ->
-            "%.1f(n=${snap.trailCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
-            "] gnarly[" + snap.gnarlyEmas.mapIndexed { i, v ->
-            "%.1f(n=${snap.gnarlyCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
+        fun surf(name: String, emas: List<Double>, counts: List<Int>) =
+            "$name[" + emas.mapIndexed { i, v -> "%.1f(n=${counts.getOrElse(i){0}})".format(v * 3.6) }.joinToString(",") + "]"
+        val surfStr = surf("pav", snap.pavedEmas, snap.pavedCounts) + " " +
+            surf("gravel", snap.unpavedEmas, snap.unpavedCounts) + " " +
+            surf("trail", snap.trailEmas, snap.trailCounts) + " " +
+            surf("gnarly", snap.gnarlyEmas, snap.gnarlyCounts)
         val factStr = "f=%.2f [".format(snap.dayFactor) + speedModel.effectiveFactors().joinToString(",") { "%.2f".format(it) } + "]"
-        logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s | $factStr"
-            .format(snap.overallEma, snap.overallSamples, bucketStr, surfStr))
+        logger.log("MODEL", "Salvato (km/h): overall=%.1f n=%d | %s | %s | $factStr"
+            .format(snap.overallEma * 3.6, snap.overallSamples, bucketStr, surfStr))
         logger.log("MODEL", "Physics (shadow): pLow=%s W (n=%d) pHigh=%s W (n=%d) massa=%.1fkg".format(
             physicsModel.powerLowW?.let { "%.0f".format(it) } ?: "-", physicsModel.lowSamples,
             physicsModel.powerHighW?.let { "%.0f".format(it) } ?: "-", physicsModel.highSamples,
@@ -1282,10 +1281,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // Log dello stato effettivo (dopo l'eventuale migrazione), non delle prefs lette
         val restored  = speedModel.snapshot()
         val bucketStr = restored.bucketEmas.mapIndexed { i, v ->
-            "b$i=%.1fm/s(n=${restored.bucketCounts[i]})".format(v)
+            "b$i=%.1f(n=${restored.bucketCounts[i]})".format(v * 3.6)
         }.joinToString(" ")
-        logger.log("MODEL", "Ripristinato: overall=%.2fm/s n=%d | %s"
-            .format(snap.overallEma, snap.overallSamples, bucketStr))
+        logger.log("MODEL", "Ripristinato (km/h): overall=%.1f n=%d | %s"
+            .format(snap.overallEma * 3.6, snap.overallSamples, bucketStr))
     }
 
     // ── Mandatory time of arrival ────────────────────────────────────────

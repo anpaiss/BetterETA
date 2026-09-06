@@ -135,7 +135,7 @@ The extension writes two logs on the device.
 adb pull /sdcard/Android/data/com.anpaiss.bettereta/files/better_eta.log
 ```
 
-Single-value fields put a two-line label on the left and the value on the right, both auto-sized to fill the cell height, so a half-page field is readable at a glance. Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), the mandatory arrival time popup, value and alert (`MTA`), the view lifecycle — which fields are on the visible page, every `startView`/stop the ride app performs, the dashboard layout in use (`VIEW`) — one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
+Single-value fields put a two-line label on the left and the value on the right, both auto-sized to fill the cell height, so a half-page field is readable at a glance. Speeds in the log are km/h (the model works in m/s internally). Tagged lines cover route loading (`ROUTE`), GPS snap/rescue (`GPS`), ride state (`RIDE`), model save/restore (`MODEL`), surface classification (`SURF`), the mandatory arrival time popup, value and alert (`MTA`), the view lifecycle — which fields are on the visible page, every `startView`/stop the ride app performs, the dashboard layout in use (`VIEW`) — one ETA snapshot per minute (`ETA`) and end-of-ride comparison results (`STATS`).
 
 **Structured sample log** — one CSV row per second while recording, rotating at 4 MB:
 
