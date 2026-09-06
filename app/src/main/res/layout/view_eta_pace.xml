@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Campo singolo PACE VS PLAN: stesso disegno degli altri campi singoli,
+     didascalia a sinistra su due righe e valore a destra, autosize sull'altezza
+     della cella. Il colore dello stato (in anticipo/in ritardo) segue lo stile. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_pace"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
+    android:background="@android:color/transparent">
+
+    <TextView
+        android:id="@+id/tv_pace_label"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.42"
+        android:gravity="center_vertical|start"
+        android:paddingEnd="6dp"
+        android:text="PACE\nVS PLAN"
+        android:textStyle="bold"
+        android:textColor="#9E9E9E"
+        android:textAllCaps="true"
+        android:maxLines="2"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="12sp"
+        android:autoSizeMaxTextSize="40sp"
+        android:autoSizeStepGranularity="1sp" />
+
+    <TextView
+        android:id="@+id/tv_pace_value"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.58"
+        android:gravity="center_vertical|end"
+        android:text="--"
+        android:textStyle="bold"
+        android:textColor="#9E9E9E"
+        android:maxLines="1"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="16sp"
+        android:autoSizeMaxTextSize="110sp"
+        android:autoSizeStepGranularity="2sp" />
+
+</LinearLayout>

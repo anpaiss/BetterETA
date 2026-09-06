@@ -4,19 +4,22 @@
     <string name="extension_name">BetterETA</string>
 
     <string name="eta_master_name">BetterETA Dashboard</string>
-    <string name="eta_master_desc">Full page: arrival time, remaining time, km, ascent, speed model, GPS</string>
+    <string name="eta_master_desc">Full page: arrival time, time to go with its uncertainty, pace vs plan or mandatory arrival time and margin</string>
 
     <string name="eta_absolute_name">ETA (Better)</string>
     <string name="eta_absolute_desc">Estimated arrival time with elevation-aware correction (Komoot)</string>
 
     <string name="eta_remaining_name">Time Remaining (Better)</string>
-    <string name="eta_remaining_desc">Estimated remaining time with elevation-aware correction</string>
+    <string name="eta_remaining_desc">Estimated time to go, with the uncertainty of the estimate in the label</string>
 
     <string name="eta_farthest_name">Distance to Farthest Point</string>
     <string name="eta_farthest_desc">Remaining distance to the point farthest from the start (e.g. the turnaround on an out-and-back)</string>
 
     <string name="eta_margin_name">Arrival Margin (MTA)</string>
-    <string name="eta_margin_desc">Minutes of slack vs the mandatory time of arrival asked at ride start (negative = late)</string>
+    <string name="eta_margin_desc">Mandatory time of arrival asked at ride start and the minutes of slack against it (green ahead, red late)</string>
+
+    <string name="eta_pace_name">Pace vs Plan</string>
+    <string name="eta_pace_desc">Riding time against the first estimate of the ride: +4m = arriving later than planned</string>
 
     <string name="mta_popup_title">Mandatory arrival time?</string>
     <string name="mta_popup_set">SET</string>

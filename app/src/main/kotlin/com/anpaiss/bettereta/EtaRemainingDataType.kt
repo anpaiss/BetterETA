@@ -68,17 +68,18 @@ class EtaRemainingDataType(
 
             // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente
             combine(etaState, prefs.styleFlow()) { state, style ->
-                formatRemaining(state) to style.colorsFor(null)
+                Triple(formatRemaining(state), formatLabel(state), style.colorsFor(null))
             }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { (formattedText, c) ->
+                .collect { (formattedText, label, c) ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
                     if (c.bgRes != null) views.setInt(R.id.root_remaining, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_remaining, "setBackgroundColor", c.bgColor ?: 0)
                     views.setTextColor(R.id.tv_remaining_label, c.label)
                     views.setTextColor(R.id.tv_remaining_value, c.value)
+                    views.setTextViewText(R.id.tv_remaining_label, label)
                     views.setTextViewText(R.id.tv_remaining_value, formattedText)
                     emitter.updateView(views)
                 }
@@ -88,6 +89,11 @@ class EtaRemainingDataType(
             scope.cancel()
         }
     }
+
+    /** Con una stima valida la seconda riga della didascalia porta il "±" (EtaUncertainty). */
+    private fun formatLabel(state: EtaState): String =
+        if (state.hasRoute && state.remainingSeconds >= 0 && state.uncertaintySeconds >= 0)
+            "TIME LEFT\n±${(state.uncertaintySeconds + 30) / 60}m" else "TIME\nLEFT"
 
     private fun formatRemaining(state: EtaState): String {
         if (!state.hasRoute || state.remainingSeconds < 0) return state.status

@@ -225,6 +225,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaMasterDataType(extension, etaState, visibleDataTypeIds),
             EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
             EtaMarginDataType(extension, etaState, visibleDataTypeIds),
+            EtaPaceDataType(extension, etaState, visibleDataTypeIds),
         )
     }
 

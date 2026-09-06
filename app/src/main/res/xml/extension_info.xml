@@ -37,11 +37,19 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
-    <!-- Margin vs the mandatory time of arrival set at ride start -->
+    <!-- Mandatory time of arrival and the margin against it -->
     <DataType
         typeId="eta-margin"
         displayName="@string/eta_margin_name"
         description="@string/eta_margin_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
+    <!-- Pace vs plan: riding time against the first estimate of the ride -->
+    <DataType
+        typeId="eta-pace"
+        displayName="@string/eta_pace_name"
+        description="@string/eta_pace_desc"
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 

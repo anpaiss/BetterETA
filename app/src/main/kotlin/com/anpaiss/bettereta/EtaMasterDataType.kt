@@ -149,14 +149,8 @@ class EtaMasterDataType(
         }
 
         // 3. Delta vs prima stima del giro: positivo = arrivo più tardi del previsto
-        val delta = state.deltaSeconds
-        val pace = when {
-            delta == null -> Pace.UNKNOWN
-            delta > 60L   -> Pace.LATE
-            delta < -60L  -> Pace.EARLY
-            else          -> Pace.ON_PACE
-        }
-        val colors = style.colorsFor(pace)
+        val delta  = state.deltaSeconds
+        val colors = style.colorsFor(paceOf(delta))
 
         // Con un MTA la terza riga diventa MTA + margine: a sinistra "MTA" e l'ora,
         // a destra i minuti su una cella verde/rossa con la parola AHEAD/LATE, che
@@ -173,7 +167,7 @@ class EtaMasterDataType(
             val cell       = style.marginCell(marginPace)
             thirdTop    = "MTA"
             thirdBottom = timeFmt.format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
-            third       = formatDelta(margin)
+            third       = formatSignedMinutes(margin)
             thirdTag    = when (marginPace) {
                 Pace.EARLY -> "AHEAD"
                 Pace.LATE  -> "LATE"
@@ -184,7 +178,7 @@ class EtaMasterDataType(
         } else {
             thirdTop    = "PACE"
             thirdBottom = "VS PLAN"
-            third       = formatDelta(delta)
+            third       = formatSignedMinutes(delta)
             thirdTag    = ""
             thirdBg     = 0
             thirdColor  = colors.delta
@@ -208,14 +202,5 @@ class EtaMasterDataType(
         val h = seconds / 3600
         val m = (seconds % 3600) / 60
         return if (h > 0) "${h}h ${m}m" else "${m}m"
-    }
-
-    private fun formatDelta(seconds: Long?): String {
-        if (seconds == null) return "--"
-        val sign = if (seconds < 0) "-" else "+"
-        val abs  = kotlin.math.abs(seconds)
-        val h = abs / 3600
-        val m = (abs % 3600) / 60
-        return if (h > 0) "$sign${h}h ${m}m" else "$sign${m}m"
     }
 }

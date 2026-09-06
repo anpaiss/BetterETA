@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Campo singolo: didascalia a sinistra su due righe e valore a destra, entrambi
-     autosize per riempire l'altezza della cella. Il layout verticale con valore
-     a 28sp e didascalia a 10sp era illeggibile in sella. -->
+<!-- Campo singolo MTA + margine: la terza riga della dashboard da sola.
+     A sinistra "MTA" piccolo sopra l'ora grande; a destra una cella col margine
+     grande e sotto la parola AHEAD/LATE, colorata di verde/rosso. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root_margin"
     android:layout_width="match_parent"
@@ -14,38 +14,81 @@
     android:paddingBottom="4dp"
     android:background="@android:color/transparent">
 
-    <TextView
-        android:id="@+id/tv_margin_label"
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="0.42"
+        android:layout_weight="0.40"
+        android:orientation="vertical"
         android:gravity="center_vertical|start"
         android:paddingEnd="6dp"
-        android:text="MTA\nMARGIN"
-        android:textStyle="bold"
-        android:textColor="#9E9E9E"
-        android:textAllCaps="true"
-        android:maxLines="2"
-        android:includeFontPadding="false"
-        android:autoSizeTextType="uniform"
-        android:autoSizeMinTextSize="12sp"
-        android:autoSizeMaxTextSize="40sp"
-        android:autoSizeStepGranularity="1sp" />
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+        <TextView
+            android:id="@+id/tv_margin_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="start"
+            android:text="MTA"
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:textSize="18sp"
+            android:maxLines="1"
+            android:includeFontPadding="false" />
+        <TextView
+            android:id="@+id/tv_margin_time"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical|start"
+            android:text="--:--"
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:maxLines="1"
+            android:includeFontPadding="false"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="12sp"
+            android:autoSizeMaxTextSize="60sp"
+            android:autoSizeStepGranularity="1sp" />
+    </LinearLayout>
 
-    <TextView
-        android:id="@+id/tv_margin_value"
+    <LinearLayout
+        android:id="@+id/cell_margin"
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="0.58"
+        android:layout_weight="0.60"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:orientation="vertical"
         android:gravity="center_vertical|end"
-        android:text="--"
-        android:textStyle="bold"
-        android:textColor="#9E9E9E"
-        android:maxLines="1"
-        android:includeFontPadding="false"
-        android:autoSizeTextType="uniform"
-        android:autoSizeMinTextSize="16sp"
-        android:autoSizeMaxTextSize="110sp"
-        android:autoSizeStepGranularity="2sp" />
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="@android:color/transparent">
+        <TextView
+            android:id="@+id/tv_margin_value"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical|end"
+            android:text="--"
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:maxLines="1"
+            android:includeFontPadding="false"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="16sp"
+            android:autoSizeMaxTextSize="96sp"
+            android:autoSizeStepGranularity="2sp" />
+        <TextView
+            android:id="@+id/tv_margin_tag"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:text=""
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:textSize="18sp"
+            android:maxLines="1"
+            android:includeFontPadding="false" />
+    </LinearLayout>
 
 </LinearLayout>

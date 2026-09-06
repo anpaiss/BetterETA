@@ -1,6 +1,7 @@
 package com.anpaiss.bettereta
 
 import android.content.Context
+import android.text.format.DateFormat
 import android.widget.RemoteViews
 import io.hammerhead.karooext.extension.DataTypeImpl
 import io.hammerhead.karooext.internal.Emitter
@@ -20,10 +21,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 /**
- * Campo grafico — margine in minuti rispetto al mandatory time of arrival
- * ("+12 min" verde / "-5 min" rosso). "--" senza MTA impostato.
+ * Campo grafico — MTA e margine, come la terza riga della dashboard: "MTA" e
+ * l'ora a sinistra, a destra il margine ("+12m" / "-5m") su una cella verde o
+ * rossa con AHEAD/LATE sotto. "--:--" e "--" senza MTA impostato.
  */
 class EtaMarginDataType(
     extension: String,
@@ -36,7 +39,14 @@ class EtaMarginDataType(
         private const val REDRAW_THROTTLE_MS = 20_000L
     }
 
-    private data class MarginView(val text: String, val label: String, val colors: FieldColors, val valueColor: Int)
+    private data class MarginView(
+        val time: String,
+        val value: String,
+        val tag: String,
+        val cellBg: Int,
+        val cellText: Int,
+        val colors: FieldColors,
+    )
 
     // Fallback numerico: minuti di margine (verso zero); -1 senza MTA
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -62,7 +72,7 @@ class EtaMarginDataType(
         val prefs = Prefs(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            combine(etaState, prefs.styleFlow()) { state, style -> render(state, style) }
+            combine(etaState, prefs.styleFlow()) { state, style -> render(context, state, style) }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId)
                 .throttle(REDRAW_THROTTLE_MS)
@@ -72,9 +82,13 @@ class EtaMarginDataType(
                     if (c.bgRes != null) views.setInt(R.id.root_margin, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_margin, "setBackgroundColor", c.bgColor ?: 0)
                     views.setTextColor(R.id.tv_margin_label, c.label)
-                    views.setTextColor(R.id.tv_margin_value, view.valueColor)
-                    views.setTextViewText(R.id.tv_margin_value, view.text)
-                    views.setTextViewText(R.id.tv_margin_label, view.label)
+                    views.setTextColor(R.id.tv_margin_time, c.value)
+                    views.setTextViewText(R.id.tv_margin_time, view.time)
+                    views.setTextViewText(R.id.tv_margin_value, view.value)
+                    views.setTextViewText(R.id.tv_margin_tag, view.tag)
+                    views.setTextColor(R.id.tv_margin_value, view.cellText)
+                    views.setTextColor(R.id.tv_margin_tag, view.cellText)
+                    views.setInt(R.id.cell_margin, "setBackgroundColor", view.cellBg)
                     emitter.updateView(views)
                 }
         }
@@ -84,12 +98,22 @@ class EtaMarginDataType(
         }
     }
 
-    private fun render(state: EtaState, style: EtaStyle): MarginView {
+    private fun render(context: Context, state: EtaState, style: EtaStyle): MarginView {
+        if (state.mtaEpochMs <= 0L) {
+            val c = style.colorsFor(Pace.UNKNOWN)
+            return MarginView("--:--", "--", "", 0, c.delta, c)
+        }
+        val time   = DateFormat.getTimeFormat(context)
+            .format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
         val margin = state.marginSeconds
-            ?: return MarginView("--", "MTA\nMARGIN", style.colorsFor(Pace.UNKNOWN), style.marginColor(Pace.UNKNOWN))
-        val pace  = marginPace(margin)
-        val label = if (pace == Pace.LATE) "LATE VS\nMTA" else "AHEAD OF\nMTA"
-        return MarginView(ArrivalMargin.format(margin), label, style.colorsFor(pace), style.marginColor(pace))
+        val pace   = margin?.let(::marginPace) ?: Pace.UNKNOWN
+        val cell   = style.marginCell(pace)
+        val tag    = when (pace) {
+            Pace.EARLY -> "AHEAD"
+            Pace.LATE  -> "LATE"
+            else       -> "MARGIN"
+        }
+        return MarginView(time, formatSignedMinutes(margin), tag, cell.first, cell.second, style.colorsFor(pace))
     }
 }
 
