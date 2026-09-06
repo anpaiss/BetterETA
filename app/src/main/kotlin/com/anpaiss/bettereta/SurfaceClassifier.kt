@@ -35,6 +35,8 @@ class SurfaceClassifier(
     // Formato precedente (fondo per indice, chiave = hash polyline): non riusabile
     private val legacyCacheFile = File(context.filesDir, "surface_cache.json")
     private var store: SurfaceWayStore? = null
+    /** false durante l'import storico: un salvataggio solo alla fine invece di uno per giro. */
+    @Volatile var autoSave = true
     // Ultimo fallimento di rete: ogni riemissione della route (decine per giro
     // fuori copertura) ritentava e scriveva tre righe di log
     private var lastFetchFailMs = 0L
@@ -250,8 +252,19 @@ class SurfaceClassifier(
     }
 
     private fun saveStore(store: SurfaceWayStore) {
+        if (!autoSave) return
         runCatching { cacheFile.writeText(store.serialize()) }
             .onFailure { logger.logError("SURF ", "Salvataggio cache fondo fallito", it) }
+    }
+
+    /** Salvataggio esplicito (fine import storico). */
+    @Synchronized
+    fun saveNow() {
+        val s = store ?: return
+        val t0 = System.currentTimeMillis()
+        runCatching { cacheFile.writeText(s.serialize()) }
+            .onFailure { logger.logError("SURF ", "Salvataggio cache fondo fallito", it) }
+        logger.log("SURF ", "Cache way salvata: ${s.wayCount} way, ${s.wayPointCount} punti, ${System.currentTimeMillis() - t0} ms")
     }
 
     private fun summary(surfaces: List<Surface>, waypoints: List<RouteWaypoint>): String {

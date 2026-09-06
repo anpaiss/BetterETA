@@ -59,8 +59,14 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat(KEY_LAST_FIX_LON, 0f).toDouble()
         set(v) = sp.edit().putFloat(KEY_LAST_FIX_LON, v.toFloat()).apply()
 
+    /** Mesi di storico FIT da importare; 0 = tutto. */
+    var historyMonths: Int
+        get() = sp.getInt(KEY_HISTORY_MONTHS, 12)
+        set(v) = sp.edit().putInt(KEY_HISTORY_MONTHS, v).apply()
+
     companion object {
         private const val NAME = "better_eta_prefs"
+        private const val KEY_HISTORY_MONTHS = "history_months"
         private const val KEY_LAST_FIX_LAT = "last_fix_lat"
         private const val KEY_LAST_FIX_LON = "last_fix_lon"
         const val KEY_TILE_STYLE = "tile_style"

@@ -55,25 +55,50 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
 
     private val batches = ArrayDeque<Batch>()
 
+    // Indice spaziale costruito una volta e aggiornato a ogni add(): ricostruirlo
+    // a ogni match costava ~10 s a giro con 200k punti (import storico 06/09).
+    // Proiezione con latitudine di riferimento fissa (prima geometria vista):
+    // entro qualche grado l'errore di scala è di pochi percento.
+    private var proj: LocalProjection? = null
+    private var wayIndex: SegmentIndex? = null
+    private var runIndex: SegmentIndex? = null
+
     val batchCount: Int get() = batches.size
     val wayCount: Int get() = batches.sumOf { it.ways.size }
     val wayPointCount: Int get() = batches.sumOf { it.wayPointCount }
 
     fun add(batch: Batch) {
         batches.addLast(batch)
-        while (batches.size > 1 && wayPointCount > maxWayPoints) batches.removeFirst()
+        var evicted = false
+        while (batches.size > 1 && wayPointCount > maxWayPoints) { batches.removeFirst(); evicted = true }
+        if (evicted) invalidateIndex() else if (wayIndex != null) indexBatch(batch)
+    }
+
+    private fun invalidateIndex() { wayIndex = null; runIndex = null; proj = null }
+
+    private fun indexBatch(b: Batch) {
+        for (w in b.ways) wayIndex!!.addPolyline(w.points, w.surface, w.id)
+        for (r in b.runs) runIndex!!.addPolyline(r, Surface.UNKNOWN, 0L)
+    }
+
+    private fun ensureIndex(refLatIfEmpty: Double) {
+        if (wayIndex != null) return
+        val refLat = batches.firstOrNull()?.let { b ->
+            b.runs.firstOrNull()?.firstOrNull()?.first ?: b.ways.firstOrNull()?.points?.firstOrNull()?.first
+        } ?: refLatIfEmpty
+        val p = LocalProjection(refLat)
+        proj = p
+        wayIndex = SegmentIndex(p)
+        runIndex = SegmentIndex(p)
+        for (b in batches) indexBatch(b)
     }
 
     fun match(waypoints: List<RouteWaypoint>): Match {
         if (waypoints.isEmpty()) return Match(emptyList(), BooleanArray(0))
-        val proj = LocalProjection(waypoints.first().lat)
-
-        val wayIndex = SegmentIndex(proj)
-        val runIndex = SegmentIndex(proj)
-        for (b in batches) {
-            for (w in b.ways) wayIndex.addPolyline(w.points, w.surface, w.id)
-            for (r in b.runs) runIndex.addPolyline(r, Surface.UNKNOWN, 0L)
-        }
+        ensureIndex(waypoints.first().lat)
+        val proj = proj!!
+        val wayIndex = wayIndex!!
+        val runIndex = runIndex!!
 
         val surfaces = ArrayList<Surface>(waypoints.size)
         val covered  = BooleanArray(waypoints.size)
@@ -125,7 +150,7 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
     companion object {
         const val MATCH_MAX_DIST_M = 30.0     // waypoint→way oltre questa = UNKNOWN
         const val COVER_M          = 40.0     // waypoint→corridoio già chiesto oltre questa = da chiedere
-        const val MAX_WAY_POINTS   = 200_000  // ~5 MB di file, decine di route
+        const val MAX_WAY_POINTS   = 400_000  // ~10 MB di file: due anni di giri in zona
         private const val HEADER   = "SURF3"
         private const val LEGACY_HEADER = "SURF2"
         private const val GRID_CELL_M = 330.0
@@ -169,8 +194,27 @@ class SurfaceWayStore(private val maxWayPoints: Int = MAX_WAY_POINTS) {
             return store
         }
 
-        private fun encodePoints(pts: List<Pair<Double, Double>>): String =
-            pts.joinToString(";") { "%.6f,%.6f".format(java.util.Locale.ROOT, it.first, it.second) }
+        // Formattazione a mano a 6 decimali: String.format su 200k punti costava
+        // decine di secondi sul Karoo a ogni salvataggio (import storico 06/09)
+        private fun encodePoints(pts: List<Pair<Double, Double>>): String {
+            val sb = StringBuilder(pts.size * 22)
+            for ((i, p) in pts.withIndex()) {
+                if (i > 0) sb.append(';')
+                appendFixed6(sb, p.first); sb.append(','); appendFixed6(sb, p.second)
+            }
+            return sb.toString()
+        }
+
+        private fun appendFixed6(sb: StringBuilder, v: Double) {
+            var micro = Math.round(v * 1_000_000.0)
+            if (micro < 0) { sb.append('-'); micro = -micro }
+            val whole = micro / 1_000_000
+            val frac = micro % 1_000_000
+            sb.append(whole).append('.')
+            val f = frac.toString()
+            repeat(6 - f.length) { sb.append('0') }
+            sb.append(f)
+        }
 
         private fun decodePoints(s: String): List<Pair<Double, Double>> =
             s.split(';').filter { it.isNotBlank() }.map {

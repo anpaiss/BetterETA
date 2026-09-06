@@ -158,6 +158,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val gpsGate = GpsProgressGate()
     private var freeRideSamples = 0
 
+    // Import dello storico FIT del Karoo: una volta per file, in background,
+    // mai durante una registrazione. Elenco dei file già importati su disco.
+    @Volatile private var historyImportRunning = false
+
     // ── Confronto ETA BetterEta vs ETA nativa Karoo ──────────────────────
     // Un campione al minuto (movingAt = tempo in movimento dalla baseline,
     // previsioni di entrambi); a fine giro ogni campione viene giudicato
@@ -174,6 +178,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private var sampleTickCounter = 0
 
     companion object {
+        /** Istanza viva del servizio, per la schermata dell'app (stesso processo). */
+        @Volatile var instance: BetterEtaExtension? = null
+
         private const val TICK_MS              = 1000L
         private const val GPS_TIMEOUT_MS       = 10_000L
         private const val PREFS_NAME           = "better_eta_model"
@@ -185,6 +192,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // arrivo reale verso le 10:15). Oltre il limite, l'ETA che c'è.
         private const val MTA_LOCATED_WAIT_MS = 90_000L
         private const val MTA_ANY_ETA_WAIT_MS = 10_000L
+        // Import storico automatico: parte poco dopo l'avvio, se non si registra
+        private const val HISTORY_AUTO_IMPORT_DELAY_MS = 20_000L
+        private const val HISTORY_MIN_KM = 10.0   // sotto: prove, test in casa, giri da niente
         // Posizione Karoo negativa (prima dello start) fino a questa distanza = start
         private const val BEFORE_START_TOLERANCE_M = 1000.0
 
@@ -219,6 +229,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         super.onCreate()
         logger = BetterEtaLogger(applicationContext)
         BetterEtaLogger.shared = logger
+        instance = this
         sampleLog = SampleLog(applicationContext)
         logger.log("SYS  ", "Sample log: ${sampleLog.path}")
         surfaceClassifier = SurfaceClassifier(applicationContext, logger,
@@ -531,6 +542,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 rideState = state
             }
 
+            // ── Storico FIT: import automatico dei giri mai importati ─────────────
+            extensionScope.launch {
+                delay(HISTORY_AUTO_IMPORT_DELAY_MS)
+                if (rideState !is RideState.Recording) importRideHistory(auto = true)
+            }
+
             // ── Ticker principale ─────────────────────────────────────────────────
             tickerJob = extensionScope.launch {
                 while (true) {
@@ -818,6 +835,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     override fun onDestroy() {
         logger.log("SYS  ", "=== BetterETA fermato ===")
+        instance = null
         mtaPopup.hide()
         closeWayPass()
         saveModel()
@@ -983,6 +1001,106 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
         logger.log("STATS", "ETA vs Karoo: diff=${result.diffPct}% (BE ${result.errBePct}%, Karoo ${result.errKarooPct}%, " +
             "physics-shadow ${result.errPhysicsPct?.let { "$it%" } ?: "n/a"}) su ${valid.size} campioni")
+    }
+
+    // ── storico FIT ──────────────────────────────────────────────────────
+
+    private fun importedListFile() = java.io.File(filesDir, "imported_fits.txt")
+
+    /** Nomi dei FIT già importati (uno per riga). */
+    fun importedFits(): Set<String> =
+        runCatching { importedListFile().readLines().filter { it.isNotBlank() }.toSet() }.getOrDefault(emptySet())
+
+    /** FIT del Karoo dentro la finestra di mesi scelta (0 = tutti), dal più vecchio. */
+    fun fitFiles(): List<java.io.File> {
+        val months = prefs.historyMonths
+        val since = if (months <= 0) 0L else System.currentTimeMillis() - months * 30L * 86_400_000L
+        return java.io.File(android.os.Environment.getExternalStorageDirectory(), "FitFiles")
+            .listFiles { f -> f.isFile && f.name.endsWith(".fit") && f.lastModified() >= since }
+            ?.sortedBy { it.lastModified() }.orEmpty()
+    }
+
+    /** Lanciato dalla schermata dell'app: import in background dei FIT mai importati. */
+    fun requestHistoryImport() {
+        extensionScope.launch { importRideHistory(auto = false) }
+    }
+
+    /**
+     * Ricostruzione da zero: azzera bucket, memoria tratti ed elenco dei FIT
+     * esaminati, poi importa la finestra scelta. Serve quando cambiano i filtri
+     * (mesi, 10 km) o dopo dati sporchi: la base torna a essere solo storia vera.
+     */
+    fun requestHistoryRebuild() {
+        extensionScope.launch {
+            if (rideState is RideState.Recording) { logger.log("HIST ", "Ricostruzione rimandata: registrazione in corso"); return@launch }
+            logger.log("HIST ", "Ricostruzione dal storico: modello, memoria tratti ed elenco FIT azzerati")
+            speedModel.reset()
+            wayMemory.clear()
+            closeWayPass()
+            runCatching { importedListFile().delete() }
+            saveModel()
+            importRideHistory(auto = false)
+        }
+    }
+
+    /**
+     * Ogni FIT non ancora importato viene rigiocato nel modello come se
+     * l'estensione fosse stata in sella quel giorno (RideHistoryImporter):
+     * bucket pendenza e fondo, fisica in ombra, memoria per tratto. Una riga
+     * HIST per giro; il modello viene salvato alla fine. Non parte mentre si
+     * registra: il modello in memoria è quello del giro in corso.
+     */
+    private suspend fun importRideHistory(auto: Boolean) {
+        if (historyImportRunning) return
+        if (rideState is RideState.Recording) { logger.log("HIST ", "Import storico rimandato: registrazione in corso"); return }
+        val storage = applicationContext.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            applicationContext.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!storage) { if (!auto) logger.log("HIST ", "Import storico: permesso storage assente"); return }
+        val done = importedFits()
+        val todo = fitFiles().filter { it.name !in done }
+        if (todo.isEmpty()) { if (!auto) logger.log("HIST ", "Import storico: nessun FIT nuovo (${done.size} già importati)"); return }
+        historyImportRunning = true
+        val tStart = System.currentTimeMillis()
+        surfaceClassifier.autoSave = false
+        try {
+            logger.log("HIST ", "Import storico: ${todo.size} FIT da esaminare (${done.size} già importati, finestra ${prefs.historyMonths.let { if (it <= 0) "tutta" else "$it mesi" }}, minimo ${HISTORY_MIN_KM.toInt()} km)")
+            val importer = RideHistoryImporter(speedModel, physicsModel, wayMemory) { pts ->
+                surfaceClassifier.classify(pts)?.let { it.surfaces to it.wayKeys }
+            }
+            var rides = 0; var accepted = 0; var km = 0.0
+            val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            for (f in todo) {
+                if (rideState is RideState.Recording) { logger.log("HIST ", "Import storico interrotto: registrazione avviata"); break }
+                val t0 = System.currentTimeMillis()
+                val summary = runCatching { importer.importRecords(FitRecordReader.read(f.readBytes())) }
+                    .onFailure { logger.logError("HIST ", "FIT ${f.name} non leggibile", it) }
+                    .getOrNull()
+                markImported(f.name)
+                if (summary == null || summary.accepted < RideHistoryImporter.MIN_ACCEPTED_SAMPLES || summary.distanceM < HISTORY_MIN_KM * 1000) {
+                    logger.log("HIST ", "${f.name.take(8)}: scartato (${summary?.records ?: 0} record, ${summary?.accepted ?: 0} accettati, %.1f km)".format((summary?.distanceM ?: 0.0) / 1000))
+                    continue
+                }
+                rides++; accepted += summary.accepted; km += summary.distanceM / 1000
+                val classes = Surface.entries.joinToString(", ") { s -> "%.1f %s".format((summary.kmByClass[s] ?: 0.0) / 1000, s.name.lowercase()) }
+                logger.log("HIST ", "${fmt.format(Date(summary.startMs))} ${f.name.take(8)}: %.1f km, ${summary.records} record, ${summary.accepted} accettati, ${summary.passes} passaggi way, %d ms | $classes".format(
+                    summary.distanceM / 1000, System.currentTimeMillis() - t0))
+            }
+            surfaceClassifier.autoSave = true
+            surfaceClassifier.saveNow()
+            saveModel()
+            val totalS = (System.currentTimeMillis() - tStart) / 1000.0
+            logger.log("HIST ", "Import storico finito: $rides giri, %.0f km, $accepted campioni in %.0f s (%.1f s/giro)".format(km, totalS, if (rides > 0) totalS / rides else 0.0))
+        } finally {
+            surfaceClassifier.autoSave = true
+            historyImportRunning = false
+        }
+    }
+
+    private fun markImported(name: String) {
+        runCatching { importedListFile().appendText(name + "\n") }
+            .onFailure { logger.logError("HIST ", "Elenco FIT importati non aggiornabile", it) }
     }
 
     // ── apprendimento nei giri liberi ────────────────────────────────────

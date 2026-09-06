@@ -43,6 +43,8 @@ class WaySpeedMemory(private val maxEntries: Int = MAX_ENTRIES) {
         return Estimate(e.speeds.average(), e.passes)
     }
 
+    fun clear() = entries.clear()
+
     /** Sostituisce il contenuto con quello serializzato in [text]; testo non valido = memoria vuota. */
     fun loadFrom(text: String) {
         entries.clear()

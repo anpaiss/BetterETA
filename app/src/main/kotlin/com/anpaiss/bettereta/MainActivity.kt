@@ -44,6 +44,36 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
         bindStyleSpinner()
+        val monthValues = listOf(3, 6, 12, 24, 0)
+        val spMonths = findViewById<Spinner>(R.id.sp_history_months)
+        spMonths.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("last 3 months", "last 6 months", "last 12 months", "last 24 months", "all rides"))
+        spMonths.setSelection(monthValues.indexOf(prefs.historyMonths).coerceAtLeast(0), false)
+        spMonths.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.historyMonths = monthValues[position]
+                renderHistoryStatus()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        findViewById<Button>(R.id.btn_rebuild_history).setOnClickListener {
+            val ext = BetterEtaExtension.instance
+            if (ext == null) {
+                findViewById<TextView>(R.id.tv_history_status).text = "Ride history: extension not running"
+            } else {
+                ext.requestHistoryRebuild()
+                findViewById<TextView>(R.id.tv_history_status).text = "Ride history: rebuilding the model from history, see the log (HIST)"
+            }
+        }
+        findViewById<Button>(R.id.btn_import_history).setOnClickListener {
+            val ext = BetterEtaExtension.instance
+            if (ext == null) {
+                findViewById<TextView>(R.id.tv_history_status).text = "Ride history: extension not running"
+            } else {
+                ext.requestHistoryImport()
+                findViewById<TextView>(R.id.tv_history_status).text = "Ride history: import started, see the log (HIST)"
+            }
+        }
         findViewById<Button>(R.id.btn_grant_storage).setOnClickListener {
             requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE,
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
@@ -125,6 +155,17 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.tv_overlay_status).text =
             "Overlay permission: " + if (Settings.canDrawOverlays(this)) "granted" else "NOT granted"
         renderStorageStatus()
+        renderHistoryStatus()
+    }
+
+    private fun renderHistoryStatus() {
+        val ext = BetterEtaExtension.instance
+        val tv = findViewById<TextView>(R.id.tv_history_status)
+        tv.text = if (ext == null) "Ride history: extension not running" else {
+            val all = ext.fitFiles().size
+            val done = ext.importedFits().size
+            "Ride history: $all FIT files in the chosen window, $done examined so far (rides under 10 km are skipped)"
+        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

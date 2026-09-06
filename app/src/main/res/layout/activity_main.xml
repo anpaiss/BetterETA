@@ -147,6 +147,55 @@
         android:layout_height="wrap_content"
         android:text="Allow reading offline maps" />
 
+    <!-- Storico FIT: i giri passati alimentano il modello come se l'estensione ci fosse stata -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="RIDE HISTORY"
+        android:textColor="#888888"
+        android:textSize="11sp"
+        android:letterSpacing="0.1"
+        android:layout_marginTop="24dp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Past rides recorded by the Karoo are replayed into the speed model once: gradient and surface buckets, per-way memory. Runs by itself after start; this button re-checks for new files."
+        android:textColor="#CCCCCC"
+        android:textSize="13sp"
+        android:gravity="center"
+        android:lineSpacingMultiplier="1.3"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tv_history_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Ride history: --"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:layout_marginBottom="8dp" />
+
+    <Spinner
+        android:id="@+id/sp_history_months"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btn_import_history"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Import new rides" />
+
+    <Button
+        android:id="@+id/btn_rebuild_history"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Rebuild model from history (resets learning)" />
+
     <!-- INFO: modello velocità appreso (snapshot salvato a ogni pausa/stop) -->
     <TextView
         android:layout_width="match_parent"
