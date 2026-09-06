@@ -50,6 +50,7 @@ class PhysicsSpeedModel {
         private const val CRR_PAVED   = 0.005
         private const val CRR_GRAVEL  = 0.012
         private const val CRR_TRAIL   = 0.020
+        private const val CRR_GNARLY  = 0.035
         private const val CRR_UNKNOWN = 0.006
 
         /** EU pedelec assist cutoff, a little under 25 km/h to catch the regime cleanly. */
@@ -83,6 +84,7 @@ class PhysicsSpeedModel {
             Surface.PAVED   -> CRR_PAVED
             Surface.GRAVEL  -> CRR_GRAVEL
             Surface.TRAIL   -> CRR_TRAIL
+            Surface.GNARLY  -> CRR_GNARLY
             Surface.UNKNOWN -> CRR_UNKNOWN
         }
     }

@@ -32,10 +32,13 @@ class SurfaceModelTest {
         repeat(50) { model.update(5.0, 4.0, Surface.PAVED) }
         repeat(50) { model.update(3.5, 4.0, Surface.GRAVEL) }
         repeat(50) { model.update(1.5, 4.0, Surface.TRAIL) }
+        repeat(50) { model.update(0.8, 4.0, Surface.GNARLY) }
         assertTrue(model.predictSpeed(4.0, Surface.PAVED) > model.predictSpeed(4.0, Surface.GRAVEL))
         assertTrue(model.predictSpeed(4.0, Surface.GRAVEL) > model.predictSpeed(4.0, Surface.TRAIL))
+        assertTrue(model.predictSpeed(4.0, Surface.TRAIL) > model.predictSpeed(4.0, Surface.GNARLY))
         val back = AdaptiveSpeedModel().apply { restore(model.snapshot()) }
         assertEquals(model.predictSpeed(4.0, Surface.TRAIL), back.predictSpeed(4.0, Surface.TRAIL), 0.001)
+        assertEquals(model.predictSpeed(4.0, Surface.GNARLY), back.predictSpeed(4.0, Surface.GNARLY), 0.001)
     }
 
     @Test

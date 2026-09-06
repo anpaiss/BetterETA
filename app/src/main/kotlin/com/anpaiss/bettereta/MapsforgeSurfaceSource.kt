@@ -28,7 +28,7 @@ class MapsforgeSurfaceSource(
     private val logger: BetterEtaLogger,
     private val mapsDir: File = File(Environment.getExternalStorageDirectory(), "offline/maps"),
 ) {
-    class Fetch(val ways: List<OsmWay>, val tiles: Int, val files: Int, val millis: Long) {
+    class Fetch(val ways: List<OsmWay>, val tiles: Int, val files: Int, val millis: Long, val tagKeys: Set<String> = emptySet()) {
         /** "12 paved, 7 gravel, 3 trail" — quante way per classe, per log e prova. */
         fun classCounts(): String = Surface.entries.filter { it != Surface.UNKNOWN }
             .joinToString(", ") { s -> "${ways.count { it.surface == s }} ${s.name.lowercase()}" }
@@ -70,6 +70,7 @@ class MapsforgeSurfaceSource(
         if (tiles.isEmpty()) return null
 
         val ways = LinkedHashMap<Long, OsmWay>()
+        val tagKeys = java.util.TreeSet<String>()
         var filesUsed = 0
         var tilesRead = 0
         for (file in files) {
@@ -88,6 +89,7 @@ class MapsforgeSurfaceSource(
                         val tags = HashMap<String, String>(w.tags.size)
                         for (tag in w.tags) tags[tag.key] = tag.value
                         if (!tags.containsKey("highway")) continue
+                        tagKeys.addAll(tags.keys)
                         val surface = SurfaceTagClassifier.classify(tags) ?: continue
                         val outer = w.latLongs.firstOrNull() ?: continue
                         if (outer.size < 2) continue
@@ -107,7 +109,7 @@ class MapsforgeSurfaceSource(
             logger.log("SURF ", "Mappe offline: nessun file copre la zona (${tiles.size} tile, ${files.size} file); uso Overpass")
             return null
         }
-        return Fetch(ways.values.toList(), tilesRead, filesUsed, System.currentTimeMillis() - t0)
+        return Fetch(ways.values.toList(), tilesRead, filesUsed, System.currentTimeMillis() - t0, tagKeys)
     }
 
     /** Hash FNV-1a a 64 bit delle coordinate arrotondate a 1e-6°: stabile tra letture dello stesso file. */

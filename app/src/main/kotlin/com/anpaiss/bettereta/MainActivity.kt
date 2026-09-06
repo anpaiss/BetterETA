@@ -163,7 +163,7 @@ class MainActivity : AppCompatActivity() {
                         val cLon = if (useFix) fixLon else (bb.minLongitude + bb.maxLongitude) / 2
                         val src = MapsforgeSurfaceSource(this, logger, dir)
                         val fetch = src.fetchWays(listOf(listOf(cLat to cLon)))
-                        val msg = "${f.name}: %.1f MB, ${fetch?.ways?.size ?: 0} highway ways [${fetch?.classCounts() ?: "-"}] in the tile at %.4f,%.4f (%s, ${fetch?.millis ?: 0} ms)"
+                        val msg = "${f.name}: %.1f MB, ${fetch?.ways?.size ?: 0} highway ways [${fetch?.classCounts() ?: "-"}] in the tile at %.4f,%.4f (%s, ${fetch?.millis ?: 0} ms); tags: ${fetch?.tagKeys?.joinToString(" ") ?: "-"}"
                             .format(f.length() / 1e6, cLat, cLon, if (useFix) "last GPS fix" else "map center")
                         logger.log("SURF ", "Prova mappe offline — $msg")
                         msg

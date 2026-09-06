@@ -1080,6 +1080,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             snap.unpavedCounts.forEachIndexed { i, c -> putInt("u${i}_cnt", c) }
             snap.trailEmas.forEachIndexed     { i, v -> putFloat("t${i}_ema", v.toFloat()) }
             snap.trailCounts.forEachIndexed   { i, c -> putInt("t${i}_cnt", c) }
+            snap.gnarlyEmas.forEachIndexed    { i, v -> putFloat("g${i}_ema", v.toFloat()) }
+            snap.gnarlyCounts.forEachIndexed  { i, c -> putInt("g${i}_cnt", c) }
             putInt("bucket_layout", AdaptiveSpeedModel.BUCKETS)   // assente = 5 bucket (fino al 05/09)
             putFloat("day_f", snap.dayFactor.toFloat())
             putInt("day_n", snap.dayCount)
@@ -1104,7 +1106,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             "] gravel[" + snap.unpavedEmas.mapIndexed { i, v ->
             "%.1f(n=${snap.unpavedCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
             "] trail[" + snap.trailEmas.mapIndexed { i, v ->
-            "%.1f(n=${snap.trailCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
+            "%.1f(n=${snap.trailCounts.getOrElse(i){0}})".format(v) }.joinToString(",") +
+            "] gnarly[" + snap.gnarlyEmas.mapIndexed { i, v ->
+            "%.1f(n=${snap.gnarlyCounts.getOrElse(i){0}})".format(v) }.joinToString(",") + "]"
         val factStr = "f=%.2f [".format(snap.dayFactor) + speedModel.effectiveFactors().joinToString(",") { "%.2f".format(it) } + "]"
         logger.log("MODEL", "Salvato: overall=%.2fm/s n=%d | %s | %s | $factStr"
             .format(snap.overallEma, snap.overallSamples, bucketStr, surfStr))
@@ -1144,6 +1148,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             unpavedCounts  = idx.map { prefs.getInt("u${it}_cnt", 0) },
             trailEmas      = idx.map { prefs.getFloat("t${it}_ema", 0f).toDouble() },
             trailCounts    = idx.map { prefs.getInt("t${it}_cnt", 0) },
+            gnarlyEmas     = idx.map { prefs.getFloat("g${it}_ema", 0f).toDouble() },
+            gnarlyCounts   = idx.map { prefs.getInt("g${it}_cnt", 0) },
             dayFactor      = prefs.getFloat("day_f", 1f).toDouble(),
             dayCount       = prefs.getInt("day_n", 0),
             bucketFactors      = idx.map { prefs.getFloat("f${it}_ema", 1f).toDouble() },

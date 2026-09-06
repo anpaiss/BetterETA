@@ -15,7 +15,8 @@ data class RouteWaypoint(
 enum class Surface {
     PAVED,    // asfalto, cemento, autobloccanti
     GRAVEL,   // ghiaia, sterrato battuto, strada forestale
-    TRAIL,    // sentiero, terra, erba, sabbia, roccia
+    TRAIL,    // sentiero, terra, erba, sabbia, roccia (mtb difficoltà 1-2)
+    GNARLY,   // sentiero tecnico: mtb_difficulty 3-5 nelle mappe Karoo, mtb:scale >= 2 in OSM
     UNKNOWN,  // dato OSM assente o route non classificata
 }
 

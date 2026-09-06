@@ -8,6 +8,9 @@ package com.anpaiss.bettereta
  *  - PAVED: surface asfaltato/cemento/autobloccanti, o strada di rete senza tag
  *  - GRAVEL: ghiaia, sterrato battuto, tracktype grade1-3, track senza altro
  *  - TRAIL: terra, erba, sabbia, roccia, fango, tracktype grade4-5, path/bridleway
+ *  - GNARLY: sentiero tecnico — `mtb_difficulty` 3-5 (tag proprio delle mappe
+ *    Karoo, quello che disegna il "gnarly" a schermo: 2 verde, 3 blu, 4 nero,
+ *    5 rosso scuro) oppure `mtb:scale` >= 2 in OSM. Vince su tutto il resto.
  *  - null: non classificabile (esclusa dal match)
  *
  * Fino al 05/09 le classi erano due, e nel "non asfalto" finivano insieme la
@@ -35,11 +38,22 @@ object SurfaceTagClassifier {
         "secondary_link", "tertiary_link",
     )
 
+    /** Difficoltà MTB 1..5 dai tag (Karoo `mtb_difficulty`, o OSM `mtb:scale` 0..6 → +1); 0 se assente. */
+    fun mtbDifficulty(tags: Map<String, String>): Int {
+        tags["mtb_difficulty"]?.trim()?.toIntOrNull()?.let { return it.coerceIn(1, 5) }
+        val scale = tags["mtb:scale"]?.trim()?.takeWhile { it.isDigit() }?.toIntOrNull() ?: return 0
+        return (scale + 1).coerceIn(1, 5)
+    }
+
     /** Classe di fondo dai tag della way; null se non classificabile. */
     fun classify(tags: Map<String, String>): Surface? {
         val surface   = tags["surface"]?.lowercase().orEmpty()
         val tracktype = tags["tracktype"]?.lowercase().orEmpty()
         val highway   = tags["highway"]?.lowercase().orEmpty()
+        val mtb       = mtbDifficulty(tags)
+
+        // 0. Difficoltà MTB alta: tecnico, qualunque sia il fondo dichiarato
+        if (mtb >= 3) return Surface.GNARLY
 
         // 1. Il tag surface, quando c'è, comanda
         if (surface.isNotBlank()) {
@@ -56,7 +70,9 @@ object SurfaceTagClassifier {
             "grade2", "grade3"          -> return Surface.GRAVEL
             "grade4", "grade5"          -> return Surface.TRAIL
         }
-        // 3. Il tipo di strada come proxy
+        // 3. Difficoltà MTB bassa senza altri indizi: è comunque un sentiero
+        if (mtb in 1..2) return Surface.TRAIL
+        // 4. Il tipo di strada come proxy
         return when (highway) {
             in TRAIL_HIGHWAYS  -> Surface.TRAIL
             in GRAVEL_HIGHWAYS -> Surface.GRAVEL
