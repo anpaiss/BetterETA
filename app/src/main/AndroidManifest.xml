@@ -20,12 +20,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
 
-        <!-- Where the Karoo fetches the extension manifest (latest APK, version,
-             description) to offer installs and updates from its library. The
-             "latest" release URL is stable across releases, so this never changes. -->
-        <meta-data
-            android:name="io.hammerhead.karooext.MANIFEST_URL"
-            android:value="https://github.com/anpaiss/BetterETA/releases/latest/download/manifest.json" />
+        <!-- No io.hammerhead.karooext.MANIFEST_URL while the repository is private:
+             the Karoo store fetches that URL every time the extension is opened
+             from its library, gets a 404 and shows RETRY instead of opening the
+             app (seen on PoiAhead, 06/09/2026). Declare it again, pointing to
+             .../releases/latest/download/manifest.json, only once a public
+             release with manifest.json exists. -->
 
         <activity
             android:name=".MainActivity"
