@@ -7,6 +7,9 @@
        3. PACE VS PLAN oppure, con un MTA impostato, "MTA hh:mm / AHEAD|LATE"
                        col margine: stessa coppia di TextView, cambia solo il testo,
                        perché il renderer del Karoo ignora setViewVisibility.
+     I valori hanno lo stesso tetto (56sp): è la misura a cui entra ancora la
+     stringa più lunga ("2h 15m") nella sua colonna, così ETA e TO GO escono
+     con lo stesso corpo invece di dimensionarsi ciascuno sulla propria larghezza.
      La fascia in basso resta vuota: il banner "next cue" del Karoo copre il
      fondo pagina senza avvisare le estensioni. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -32,7 +35,7 @@
             android:id="@+id/tv_master_lbl_eta"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.38"
+            android:layout_weight="0.34"
             android:gravity="center_vertical|start"
             android:paddingEnd="6dp"
             android:text="ETA"
@@ -48,7 +51,7 @@
             android:id="@+id/tv_master_eta"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.62"
+            android:layout_weight="0.66"
             android:gravity="center_vertical|end"
             android:text="--:--"
             android:textStyle="bold"
@@ -57,7 +60,7 @@
             android:includeFontPadding="false"
             android:autoSizeTextType="uniform"
             android:autoSizeMinTextSize="16sp"
-            android:autoSizeMaxTextSize="96sp"
+            android:autoSizeMaxTextSize="56sp"
             android:autoSizeStepGranularity="2sp" />
     </LinearLayout>
 
@@ -79,7 +82,7 @@
             android:id="@+id/tv_master_lbl_remaining"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.38"
+            android:layout_weight="0.34"
             android:gravity="center_vertical|start"
             android:paddingEnd="6dp"
             android:text="TO GO"
@@ -95,7 +98,7 @@
             android:id="@+id/tv_master_remaining"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.62"
+            android:layout_weight="0.66"
             android:gravity="center_vertical|end"
             android:text="--"
             android:textStyle="bold"
@@ -104,7 +107,7 @@
             android:includeFontPadding="false"
             android:autoSizeTextType="uniform"
             android:autoSizeMinTextSize="16sp"
-            android:autoSizeMaxTextSize="96sp"
+            android:autoSizeMaxTextSize="56sp"
             android:autoSizeStepGranularity="2sp" />
     </LinearLayout>
 
@@ -126,7 +129,7 @@
             android:id="@+id/tv_master_lbl_third"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.38"
+            android:layout_weight="0.34"
             android:gravity="center_vertical|start"
             android:paddingEnd="6dp"
             android:text="PACE\nVS PLAN"
@@ -142,7 +145,7 @@
             android:id="@+id/tv_master_third"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="0.62"
+            android:layout_weight="0.66"
             android:gravity="center_vertical|end"
             android:text="--"
             android:textStyle="bold"
@@ -151,7 +154,7 @@
             android:includeFontPadding="false"
             android:autoSizeTextType="uniform"
             android:autoSizeMinTextSize="16sp"
-            android:autoSizeMaxTextSize="96sp"
+            android:autoSizeMaxTextSize="56sp"
             android:autoSizeStepGranularity="2sp" />
     </LinearLayout>
 
