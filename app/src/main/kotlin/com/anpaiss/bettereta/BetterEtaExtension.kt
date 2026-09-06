@@ -152,6 +152,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val progressGate = ProgressGate()
     @Volatile private var learningPaused = false
 
+    // Giro libero (registrazione senza route): il modello impara lo stesso, con la
+    // guardia GPS (spostamento netto plausibile nell'ultimo minuto) al posto di
+    // quella sulla route. Niente CSV e niente memoria tratti senza route.
+    private val gpsGate = GpsProgressGate()
+    private var freeRideSamples = 0
+
     // ── Confronto ETA BetterEta vs ETA nativa Karoo ──────────────────────
     // Un campione al minuto (movingAt = tempo in movimento dalla baseline,
     // previsioni di entrambi); a fine giro ogni campione viene giudicato
@@ -508,6 +514,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val newRide = rideState is RideState.Idle
                     if (newRide) {
                         speedModel.newRide()
+                        gpsGate.reset()
+                        freeRideSamples = 0
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
                         logger.log("RIDE ", "Ripresa — model e posizione preservati")
@@ -531,6 +539,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val hasRoute = pipeline.hasRoute()
                     if (!hasRoute || !navActive) {
                         etaState.value = EtaState(status = "No Route")
+                        if (rideState is RideState.Recording) freeRideLearn()
                         continue
                     }
 
@@ -974,6 +983,32 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
         logger.log("STATS", "ETA vs Karoo: diff=${result.diffPct}% (BE ${result.errBePct}%, Karoo ${result.errKarooPct}%, " +
             "physics-shadow ${result.errPhysicsPct?.let { "$it%" } ?: "n/a"}) su ${valid.size} campioni")
+    }
+
+    // ── apprendimento nei giri liberi ────────────────────────────────────
+
+    /**
+     * Senza route velocità e pendenza arrivano lo stesso dal Karoo: i bucket
+     * pendenza (fondo ignoto) e il fattore di giornata imparano, purché il GPS
+     * dica che ci si sta davvero spostando (vedi GpsProgressGate: né il fix che
+     * balla da fermo né un salto del fix passano).
+     */
+    private fun freeRideLearn() {
+        val speed = speedMsFlow.value
+        val grade = gradePctFlow.value
+        val now   = System.currentTimeMillis()
+        val fresh = lastGpsUpdateMs > 0 && now - lastGpsUpdateMs <= GPS_TIMEOUT_MS
+        val loc   = locationFlow.value
+        val progressing = fresh && loc != null && gpsGate.onTick(loc.first, loc.second, speed)
+        if (!progressing || speed < 0.5) return
+        speedModel.update(speed, grade, Surface.UNKNOWN)
+        physicsModel.update(speed, grade, Surface.UNKNOWN)
+        freeRideSamples++
+        if (freeRideSamples == 1) {
+            logger.log("MODEL", "Apprendimento libero (senza route) avviato: guardia GPS superata")
+        } else if (freeRideSamples % 300 == 0) {
+            logger.log("MODEL", "Apprendimento libero: $freeRideSamples campioni, f=%.2f".format(speedModel.currentDayFactor))
+        }
     }
 
     // ── memoria dei tempi per tratto ─────────────────────────────────────

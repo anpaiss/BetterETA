@@ -28,6 +28,7 @@ The MTA row only exists while a mandatory arrival time is set; without one the d
 - The constants were tuned by replaying the recorded sample CSVs through candidate models (`tools/replay_model.py`): on the 05/09 ride the ETA error was 20% with the 20-minute buckets alone, 16% with a global factor, 9–11% with per-bucket factors; the optimum is broad, so 900/120/120 was chosen. Every future ride's CSV can be replayed the same way.
 - The model is persisted across rides and shown in the extension's app page.
 - Samples are taken only while actually progressing along the route (at least 20 m of net advance over the last minute, on top of the 0.5 m/s floor). Speed alone is not enough: a device left recording indoors reports GPS-jitter speeds around 1 m/s for hours and would drag the flat bucket down with it.
+- Rides without a route learn too: the gradient buckets (surface unknown) and the day factor, gated by the GPS alone — net displacement over the last minute of at least 20 m and no more than twice the distance integrated from speed, which rejects both the jitter of a fix at rest and a fix that jumps. No sample CSV rows and no per-way memory without a route.
 - Buckets without enough samples fall back to observed flat speed × a per-gradient factor (these factors are the only e-bike-specific tuning; on a regular bike the model simply learns different bucket speeds).
 
 ### Per-way memory
