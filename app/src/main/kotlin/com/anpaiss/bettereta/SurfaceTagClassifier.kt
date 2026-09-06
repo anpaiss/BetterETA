@@ -8,9 +8,13 @@ package com.anpaiss.bettereta
  *  - PAVED: surface asfaltato/cemento/autobloccanti, o strada di rete senza tag
  *  - GRAVEL: ghiaia, sterrato battuto, tracktype grade1-3, track senza altro
  *  - TRAIL: terra, erba, sabbia, roccia, fango, tracktype grade4-5, path/bridleway
- *  - GNARLY: sentiero tecnico — `mtb_difficulty` 3-5 (tag proprio delle mappe
- *    Karoo, quello che disegna il "gnarly" a schermo: 2 verde, 3 blu, 4 nero,
- *    5 rosso scuro) oppure `mtb:scale` >= 2 in OSM. Vince su tutto il resto.
+ *  - GNARLY: sentiero tecnico — `mtb_difficulty` 4-5 (tag proprio delle mappe
+ *    Karoo, quello che disegna la difficoltà a schermo con la scala delle
+ *    piste: 1 viola = sterrata percorribile da veicoli, 2 verde = facile,
+ *    3 blu = intermedio, 4 nero = difficile, 5 rosso scuro = estremo) oppure
+ *    `mtb:scale` >= 3 in OSM. Vince su tutto il resto. Il 3 (blu) è TRAIL
+ *    anche se il fondo dice ghiaia; 1-2 su un track restano GRAVEL: il verde
+ *    in sella è quasi sempre una forestale (Andrea, 06/09).
  *  - null: non classificabile (esclusa dal match)
  *
  * Fino al 05/09 le classi erano due, e nel "non asfalto" finivano insieme la
@@ -52,8 +56,10 @@ object SurfaceTagClassifier {
         val highway   = tags["highway"]?.lowercase().orEmpty()
         val mtb       = mtbDifficulty(tags)
 
-        // 0. Difficoltà MTB alta: tecnico, qualunque sia il fondo dichiarato
-        if (mtb >= 3) return Surface.GNARLY
+        // 0. Difficoltà MTB alta: tecnico, qualunque sia il fondo dichiarato;
+        //    intermedia (3, blu): sentiero, a meno che non sia asfalto dichiarato
+        if (mtb >= 4) return Surface.GNARLY
+        if (mtb == 3 && surface !in PAVED_SURFACES) return Surface.TRAIL
 
         // 1. Il tag surface, quando c'è, comanda
         if (surface.isNotBlank()) {
@@ -70,8 +76,9 @@ object SurfaceTagClassifier {
             "grade2", "grade3"          -> return Surface.GRAVEL
             "grade4", "grade5"          -> return Surface.TRAIL
         }
-        // 3. Difficoltà MTB bassa senza altri indizi: è comunque un sentiero
-        if (mtb in 1..2) return Surface.TRAIL
+        // 3. Difficoltà MTB bassa (1 viola, 2 verde) senza altri indizi: su un
+        //    track è una forestale, altrimenti un sentiero facile
+        if (mtb in 1..2) return if (highway in GRAVEL_HIGHWAYS) Surface.GRAVEL else Surface.TRAIL
         // 4. Il tipo di strada come proxy
         return when (highway) {
             in TRAIL_HIGHWAYS  -> Surface.TRAIL
