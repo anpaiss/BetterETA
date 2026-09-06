@@ -56,14 +56,22 @@ class MainActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+        // Distruttivo: conferma esplicita, un tocco accidentale non deve azzerare il modello
         findViewById<Button>(R.id.btn_rebuild_history).setOnClickListener {
             val ext = BetterEtaExtension.instance
             if (ext == null) {
                 findViewById<TextView>(R.id.tv_history_status).text = "Ride history: extension not running"
-            } else {
-                ext.requestHistoryRebuild()
-                findViewById<TextView>(R.id.tv_history_status).text = "Ride history: rebuilding the model from history, see the log (HIST)"
+                return@setOnClickListener
             }
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Rebuild model from history?")
+                .setMessage("This clears the learned speed model and the per-way memory, then replays the rides in the chosen window. Needed only after changing the window or to undo polluted data.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Rebuild") { _, _ ->
+                    ext.requestHistoryRebuild()
+                    findViewById<TextView>(R.id.tv_history_status).text = "Ride history: rebuilding the model from history, see the log (HIST)"
+                }
+                .show()
         }
         findViewById<Button>(R.id.btn_import_history).setOnClickListener {
             val ext = BetterEtaExtension.instance
