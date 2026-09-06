@@ -711,6 +711,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                                 mtaEpochMs         = mtaEpochMs,
                                 marginSeconds      = marginFor(totalSec),
                                 estimateApprox     = true,
+                                dayFactor          = speedModel.currentDayFactor,
                             )
                             logTickCounter++
                             if (logTickCounter >= LOG_INTERVAL_TICKS) {
@@ -830,6 +831,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         // Non ancora agganciati (aspettiamo il GPS o il suggerimento del
                         // Karoo): l'ETA vale dallo start, mostrato come stima "~"
                         estimateApprox         = !locatedNow,
+                        dayFactor              = speedModel.currentDayFactor,
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita

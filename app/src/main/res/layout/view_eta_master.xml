@@ -99,8 +99,8 @@
             android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center">
-            <TextView android:id="@+id/tv_master_lbl_avgspeed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PREDICTED KM/H" android:textColor="#9E9E9E" android:textSize="10sp" />
-            <TextView android:id="@+id/tv_master_avgspeed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-- km/h" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
+            <TextView android:id="@+id/tv_master_lbl_avgspeed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="DAY PACE" android:textColor="#9E9E9E" android:textSize="10sp" />
+            <TextView android:id="@+id/tv_master_avgspeed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="#FF5823" android:textSize="32sp" android:textStyle="bold" android:includeFontPadding="false" />
         </LinearLayout>
 
         <LinearLayout

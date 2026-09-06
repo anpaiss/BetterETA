@@ -31,4 +31,6 @@ data class EtaState(
     val mtaEpochMs: Long = 0L,
     val marginSeconds: Long? = null,
     val estimateApprox: Boolean = false,
+    /** Fattore di giornata del modello (1.0 = come la base); mostrato in dashboard come DAY PACE */
+    val dayFactor: Double = 1.0,
 )

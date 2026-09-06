@@ -29,7 +29,7 @@ import java.util.Calendar
  *   - Tempo rimanente
  *   - Km mancanti (GRANDE)
  *   - Dislivello positivo rimanente (GRANDE)
- *   - Velocità media prevista sul tratto rimanente
+ *   - Fattore di giornata (DAY PACE: 121% = oggi il 21% più veloce della base)
  *   - Delta vs prima stima del giro (verde = in anticipo, rosso = in ritardo)
  *   - MTA e margine, solo con un mandatory time of arrival impostato: senza,
  *     la riga sparisce e l'intestazione riprende le dimensioni grandi
@@ -167,11 +167,9 @@ class EtaMasterDataType(
         val elevStr = if (state.remainingElevationM >= 0)
             "${state.remainingElevationM.toInt()}" else "--"
 
-        // 3. Velocità media prevista = distanza rimanente / tempo rimanente.
-        // È la media implicata dall'ETA sul tratto davanti (non l'EMA del modello).
-        val avgStr = if (state.remainingSeconds > 0 && state.remainingDistanceM >= 0)
-            "%.1f".format(state.remainingDistanceM / state.remainingSeconds * 3.6)
-            else "--"
+        // 3. Fattore di giornata in chiaro: quanto vai oggi rispetto alla base.
+        // (Al posto della velocità media prevista, che non diceva nulla di utile.)
+        val avgStr = if (state.hasRoute && state.remainingSeconds >= 0) "%d%%".format((state.dayFactor * 100).toInt()) else "--"
 
         // 4. Delta vs prima stima del giro: positivo = arrivo più tardi del previsto
         val delta = state.deltaSeconds
