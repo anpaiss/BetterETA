@@ -10,7 +10,7 @@ The extension registers five data fields you can add to any ride profile:
 
 | Field | Content |
 |---|---|
-| **BetterETA Dashboard** | Full-page view, three rows: arrival time; time to go with the estimate's uncertainty (`TO GO ±8 MIN`); pace vs plan, or the mandatory arrival time and margin once one is set |
+| **BetterETA Dashboard** | Full-page view, three rows: arrival time; time to go with the estimate's uncertainty (`TO GO ±8m`); pace vs plan, or the mandatory arrival time and margin once one is set |
 | **ETA (Better)** | Arrival time only (HH:mm) |
 | **Time Remaining (Better)** | Time remaining only (Xh Ym) |
 | **Distance to Farthest Point** | Distance left to the point geographically farthest from the start (the turnaround of an out-and-back) |

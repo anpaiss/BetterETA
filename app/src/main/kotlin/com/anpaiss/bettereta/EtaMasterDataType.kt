@@ -27,7 +27,7 @@ import java.util.Calendar
  * Dashboard "Da qui al traguardo": tre righe grandi, didascalia a sinistra e
  * valore a destra (stesso disegno dei campi singoli):
  *   1. ETA        orario di arrivo stimato ("~" se stima grossolana)
- *   2. TO GO      tempo mancante secondo l'ETA; nella didascalia "±x MIN",
+ *   2. TO GO      tempo mancante secondo l'ETA; nella didascalia "±xm",
  *                 l'incertezza della stima (EtaUncertainty)
  *   3. senza MTA  PACE VS PLAN: scarto dalla prima stima del giro
  *      con MTA    "MTA hh:mm" + AHEAD/LATE e il margine in minuti
@@ -130,7 +130,7 @@ class EtaMasterDataType(
             eta            = (if (state.estimateApprox) "~" else "") + timeFmt.format(cal.time)
             remaining      = formatRemaining(state.remainingSeconds)
             remainingLabel = if (state.uncertaintySeconds >= 0)
-                "TO GO\n±${(state.uncertaintySeconds + 30) / 60} MIN" else "TO GO"
+                "TO GO\n±${(state.uncertaintySeconds + 30) / 60}m" else "TO GO"
         } else {
             eta            = "--:--"
             remaining      = state.status
@@ -192,6 +192,6 @@ class EtaMasterDataType(
         val abs  = kotlin.math.abs(seconds)
         val h = abs / 3600
         val m = (abs % 3600) / 60
-        return if (h > 0) "$sign${h}h ${m}m" else "$sign$m min"
+        return if (h > 0) "$sign${h}h ${m}m" else "$sign${m}m"
     }
 }

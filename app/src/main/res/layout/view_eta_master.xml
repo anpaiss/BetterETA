@@ -2,7 +2,7 @@
 <!-- Dashboard: tre righe uguali, didascalia a sinistra (due righe) e valore a
      destra, tutto autosize per riempire la riga come nei campi singoli.
        1. ETA          orario di arrivo
-       2. TO GO ±x MIN tempo mancante secondo l'ETA (l'incertezza sta nella
+       2. TO GO ±xm   tempo mancante secondo l'ETA (l'incertezza sta nella
                        didascalia, così il valore resta grande)
        3. PACE VS PLAN oppure, con un MTA impostato, "MTA hh:mm / AHEAD|LATE"
                        col margine: stessa coppia di TextView, cambia solo il testo,
