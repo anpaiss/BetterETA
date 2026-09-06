@@ -206,6 +206,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val MIN_SAMPLES                = 5
         private const val SAME_DEST_THRESHOLD_M     = 200.0
         private const val ARRIVAL_NET_MAX_REMAINING_SEC = 300L
+        // Polyline di NavigatingToDestination più corte di così, con una route in
+        // memoria, sono istruzioni di rientro del Karoo, non route
+        private const val REJOIN_STUB_MAX_M = 3_000.0
         private const val MAX_SAMPLES                = 600
         // Memoria tratti: un passaggio conta solo se lungo/durato almeno tanto
         private const val WAY_PASS_MIN_M             = 50.0
@@ -321,6 +324,17 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     return@addConsumer
                 }
 
+                // Stub di rientro: durante un giro con route il Karoo emette
+                // NavigatingToDestination con polyline di pochi waypoint (l'istruzione
+                // per tornare sulla route dopo una deviazione). Non è una route: presa
+                // per tale azzerava posizione, baseline e campioni del confronto
+                // (giro 06/09, 18:13: 16 waypoint, ETA "1 min", 67 campioni persi).
+                if (source == "NavigatingToDestination" && lastRoutePolyline.isNotBlank() &&
+                    polyline != lastRoutePolyline && routeStubM(polyline) < REJOIN_STUB_MAX_M) {
+                    logger.log("ROUTE", "[$source] stub di rientro (%.0fm) ignorato — route e stato preservati".format(routeStubM(polyline)))
+                    return@addConsumer
+                }
+
                 if (polyline == lastRoutePolyline) {
                     logger.log("ROUTE", "[$source] stesso percorso — posizione preservata")
                     // Classificazione fondo fallita in precedenza (es. offline al
@@ -380,6 +394,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     logger.log("STATS", "Route cambiata, stessa destinazione (Δ${endDist.toInt()}m) — " +
                         "campioni (${synchronized(etaSamples) { etaSamples.size }}) e baseline preservati")
                 } else {
+                    // Meta cambiata a ridosso dell'arrivo: il confronto va valutato ora,
+                    // non buttato (stessa rete di sicurezza della navigazione chiusa)
+                    val remainingNow = etaState.value.remainingSeconds
+                    if (!resultRecorded && initialRemainingSec >= 0 && remainingNow in 0..ARRIVAL_NET_MAX_REMAINING_SEC) {
+                        resultRecorded = true
+                        logger.log("STATS", "Meta cambiata a ${remainingNow}s dall'arrivo — confronto valutato ora")
+                        recordEtaComparison(movingElapsedSec)
+                    }
                     initialRemainingSec = -1L  // nuova meta → nuova baseline per il delta
                     movingElapsedSec    = 0L
                     resultRecorded      = false
@@ -922,6 +944,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
             "speed=%.1fkm/h grade=%.1f%%%s%s%s%s%s".format(speedMs * 3.6, gradePct, fact, delta, karoo, mta, gps))
+    }
+
+    /** Lunghezza approssimata (m) di una polyline, per riconoscere gli stub di rientro. */
+    private fun routeStubM(polyline: String): Double {
+        val pts = PolylineDecoder.decodeLatLng(polyline)
+        var d = 0.0
+        for (i in 1 until pts.size) d += haversineM(pts[i - 1].first, pts[i - 1].second, pts[i].first, pts[i].second)
+        return d
     }
 
     /** Posizione lungo la route secondo il Karoo (routeDistance − DISTANCE_TO_DESTINATION), se pubblicata e dentro la route. */

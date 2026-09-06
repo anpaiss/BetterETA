@@ -209,7 +209,14 @@ def main():
     ap.add_argument('--all-rows', action='store_true', help='usa anche i campioni fuori route')
     ap.add_argument('--from', dest='from_day', default='', help='ignora i giorni precedenti (YYYY-MM-DD)')
     ap.add_argument('--trace', default='', help='stampa il fattore nel tempo per la config con questo nome')
+    ap.add_argument('--snapshot', default='', help='stato del modello a inizio giro: "overall_kmh,n;b0_kmh,n;...;b5_kmh,n" (dalla riga MODEL Ripristinato del log)')
     args = ap.parse_args()
+    global SNAPSHOT_0905
+    if args.snapshot:
+        parts = [tuple(x.split(',')) for x in args.snapshot.split(';')]
+        SNAPSHOT_0905 = dict(overall=(float(parts[0][0]) / 3.6, int(parts[0][1])),
+                             buckets=[(float(v) / 3.6, int(n)) for v, n in parts[1:]])
+        print('snapshot di partenza:', args.snapshot)
 
     rides = load_rides(args.csv)
     for ride in rides:
