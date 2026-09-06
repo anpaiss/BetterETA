@@ -241,7 +241,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         loadWayMemory()
         mtaPopup = MtaPopupController(applicationContext, logger,
             onSet = { h, m -> setMta(h, m) },
-            onDismiss = { logger.log("MTA  ", "Nessun MTA per questa route") })
+            onDismiss = { logger.log("MTA  ", if (mtaEpochMs > 0L) "Popup chiuso: MTA invariato" else "Nessun MTA impostato") })
 
         // Versione installata: correla il log al build effettivamente sul dispositivo
         runCatching {
@@ -377,9 +377,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     else Double.MAX_VALUE
                 lastRouteEnd = newEnd?.let { it.lat to it.lon }
 
-                // MTA: ripristinato se salvato per questa stessa polyline (restart
-                // dell'estensione a metà giro), portato sulla nuova polyline se la
-                // meta è la stessa (ricalcolo), azzerato se la meta cambia.
+                // MTA: è una decisione del ciclista, non della route. Mai azzerato
+                // da un cambio di percorso (giro 06/09: cercare una fontana o una
+                // deviazione lo azzeravano e lo richiedevano da zero). Ripristinato
+                // se salvato per questa polyline (restart a metà giro); portato sulla
+                // nuova polyline se la meta è la stessa; se la meta cambia resta
+                // com'è e il popup lo RIPROPONE con l'orario attuale già impostato.
+                // Si azzera solo all'inizio di un giro nuovo.
                 val askedRecently = System.currentTimeMillis() - prefs.mtaAskedAtMs < ArrivalMargin.STALE_AFTER_MS
                 when {
                     prefs.mtaRouteHash == routeHash && askedRecently -> restoreMta(routeHash)
@@ -387,7 +391,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         mtaAskedRouteHash = routeHash
                         prefs.mtaRouteHash = routeHash
                     }
-                    else -> clearMta()
+                    else -> {
+                        mtaAskedRouteHash = 0   // meta diversa: riproponi, senza toccare l'MTA
+                        if (mtaEpochMs > 0L) logger.log("MTA  ", "Meta cambiata: MTA mantenuto (%s), verrà riproposto".format(
+                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs))))
+                    }
                 }
 
                 if (endDist <= SAME_DEST_THRESHOLD_M) {
@@ -549,6 +557,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         speedModel.newRide()
                         gpsGate.reset()
                         freeRideSamples = 0
+                        clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
                         logger.log("RIDE ", "Ripresa — model e posizione preservati")
@@ -1332,7 +1341,6 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             if (routeHash == 0 || mtaAskedRouteHash == routeHash) return@launch
             mtaAskedRouteHash  = routeHash
             prefs.mtaRouteHash = routeHash
-            prefs.mtaEpochMs   = 0L
             prefs.mtaAskedAtMs = System.currentTimeMillis()
             if (!mtaPopup.canShow()) {
                 logger.log("MTA  ", "Popup non mostrato: permesso overlay assente")
@@ -1351,7 +1359,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 remaining > 0    -> logger.log("MTA  ", "Nessun aggancio entro ${MTA_LOCATED_WAIT_MS / 1000}s — default sull'ETA disponibile (${remaining}s)")
                 else             -> logger.log("MTA  ", "Nessun ETA entro ${waitedS}s — default adesso + 1 h")
             }
-            val (h, m) = ArrivalMargin.defaultPickerTime(System.currentTimeMillis(), remaining)
+            // Con un MTA già impostato le rotelle partono da quello: allungare o
+            // accorciare di un quarto d'ora è un tocco; DISMISS o timeout = invariato
+            val (h, m) = if (mtaEpochMs > 0L) {
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = mtaEpochMs }
+                logger.log("MTA  ", "Popup con MTA attuale preimpostato")
+                cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
+            } else ArrivalMargin.defaultPickerTime(System.currentTimeMillis(), remaining)
             mtaPopup.show(h, m)
         }
     }
@@ -1377,7 +1391,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     }
 
     private fun clearMta() {
-        if (mtaEpochMs > 0L) logger.log("MTA  ", "Azzerato: destinazione cambiata")
+        if (mtaEpochMs > 0L) logger.log("MTA  ", "Azzerato: nuovo giro")
         mtaEpochMs         = 0L
         mtaAskedRouteHash  = 0
         prefs.mtaEpochMs   = 0L
