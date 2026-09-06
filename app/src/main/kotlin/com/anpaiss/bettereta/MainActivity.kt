@@ -275,19 +275,40 @@ class MainActivity : AppCompatActivity() {
     private fun renderModel() {
         // Stessi nomi usati da BetterEtaExtension.saveModel()
         val prefs = getSharedPreferences("better_eta_model", Context.MODE_PRIVATE)
-        val ids = listOf(R.id.tv_b0, R.id.tv_b1, R.id.tv_b2, R.id.tv_b3, R.id.tv_b4, R.id.tv_b5)
 
         // Prefs ancora a cinque bucket (prima del primo salvataggio dopo l'update):
         // stessa migrazione del modello, così le etichette restano giuste
-        val saved  = prefs.getInt("bucket_layout", 5)
-        val emas   = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getFloat("b${it}_ema", 0f) })
-        val counts = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getInt("b${it}_cnt", 0) })
-        bucketLabels.forEachIndexed { i, label ->
-            val ema   = emas.getOrElse(i) { 0f }
-            val count = counts.getOrElse(i) { 0 }
-            val tv    = findViewById<TextView>(ids[i])
-            tv.text = "$label: %.1f km/h (%d)".format(ema * 3.6f, count)
-            tv.setTextColor(if (count > 0) Color.parseColor("#FF5823") else Color.parseColor("#888888"))
+        val saved = prefs.getInt("bucket_layout", 5)
+        fun emas(prefix: String)   = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getFloat("${prefix}${it}_ema", 0f) })
+        fun counts(prefix: String) = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getInt("${prefix}${it}_cnt", 0) })
+        // Colonne: globale + i quattro fondi (stessi prefissi di BetterEtaExtension.saveModel)
+        val columns = listOf("all" to "b", "paved" to "p", "gravel" to "u", "trail" to "t", "gnarly" to "g")
+        val table = findViewById<android.widget.TableLayout>(R.id.table_model)
+        table.removeAllViews()
+        val d = resources.displayMetrics.density
+        fun cell(text: String, color: Int, size: Float, bold: Boolean = false) = TextView(this).apply {
+            this.text = text; textSize = size; setTextColor(color); gravity = Gravity.CENTER
+            setPadding((1 * d).toInt(), (3 * d).toInt(), (1 * d).toInt(), (3 * d).toInt())
+            if (bold) setTypeface(typeface, Typeface.BOLD)
+        }
+        val grey = Color.parseColor("#888888"); val accent = Color.parseColor("#FF5823"); val white = Color.WHITE
+        table.addView(android.widget.TableRow(this).apply {
+            addView(cell("km/h", grey, 10f))
+            for ((name, _) in columns) addView(cell(name, grey, 10f, bold = true))
+        })
+        val allEmas = columns.map { emas(it.second) }
+        val allCounts = columns.map { counts(it.second) }
+        val shortLabels = listOf("Desc", "Gentle", "Flat", "Climb", "Steep", "Wall")
+        shortLabels.forEachIndexed { i, label ->
+            table.addView(android.widget.TableRow(this).apply {
+                addView(cell(label, white, 11f))
+                columns.indices.forEach { c ->
+                    val n = allCounts[c].getOrElse(i) { 0 }
+                    val v = allEmas[c].getOrElse(i) { 0f } * 3.6f
+                    val nStr = when { n == 0 -> "-"; n >= 1000 -> "${n / 1000}k"; else -> "$n" }
+                    addView(cell(if (n == 0) "-" else ("%.1f".format(v) + (10).toChar() + nStr), if (n > 0) accent else grey, 12f))
+                }
+            })
         }
 
         val overallSamples = prefs.getInt("overall_samples", 0)
