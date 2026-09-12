@@ -99,4 +99,42 @@ class EtaEngineTest {
 
         assertEquals(-1L, eng.computeRemainingSeconds())
     }
+
+    // ── physicsFirst: la modalità dello shadow engine ─────────────────
+
+    private val climb = listOf(          // ~1111 m con +89 m: ~8 %
+        RouteWaypoint(45.0000, 9.0, 300.0),
+        RouteWaypoint(45.0100, 9.0, 389.0),
+    )
+
+    @Test
+    fun `untrained physics leaves the eta identical to the bucket engine`() = runBlocking {
+        val model    = AdaptiveSpeedModel()
+        val pipeline = SegmentPipeline().also { it.setRoute(climb) }
+        val segs     = pipeline.remainingSegments()
+        val plain    = EtaEngine(model, pipeline).computeBreakdown(segs)
+        val shadow   = EtaEngine(model, pipeline, physicsFirst = PhysicsSpeedModel()).computeBreakdown(segs)
+        assertEquals(plain.seconds, shadow.seconds)
+        assertEquals(0.0, shadow.physicsDistanceShare, 1e-9)
+    }
+
+    @Test
+    fun `trained physics answers the climb and the production engine is untouched`() = runBlocking {
+        val model    = AdaptiveSpeedModel()
+        val pipeline = SegmentPipeline().also { it.setRoute(climb) }
+        val segs     = pipeline.remainingSegments()
+        val physics  = PhysicsSpeedModel().apply {
+            repeat(PhysicsSpeedModel.MIN_POWER_SAMPLES) { update(2.0, 8.0, Surface.PAVED) }   // 7,2 km/h sull'8 %
+        }
+        val before   = EtaEngine(model, pipeline).computeBreakdown(segs)
+        val shadow   = EtaEngine(model, pipeline, physicsFirst = physics).computeBreakdown(segs)
+        val after    = EtaEngine(model, pipeline).computeBreakdown(segs)
+
+        assertEquals(before.seconds, after.seconds)                 // il motore di produzione non cambia
+        assertEquals(0.0, before.physicsDistanceShare, 1e-9)
+        assertTrue("share=${shadow.physicsDistanceShare}", shadow.physicsDistanceShare > 0.99)
+        // ~1111 m a ~2 m/s: ben distinto dal bucket di default (fallback 0.65 × 5 m/s)
+        assertTrue("shadow=${shadow.seconds} before=${before.seconds}", shadow.seconds > before.seconds)
+        assertTrue("shadow=${shadow.seconds}", shadow.seconds in 450L..650L)
+    }
 }

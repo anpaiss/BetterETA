@@ -12,12 +12,18 @@ package com.anpaiss.bettereta
  *   data. Two engines on the same [AdaptiveSpeedModel] with different fallbacks
  *   are how a candidate fallback is judged against the production one on real
  *   rides: the learned buckets are shared, so the fallback is the only variable.
+ * @param physicsFirst when given, every segment the physics model can answer
+ *   (climbs and flats above its minimum gradient) takes its speed from the
+ *   physics instead of the learned buckets; descents and unanswered segments
+ *   fall through to the cascade above. This is the shadow engine's mode: the
+ *   production engine never sets it, so its code path is unchanged.
  */
 class EtaEngine(
     private val speedModel: AdaptiveSpeedModel,
     private val pipeline:   SegmentPipeline,
     private val fallback:   FallbackSpeedProvider = GradientFactorFallback,
     private val wayMemory:  WaySpeedMemory? = null,
+    private val physicsFirst: PhysicsSpeedModel? = null,
 ) {
     /**
      * @param seconds               predicted moving time for the segments
@@ -25,8 +31,15 @@ class EtaEngine(
      *   came from the fallback rather than a learned bucket
      * @param memoryDistanceShare   fraction (0..1) of the distance on ways already
      *   ridden in this direction, where the remembered speed blended in
+     * @param physicsDistanceShare  fraction (0..1) of the distance answered by
+     *   [physicsFirst]; always 0 on the production engine
      */
-    data class Breakdown(val seconds: Long, val fallbackDistanceShare: Double, val memoryDistanceShare: Double = 0.0)
+    data class Breakdown(
+        val seconds: Long,
+        val fallbackDistanceShare: Double,
+        val memoryDistanceShare: Double = 0.0,
+        val physicsDistanceShare: Double = 0.0,
+    )
 
     /** Versione suspend: fetcha i segmenti dalla pipeline. */
     suspend fun computeRemainingSeconds(): Long =
@@ -42,10 +55,13 @@ class EtaEngine(
         var totalM = 0.0
         var fallbackM = 0.0
         var memoryM = 0.0
+        var physicsM = 0.0
         for (seg in segments) {
             // predict guarantees >= 0.5 m/s (coerceAtLeast in AdaptiveSpeedModel)
             val p = speedModel.predict(seg.gradePct, seg.surface, fallback)
-            var v = p.speedMs
+            val phys = physicsFirst?.predictSpeedMs(seg.gradePct, seg.surface)?.coerceAtLeast(0.5)
+            var v = phys ?: p.speedMs
+            if (phys != null) physicsM += seg.distanceM
             // Memoria per tratto: velocità di base ricordata × fattore di giornata,
             // fusa col bucket pesando i passaggi (n/(n+1))
             val mem = if (seg.wayKey != 0L) wayMemory?.estimate(seg.wayKey) else null
@@ -62,6 +78,7 @@ class EtaEngine(
             totalSec.toLong(),
             if (totalM > 0.0) fallbackM / totalM else 0.0,
             if (totalM > 0.0) memoryM / totalM else 0.0,
+            if (totalM > 0.0) physicsM / totalM else 0.0,
         )
     }
 }

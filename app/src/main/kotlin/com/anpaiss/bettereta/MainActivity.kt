@@ -262,13 +262,13 @@ class MainActivity : AppCompatActivity() {
         // >= PROMOTE_MIN_GAIN_PP, never worse than PROMOTE_MAX_LOSS_PP on one).
         val gains = entries.mapNotNull { it.physicsGainPct }
         if (gains.isEmpty()) {
-            tvPhys.text = "Physics fallback (shadow): no data yet"
+            tvPhys.text = "Physics model (shadow): no data yet"
             tvPhys.setTextColor(Color.parseColor("#666666"))
         } else {
             val mean  = gains.average()
             val worst = gains.min()
             val ready = gains.size >= PROMOTE_MIN_RIDES && mean >= PROMOTE_MIN_GAIN_PP && worst >= -PROMOTE_MAX_LOSS_PP
-            tvPhys.text = "Physics fallback (shadow): %+.1f pp vs factors, worst %+d, %d ride%s%s".format(
+            tvPhys.text = "Physics model (shadow): %+.1f pp vs buckets, worst %+d, %d ride%s%s".format(
                 mean, worst, gains.size, if (gains.size == 1) "" else "s",
                 if (ready) " — ready to promote" else "")
             tvPhys.setTextColor(Color.parseColor(if (ready) "#4CAF50" else "#888888"))

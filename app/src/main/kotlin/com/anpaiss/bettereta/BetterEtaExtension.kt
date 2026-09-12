@@ -48,12 +48,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val wayMemory  = WaySpeedMemory()
     private val etaEngine  = EtaEngine(speedModel, pipeline, wayMemory = wayMemory)
 
-    // Shadow ETA: same learned buckets, physics-based rung 3 instead of the
-    // hand-tuned factors. Never displayed — it only goes to the sample log and
-    // to the end-of-ride comparison, which is what decides whether it gets
-    // promoted. See PhysicsSpeedModel for why this holds on an e-bike.
+    // Shadow ETA: the physics model answers every segment it can (climbs and
+    // flats), the learned buckets only where it cannot (descents). Until 12/09
+    // it sat at rung 3 of the cascade, which a model rebuilt from the FIT
+    // history never reaches: "phys +0" on every ride, no verdict. Never
+    // displayed — it only goes to the sample log and to the end-of-ride
+    // comparison, which is what decides whether it gets promoted. See
+    // PhysicsSpeedModel for why this holds on an e-bike.
     private val physicsModel = PhysicsSpeedModel()
-    private val shadowEngine = EtaEngine(speedModel, pipeline, PhysicsFallback(physicsModel), wayMemory)
+    private val shadowEngine = EtaEngine(speedModel, pipeline, wayMemory = wayMemory, physicsFirst = physicsModel)
 
     // Passaggio in corso su una way: chiave, metri e secondi accumulati in movimento
     private var passKey   = 0L
@@ -64,6 +67,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val gradePctFlow = MutableStateFlow(0.0)
     private val locationFlow = MutableStateFlow<Pair<Double, Double>?>(null)
     @Volatile private var rideState: RideState = RideState.Idle
+    @Volatile private var pausedSinceMs = 0L   // inizio dell'ultima pausa (Recording → non Recording)
 
     // Polyline dell'ultimo percorso caricato: se il Karoo riemette lo stesso percorso
     // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
@@ -123,6 +127,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // sola per route, mai sulle transizioni RideState successive né dopo un
     // restart dell'estensione (entrambi persistiti in Prefs).
     @Volatile private var mtaEpochMs = 0L
+    @Volatile private var mtaSetAtMs = 0L
     @Volatile private var mtaAskedRouteHash = 0
     private val marginGate = MarginAlertGate()
 
@@ -191,7 +196,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // aperto prima dell'aggancio → ETA della route intera, 10:45 per un
         // arrivo reale verso le 10:15). Oltre il limite, l'ETA che c'è.
         private const val MTA_LOCATED_WAIT_MS = 90_000L
-        private const val MTA_ANY_ETA_WAIT_MS = 10_000L
+        // 30 s (era 10): la stima Rejoin di una partenza fuori route arriva dopo
+        // la prima auto-pausa e il primo DISTANCE_TO_DESTINATION (giro 12/09)
+        private const val MTA_ANY_ETA_WAIT_MS = 30_000L
+        // Nessun avviso "margine perso" subito dopo aver impostato l'MTA
+        private const val MTA_ALERT_GRACE_MS  = 60_000L
+        // Sosta almeno così lunga → alla ripresa il popup ripropone l'MTA attuale
+        // (giro 12/09: soste di 8 e 9,5 min, arrivo cambiato, nessuna domanda).
+        // Le auto-pause ai semafori (secondi) non contano.
+        private const val MTA_REASK_PAUSE_MS  = 5 * 60_000L
         // Import storico automatico: parte poco dopo l'avvio, se non si registra
         private const val HISTORY_AUTO_IMPORT_DELAY_MS = 20_000L
         private const val HISTORY_MIN_KM = 10.0   // sotto: prove, test in casa, giri da niente
@@ -206,6 +219,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val MIN_SAMPLES                = 5
         private const val SAME_DEST_THRESHOLD_M     = 200.0
         private const val ARRIVAL_NET_MAX_REMAINING_SEC = 300L
+        // Arrivo fuori route (parcheggio a lato della route, giro 12/09): la
+        // navigazione si chiude con la posizione congelata a km dalla fine e il
+        // residuo stimato sopra i 300 s. Conta come arrivo se siamo negli ultimi
+        // km lungo la route E in aria vicino al punto finale.
+        private const val ARRIVAL_NET_MAX_ALONG_M = 3_000.0
+        private const val ARRIVAL_NET_MAX_AIR_M   = 1_000.0
         // Polyline di NavigatingToDestination più corte di così, con una route in
         // memoria, sono istruzioni di rientro del Karoo, non route
         private const val REJOIN_STUB_MAX_M = 3_000.0
@@ -301,17 +320,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     else -> {
                         logger.log("ROUTE", "Stato non gestito → ETA sospeso, route in memoria")
                         navActive = false
-                        // Rete di sicurezza (giro 30/08): navigazione chiusa a ridosso
-                        // dell'arrivo senza che la pipeline esaurisse i segmenti →
-                        // il confronto va valutato ora, non perso
-                        val remaining = etaState.value.remainingSeconds
-                        if (!resultRecorded && initialRemainingSec >= 0 &&
-                            remaining in 0..ARRIVAL_NET_MAX_REMAINING_SEC
-                        ) {
-                            resultRecorded = true
-                            logger.log("STATS", "Navigazione chiusa a ${remaining}s dall'arrivo — confronto valutato ora")
-                            recordEtaComparison(movingElapsedSec)
-                        }
+                        maybeRecordAtEnd("Navigazione chiusa")
                         return@addConsumer
                     }
                 }
@@ -562,14 +571,29 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
                         logger.log("RIDE ", "Ripresa — model e posizione preservati")
+                        // Sosta lunga con un MTA impostato: l'arrivo è cambiato, il
+                        // popup lo ripropone con l'orario attuale sulle rotelle
+                        // (SET cambia, DISMISS o timeout lasciano com'è)
+                        val pauseMs = if (pausedSinceMs > 0L) System.currentTimeMillis() - pausedSinceMs else 0L
+                        if (pauseMs >= MTA_REASK_PAUSE_MS && mtaEpochMs > 0L && navActive) {
+                            logger.log("MTA  ", "Sosta di ${pauseMs / 60_000} min — MTA riproposto")
+                            mtaAskedRouteHash = 0
+                        }
                     }
+                    pausedSinceMs = 0L
                     rideState = state
                     maybeAskMta()
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
                     logger.log("RIDE ", "Sospesa — model salvato")
+                    pausedSinceMs = System.currentTimeMillis()
                     closeWayPass()
                     saveModel()
+                }
+                // Giro chiuso con la navigazione ancora aperta: stessa rete di
+                // sicurezza della chiusura navigazione
+                if (state is RideState.Idle && rideState !is RideState.Idle && navActive) {
+                    maybeRecordAtEnd("Giro chiuso")
                 }
                 rideState = state
             }
@@ -692,6 +716,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     if (offRoute) {
+                        // Anche fuori route si sta andando verso la meta: il tempo in
+                        // movimento conta per il pace e per il giudizio dei campioni
+                        // (giro 12/09: ultimi 8 min fuori route non contati → "reale"
+                        // troppo corto nel confronto di fine giro)
+                        if (initialRemainingSec >= 0 && currentSpeedMs >= 0.5) movingElapsedSec += TICK_MS / 1000
+
                         // Fuori route ma il Karoo sta facendo rientrare: ETA = deviazione
                         // di rientro (rejoinDistance, senza quote → velocità piana del
                         // modello) + route dal punto di rientro, che è la posizione lungo
@@ -865,7 +895,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     if (logTickCounter >= LOG_INTERVAL_TICKS) {
                         logTickCounter = 0
                         logEtaSnapshot(remainingSec, currentSpeedMs, currentGradePct, gpsStale,
-                            remainDistM, deltaSec, karooEtaSec, marginSec, primary.memoryDistanceShare, uncertaintySec)
+                            remainDistM, deltaSec, karooEtaSec, marginSec, primary.memoryDistanceShare, uncertaintySec,
+                            shadow.seconds, shadow.physicsDistanceShare)
                     }
                 }
             }
@@ -948,6 +979,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         remainDistM: Double, deltaSec: Long?, karooSec: Double, marginSec: Long?,
         memoryShare: Double = 0.0,
         uncertaintySec: Long = -1L,
+        shadowSec: Long = -1L,
+        physicsShare: Double = 0.0,
     ) {
         if (remainingSec <= 0L) return
         val h     = remainingSec / 3600
@@ -955,6 +988,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val gps   = if (gpsStale) " [GPS stale]" else ""
         val delta = deltaSec?.let { " delta=%+ds".format(it) } ?: ""
         val karoo = if (karooSec > 0) " karoo=${karooSec.roundToInt()}s" else ""
+        // Shadow fisico: secondi e quota di route che ha risposto lui
+        val phys  = if (shadowSec > 0 && physicsShare > 0.0) " phys=${shadowSec}s(%d%%)".format((physicsShare * 100).toInt()) else ""
         val fact  = " f=%.2f".format(speedModel.currentDayFactor) +
             (if (memoryShare > 0.0) " mem=%d%%".format((memoryShare * 100).toInt()) else "") +
             (if (uncertaintySec >= 0) " ±%dm".format((uncertaintySec + 30) / 60) else "")
@@ -962,7 +997,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)),
             marginSec?.let { "%+ds".format(it) } ?: "-") else ""
         logger.log("ETA  ", "${h}h ${m}m (${remainingSec}s) | %.1fkm | ".format(remainDistM / 1000.0) +
-            "speed=%.1fkm/h grade=%.1f%%%s%s%s%s%s".format(speedMs * 3.6, gradePct, fact, delta, karoo, mta, gps))
+            "speed=%.1fkm/h grade=%.1f%%%s%s%s%s%s%s".format(speedMs * 3.6, gradePct, fact, delta, karoo, phys, mta, gps))
     }
 
     /** Lunghezza approssimata (m) di una polyline, per riconoscere gli stub di rientro. */
@@ -996,6 +1031,44 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     }
 
     // ── confronto ETA di fine giro ───────────────────────────────────────
+
+    /**
+     * Rete di sicurezza per il confronto quando la pipeline non ha esaurito i
+     * segmenti: navigazione chiusa o giro chiuso (a) a ridosso dell'arrivo
+     * (giro 30/08) oppure (b) fuori route ma negli ultimi km della route e in
+     * aria vicino al punto finale (giro 12/09: parcheggio a 900 m dalla route,
+     * posizione congelata al km 20,1 di 21,2, residuo Rejoin 427 s → perso).
+     * Il tetto lungo-route evita che un anello (start = fine) sia "arrivato"
+     * già alla partenza.
+     */
+    private fun maybeRecordAtEnd(context: String) {
+        if (resultRecorded || initialRemainingSec < 0) return
+        val remaining = etaState.value.remainingSeconds
+        val moved     = movingElapsedSec
+        extensionScope.launch {
+            val why = when {
+                remaining in 0..ARRIVAL_NET_MAX_REMAINING_SEC -> "a ${remaining}s dall'arrivo"
+                nearRouteEnd() -> "fuori route a ridosso della fine (residuo stimato ${remaining}s)"
+                else -> null
+            }
+            if (why == null || resultRecorded) return@launch
+            resultRecorded = true
+            logger.log("STATS", "$context $why — confronto valutato ora")
+            recordEtaComparison(moved)
+        }
+    }
+
+    /** Ultimi [ARRIVAL_NET_MAX_ALONG_M] lungo la route (posizione nostra o Karoo) e ultimo fix a meno di [ARRIVAL_NET_MAX_AIR_M] dal punto finale. */
+    private suspend fun nearRouteEnd(): Boolean {
+        val total = routeTotalDistM
+        val end   = lastRouteEnd ?: return false
+        val fix   = locationFlow.value ?: return false
+        if (total <= 0.0 || !pipeline.hasRoute()) return false
+        val along = maxOf(pipeline.distanceAlongRouteM(), karooAlongRouteM() ?: 0.0)
+        val airM  = haversineM(fix.first, fix.second, end.first, end.second)
+        logger.log("STATS", "Fine route? lungo-route %.0f/%.0fm, in aria %.0fm dalla fine".format(along, total, airM))
+        return total - along <= ARRIVAL_NET_MAX_ALONG_M && airM <= ARRIVAL_NET_MAX_AIR_M
+    }
 
     /**
      * Giudica ogni campione contro il tempo in movimento realmente servito da
@@ -1360,13 +1433,17 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             val located = withTimeoutOrNull(MTA_LOCATED_WAIT_MS) {
                 etaState.first { it.remainingSeconds > 0 && !offRoute && pipeline.isLocated() }.remainingSeconds
             }
-            val remaining = located
+            val anyEta = located
                 ?: withTimeoutOrNull(MTA_ANY_ETA_WAIT_MS) { etaState.first { it.remainingSeconds > 0 }.remainingSeconds }
-                ?: etaState.value.remainingSeconds
+            // Senza una stima nostra (partenza fuori route, giro 12/09) l'ETA nativa
+            // del Karoo è un default migliore di "adesso + 1 h"
+            val karoo = if (anyEta == null) karooEtaSec.takeIf { it > 0.0 }?.toLong() else null
+            val remaining = anyEta ?: karoo ?: etaState.value.remainingSeconds
             val waitedS = (System.currentTimeMillis() - t0) / 1000
             when {
                 located != null  -> logger.log("MTA  ", "ETA con posizione agganciata dopo ${waitedS}s: ${remaining}s")
-                remaining > 0    -> logger.log("MTA  ", "Nessun aggancio entro ${MTA_LOCATED_WAIT_MS / 1000}s — default sull'ETA disponibile (${remaining}s)")
+                anyEta != null   -> logger.log("MTA  ", "Nessun aggancio entro ${MTA_LOCATED_WAIT_MS / 1000}s — default sull'ETA disponibile (${remaining}s)")
+                karoo != null    -> logger.log("MTA  ", "Nessun ETA nostro entro ${waitedS}s — default sull'ETA nativa Karoo (${karoo}s)")
                 else             -> logger.log("MTA  ", "Nessun ETA entro ${waitedS}s — default adesso + 1 h")
             }
             // Con un MTA già impostato le rotelle partono da quello: allungare o
@@ -1383,6 +1460,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private fun setMta(hour: Int, minute: Int) {
         mtaEpochMs = ArrivalMargin.epochMsFor(hour, minute, System.currentTimeMillis())
         prefs.mtaEpochMs = mtaEpochMs
+        mtaSetAtMs = System.currentTimeMillis()
         marginGate.reset()
         logger.log("MTA  ", "Impostato %02d:%02d (%s)".format(hour, minute,
             SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(mtaEpochMs))))
@@ -1419,6 +1497,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         if (mta <= 0L || remainingSec < 0) return null
         val now    = System.currentTimeMillis()
         val margin = ArrivalMargin.marginSeconds(mta, now, remainingSec)
+        // Appena impostato: niente avviso (giro 12/09: "Margine perso" un secondo
+        // dopo il SET). Se resta negativo, la gate lo dà a fine grazia.
+        if (now - mtaSetAtMs < MTA_ALERT_GRACE_MS) return margin
         if (marginGate.onMargin(margin)) {
             val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
             val eta = fmt.format(Date(now + remainingSec * 1000L))
