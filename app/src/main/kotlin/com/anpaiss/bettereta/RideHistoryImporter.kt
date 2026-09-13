@@ -36,6 +36,13 @@ class RideHistoryImporter(
 
     companion object {
         const val MIN_ACCEPTED_SAMPLES = 300      // sotto: giro troppo corto o fermo, non conta
+        // Un FIT che inizia entro questa distanza dall'avvio di un giro registrato
+        // con l'estensione in sella è quel giro: già appreso dal vivo, non si reimporta
+        const val LIVE_RIDE_TOLERANCE_MS = 15 * 60_000L
+
+        /** True se il FIT che inizia a [fitStartMs] è un giro già appreso dal vivo (avviato in [rideStartsMs]). */
+        fun learnedLive(fitStartMs: Long?, rideStartsMs: Collection<Long>, toleranceMs: Long = LIVE_RIDE_TOLERANCE_MS): Boolean =
+            fitStartMs != null && rideStartsMs.any { kotlin.math.abs(it - fitStartMs) <= toleranceMs }
         private const val MAX_DT_S = 5.0
         private const val SMOOTH_HALF_M = 25.0
         private const val CLASSIFY_SPACING_M = 20.0

@@ -120,6 +120,12 @@ class SegmentPipeline(
             rescueCandidateM   = -1.0
             rescueConfirmCount = 0
             lastGoodSnapMs     = nowMs()
+            // Il GPS conferma la stima: il candidato più coerente è sempre entro
+            // mezzo passo di waypoint dalla posizione vera. Riposizionare qui ogni
+            // tick annullava il dead-reckoning (giro 13/09: posizione ferma 20-60 s
+            // e poi scatti di ~100 m, sempre ~100 m dietro il Karoo). Si corregge
+            // solo quando stima e GPS divergono più del passo locale.
+            if (abs(waypointCumDist[bestIdx] - traveledM) < holdToleranceM(bestIdx)) return@withLock 0.0
             val prevTraveledM = traveledM
             repositionTo(waypointCumDist[bestIdx])
             return@withLock abs(traveledM - prevTraveledM)
@@ -350,6 +356,17 @@ class SegmentPipeline(
         }
     }
 
+    /**
+     * Divergenza stima/GPS tollerata prima di riposizionare sul waypoint [idx]:
+     * poco più di mezzo passo tra i waypoint vicini (con la stima giusta il
+     * candidato coerente dista al massimo mezzo passo), mai sotto SNAP_HOLD_MIN_M.
+     */
+    private fun holdToleranceM(idx: Int): Double {
+        val before = if (idx > 0) waypointCumDist[idx] - waypointCumDist[idx - 1] else 0.0
+        val after  = if (idx + 1 < waypointCumDist.size) waypointCumDist[idx + 1] - waypointCumDist[idx] else 0.0
+        return maxOf(SNAP_HOLD_MIN_M, SNAP_HOLD_STEP_FRACTION * maxOf(before, after))
+    }
+
     /** Lower bound: primo indice i per cui arr[i] >= value. Può restituire arr.size se tutti gli elementi sono < value. */
     private fun lowerBound(arr: DoubleArray, value: Double): Int {
         var lo = 0; var hi = arr.size
@@ -398,6 +415,10 @@ class SegmentPipeline(
 
         // Un waypoint è agganciabile dal GPS se dista dal fix meno di questa soglia
         private const val SNAP_MAX_DIST_M = 100.0
+        // Snap locale: la stima viene lasciata al dead-reckoning finché il candidato
+        // coerente dista meno di 0,6 passi di waypoint (minimo 30 m)
+        private const val SNAP_HOLD_MIN_M = 30.0
+        private const val SNAP_HOLD_STEP_FRACTION = 0.6
         // Finestra di ricerca intorno alla posizione stimata: dietro basta poco
         // (correzione di drift), davanti serve margine per il dead-reckoning lento
         private const val SNAP_BACK_WINDOW_M = 500.0

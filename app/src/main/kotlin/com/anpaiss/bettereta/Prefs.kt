@@ -59,6 +59,11 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat(KEY_LAST_FIX_LON, 0f).toDouble()
         set(v) = sp.edit().putFloat(KEY_LAST_FIX_LON, v.toFloat()).apply()
 
+    /** Inizio (epoch ms) degli ultimi giri registrati con l'estensione in sella: il loro FIT non va reimportato. */
+    var rideStartsMs: List<Long>
+        get() = sp.getString(KEY_RIDE_STARTS, null).orEmpty().split(';').mapNotNull { it.toLongOrNull() }
+        set(v) = sp.edit().putString(KEY_RIDE_STARTS, v.takeLast(RIDE_STARTS_KEPT).joinToString(";")).apply()
+
     /** Mesi di storico FIT da importare; 0 = tutto. */
     var historyMonths: Int
         get() = sp.getInt(KEY_HISTORY_MONTHS, 12)
@@ -67,6 +72,8 @@ class Prefs(ctx: Context) {
     companion object {
         private const val NAME = "better_eta_prefs"
         private const val KEY_HISTORY_MONTHS = "history_months"
+        private const val KEY_RIDE_STARTS = "ride_starts_ms"
+        private const val RIDE_STARTS_KEPT = 30
         private const val KEY_LAST_FIX_LAT = "last_fix_lat"
         private const val KEY_LAST_FIX_LON = "last_fix_lon"
         const val KEY_TILE_STYLE = "tile_style"

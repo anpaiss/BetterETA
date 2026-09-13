@@ -567,6 +567,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         speedModel.newRide()
                         gpsGate.reset()
                         freeRideSamples = 0
+                        prefs.rideStartsMs = prefs.rideStartsMs + System.currentTimeMillis()   // il FIT di questo giro non va reimportato
                         clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
@@ -1193,12 +1194,22 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             }
             var rides = 0; var accepted = 0; var km = 0.0
             val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            val liveRideStarts = prefs.rideStartsMs
             for (f in todo) {
                 if (rideState is RideState.Recording) { logger.log("HIST ", "Import storico interrotto: registrazione avviata"); break }
                 val t0 = System.currentTimeMillis()
-                val summary = runCatching { importer.importRecords(FitRecordReader.read(f.readBytes())) }
+                val records = runCatching { FitRecordReader.read(f.readBytes()) }
                     .onFailure { logger.logError("HIST ", "FIT ${f.name} non leggibile", it) }
                     .getOrNull()
+                val fitStartMs = records?.firstNotNullOfOrNull { it.timeMs }
+                if (RideHistoryImporter.learnedLive(fitStartMs, liveRideStarts)) {
+                    // Giri 06/09, 12/09 e 13/09: appresi in sella e poi di nuovo dal FIT
+                    // all'avvio successivo (campioni doppi, passaggi way a fattore 1)
+                    markImported(f.name)
+                    logger.log("HIST ", "${fmt.format(Date(fitStartMs!!))} ${f.name.take(8)}: saltato, giro già appreso dal vivo")
+                    continue
+                }
+                val summary = records?.let { importer.importRecords(it) }
                 markImported(f.name)
                 if (summary == null || summary.accepted < RideHistoryImporter.MIN_ACCEPTED_SAMPLES || summary.distanceM < HISTORY_MIN_KM * 1000) {
                     logger.log("HIST ", "${f.name.take(8)}: scartato (${summary?.records ?: 0} record, ${summary?.accepted ?: 0} accettati, %.1f km)".format((summary?.distanceM ?: 0.0) / 1000))

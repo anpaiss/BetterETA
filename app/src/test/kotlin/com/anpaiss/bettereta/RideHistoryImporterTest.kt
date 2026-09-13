@@ -1,6 +1,7 @@
 package com.anpaiss.bettereta
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -34,6 +35,19 @@ class RideHistoryImporterTest {
 
     private fun gravelEverywhere(key: Long): (List<RouteWaypoint>) -> Pair<List<Surface>, List<Long>>? =
         { pts -> List(pts.size) { Surface.GRAVEL } to List(pts.size) { key } }
+
+    @Test
+    fun `fit starting near a ride recorded live is skipped, others are not`() {
+        val rideStart = 1_789_000_000_000L
+        val starts = listOf(rideStart - 86_400_000L, rideStart)
+        // Il FIT parte qualche minuto prima della transizione Idle→Recording vista dall'estensione
+        assertTrue(RideHistoryImporter.learnedLive(rideStart - 3 * 60_000L, starts))
+        assertTrue(RideHistoryImporter.learnedLive(rideStart + 10 * 60_000L, starts))
+        // Un giro fatto senza l'estensione, un'ora dopo, va importato
+        assertFalse(RideHistoryImporter.learnedLive(rideStart + 60 * 60_000L, starts))
+        assertFalse(RideHistoryImporter.learnedLive(null, starts))
+        assertFalse(RideHistoryImporter.learnedLive(rideStart, emptyList()))
+    }
 
     @Test
     fun `a real ride fills the gradient and surface buckets and the way memory`() {

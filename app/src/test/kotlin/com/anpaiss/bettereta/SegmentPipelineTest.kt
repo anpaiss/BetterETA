@@ -154,6 +154,27 @@ class SegmentPipelineTest {
     }
 
     @Test
+    fun `snap leaves dead-reckoning alone while GPS agrees with it`() = runBlocking {
+        val p = SegmentPipeline()
+        // Waypoint ogni ~33 m (come una route vera), ciclista a 8 m/s con il GPS
+        // esattamente sulla route: la posizione deve avanzare a ogni tick, non
+        // restare inchiodata al waypoint e poi saltare (giro 13/09).
+        p.setRoute((0 until 60).map { RouteWaypoint(45.0 + it * 0.0003, 9.0, 300.0) })
+        p.snapToLocation(45.0, 9.0)
+        var prev = p.distanceAlongRouteM()
+        var truthM = 0.0
+        repeat(30) {
+            p.advanceByDistance(8.0)
+            truthM += 8.0
+            p.snapToLocation(45.0 + truthM / 111_195.0, 9.0)
+            val now = p.distanceAlongRouteM()
+            assertTrue("tick $it: posizione ferma a $now", now > prev)
+            prev = now
+        }
+        assertApprox(truthM, p.distanceAlongRouteM(), delta = 20.0)
+    }
+
+    @Test
     fun `snap does not jump to return leg of out-and-back route`() = runBlocking {
         val p = SegmentPipeline()
         // Andata verso nord + ritorno parallelo spostato di ~8m (entro i 100m di snap)
