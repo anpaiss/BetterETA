@@ -125,7 +125,7 @@ class SegmentPipeline(
             // tick annullava il dead-reckoning (giro 13/09: posizione ferma 20-60 s
             // e poi scatti di ~100 m, sempre ~100 m dietro il Karoo). Si corregge
             // solo quando stima e GPS divergono più del passo locale.
-            if (abs(waypointCumDist[bestIdx] - traveledM) < holdToleranceM(bestIdx)) return@withLock 0.0
+            if (bestOffset < holdToleranceM(bestIdx)) return@withLock 0.0
             val prevTraveledM = traveledM
             repositionTo(waypointCumDist[bestIdx])
             return@withLock abs(traveledM - prevTraveledM)

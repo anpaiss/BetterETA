@@ -163,6 +163,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val gpsGate = GpsProgressGate()
     private var freeRideSamples = 0
 
+    // Inizio del giro in corso: finisce in Prefs.rideStartsMs al primo salvataggio
+    // del modello, così il FIT del giro non viene reimportato. Se il processo muore
+    // prima di aver mai salvato, l'import dal FIT recupera il giro.
+    private var liveRideStartMs = 0L
+
     // Import dello storico FIT del Karoo: una volta per file, in background,
     // mai durante una registrazione. Elenco dei file già importati su disco.
     @Volatile private var historyImportRunning = false
@@ -567,7 +572,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         speedModel.newRide()
                         gpsGate.reset()
                         freeRideSamples = 0
-                        prefs.rideStartsMs = prefs.rideStartsMs + System.currentTimeMillis()   // il FIT di questo giro non va reimportato
+                        liveRideStartMs = System.currentTimeMillis()
                         clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
@@ -1209,7 +1214,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     logger.log("HIST ", "${fmt.format(Date(fitStartMs!!))} ${f.name.take(8)}: saltato, giro già appreso dal vivo")
                     continue
                 }
-                val summary = records?.let { importer.importRecords(it) }
+                val summary = records?.let { recs ->
+                    runCatching { importer.importRecords(recs) }
+                        .onFailure { logger.logError("HIST ", "FIT ${f.name} non importabile", it) }
+                        .getOrNull()
+                }
                 markImported(f.name)
                 if (summary == null || summary.accepted < RideHistoryImporter.MIN_ACCEPTED_SAMPLES || summary.distanceM < HISTORY_MIN_KM * 1000) {
                     logger.log("HIST ", "${f.name.take(8)}: scartato (${summary?.records ?: 0} record, ${summary?.accepted ?: 0} accettati, %.1f km)".format((summary?.distanceM ?: 0.0) / 1000))
@@ -1317,6 +1326,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // ── persistenza modello ──────────────────────────────────────────────
 
     private fun saveModel() {
+        if (liveRideStartMs > 0L && liveRideStartMs !in this.prefs.rideStartsMs) {
+            this.prefs.rideStartsMs = this.prefs.rideStartsMs + liveRideStartMs
+        }
         saveWayMemory()
         val snap  = speedModel.snapshot()
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
