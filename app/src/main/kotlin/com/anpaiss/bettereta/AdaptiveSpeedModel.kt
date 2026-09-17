@@ -45,10 +45,18 @@ class AdaptiveSpeedModel {
         // velocità degli ultimi istanti → ETA instabile.
         private const val EMA_WINDOW         = 21600  // base: ~6 h di pedalata per bucket
         // Fattore di giornata: finestra EMA, prior (campioni fittizi a 1.0 alla
-        // partenza) e shrink (campioni di bucket perché il suo fattore pesi metà)
-        private const val FACTOR_WINDOW      = 900
-        private const val FACTOR_PRIOR       = 120
-        private const val FACTOR_SHRINK      = 120.0
+        // partenza) e shrink (campioni di bucket perché il suo fattore pesi metà).
+        // Il globale ha un prior più largo (17/09: 400, era 120): impara da ogni
+        // pendenza e fondo, e nel giro 17/09 nove minuti di salita asfaltata a
+        // 1,5× la base lo avevano portato a 1,35, applicato poi alla salita in
+        // ghiaia (1,1×) → ETA ottimista del 10 %. Col replay (tools/replay_factor.py
+        // --carry) l'estremo nei primi 15 min passa da −13 % a −5 % sul 17/09 e
+        // da −6 % a −3 % sul 12/09, errore medio invariato o meglio di 0,3 pp.
+        // Quelli per bucket restano a 120: pochi campioni, devono mordere presto.
+        private const val FACTOR_WINDOW       = 900
+        private const val FACTOR_PRIOR_GLOBAL = 400
+        private const val FACTOR_PRIOR        = 120
+        private const val FACTOR_SHRINK       = 120.0
         private const val RATIO_MIN          = 0.2
         private const val RATIO_MAX          = 3.0
         private const val ALPHA_GRADE        = 0.10   // Peso per lo smoothing della pendenza
@@ -123,7 +131,7 @@ class AdaptiveSpeedModel {
         val base = rawPredict(idx, surface, GradientFactorFallback).speedMs
         if (base > 0.0) {
             val r  = (speedMs / base).coerceIn(RATIO_MIN, RATIO_MAX)
-            val ag = 1.0 / minOf(dayCount + FACTOR_PRIOR + 1, FACTOR_WINDOW)
+            val ag = 1.0 / minOf(dayCount + FACTOR_PRIOR_GLOBAL + 1, FACTOR_WINDOW)
             dayFactor = ag * r + (1.0 - ag) * dayFactor
             dayCount++
             val ab = 1.0 / minOf(bucketFactorN[idx] + FACTOR_PRIOR + 1, FACTOR_WINDOW)

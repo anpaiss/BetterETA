@@ -32,11 +32,12 @@ class DayFactorTest {
     fun `slow climbing lowers the prediction for gradients not yet ridden`() {
         val m = trained()
         repeat(600) { m.update(3.4 * 0.6, 8.0) }       // ten minutes at 60% of the base on the steep bucket
-        assertTrue("factor ${m.currentDayFactor}", m.currentDayFactor in 0.55..0.7)
+        // Global prior 400 (17/09, was 120): (400 + 600 × 0.6) / 1000 = 0.76 — it used to reach 0.67
+        assertTrue("factor ${m.currentDayFactor}", m.currentDayFactor in 0.7..0.85)
         val flat = m.predictSpeed(0.0)
-        assertTrue("flat $flat should be scaled by the global factor", flat < 6.0 * 0.75 && flat > 6.0 * 0.5)
+        assertTrue("flat $flat should be scaled by the global factor", flat < 6.0 * 0.85 && flat > 6.0 * 0.6)
         val descent = m.predictSpeed(-10.0)
-        assertTrue("descent $descent", descent < 7.7 * 0.75)
+        assertTrue("descent $descent", descent < 7.7 * 0.85)
     }
 
     @Test
@@ -64,7 +65,7 @@ class DayFactorTest {
     fun `newRide resets the factor and keeps the base`() {
         val m = trained()
         repeat(600) { m.update(3.0, 0.0) }
-        assertTrue(m.currentDayFactor < 0.7)
+        assertTrue(m.currentDayFactor < 0.75)   // (400 + 600 × 0.5) / 1000 = 0.70 with the global prior at 400
         m.newRide()
         assertEquals(1.0, m.currentDayFactor, 1e-9)
         assertTrue(m.predictSpeed(8.0) > 3.3)
