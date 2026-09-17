@@ -201,9 +201,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // aperto prima dell'aggancio → ETA della route intera, 10:45 per un
         // arrivo reale verso le 10:15). Oltre il limite, l'ETA che c'è.
         private const val MTA_LOCATED_WAIT_MS = 90_000L
-        // 30 s (era 10): la stima Rejoin di una partenza fuori route arriva dopo
-        // la prima auto-pausa e il primo DISTANCE_TO_DESTINATION (giro 12/09)
-        private const val MTA_ANY_ETA_WAIT_MS = 30_000L
+        // 120 s (era 30, prima 10): la stima Rejoin di una partenza fuori route
+        // arriva dopo la prima auto-pausa e il primo DISTANCE_TO_DESTINATION,
+        // che il Karoo pubblica ~3 min dopo l'avvio (giri 12/09 e 17/09: con
+        // 30 s il default era "adesso + 1 h")
+        private const val MTA_ANY_ETA_WAIT_MS = 120_000L
         // Nessun avviso "margine perso" subito dopo aver impostato l'MTA
         private const val MTA_ALERT_GRACE_MS  = 60_000L
         // Sosta almeno così lunga → alla ripresa il popup ripropone l'MTA attuale
@@ -628,7 +630,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         // i segnaposto "--" per tutta la sosta.
                         val prev = etaState.value
                         etaState.value = prev.copy(hasRoute = true, status = "Paused",
-                            mtaEpochMs = mtaEpochMs, marginSeconds = marginFor(prev.remainingSeconds))
+                            mtaEpochMs = mtaEpochMs, marginSeconds = marginFor(prev.remainingSeconds, prev.estimateApprox))
                         continue
                     }
 
@@ -747,7 +749,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                                 gpsStale           = gpsStale,
                                 remainingDistanceM = rejoinM + segs.sumOf { it.distanceM },
                                 mtaEpochMs         = mtaEpochMs,
-                                marginSeconds      = marginFor(totalSec),
+                                marginSeconds      = marginFor(totalSec, approx = true),
                                 estimateApprox     = true,
                                 dayFactor          = speedModel.currentDayFactor,
                                 uncertaintySeconds = EtaUncertainty.seconds(totalSec, routeBd.memoryDistanceShare, routeBd.fallbackDistanceShare, approx = true),
@@ -791,7 +793,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             remainingElevationM    = if (hasElevationData) 0.0 else -1.0,
                             farthestPointDistanceM = 0.0,
                             mtaEpochMs             = mtaEpochMs,
-                            marginSeconds          = marginFor(0L),
+                            marginSeconds          = marginFor(0L, approx = false),
                         )
                         continue
                     }
@@ -854,8 +856,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         }
                     }
 
-                    val marginSec = marginFor(remainingSec)
                     val locatedNow = pipeline.isLocated()
+                    val marginSec = marginFor(remainingSec, approx = !locatedNow)
                     val uncertaintySec = EtaUncertainty.seconds(remainingSec,
                         primary.memoryDistanceShare, primary.fallbackDistanceShare, approx = !locatedNow)
                     etaState.value = EtaState(
@@ -1514,12 +1516,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     /**
      * Margine attuale (null senza MTA o senza ETA) e avviso al primo passaggio
      * in negativo. Va chiamato anche in pausa: l'orologio corre, il margine cala.
+     * Con una stima approssimata ("~": fuori route, Rejoin, non agganciati) il
+     * margine si mostra ma non fa scattare l'avviso: giro 17/09, "Margine perso"
+     * su una stima Rejoin sforata di 47 s, sei minuti dopo il margine vero era +8 min.
      */
-    private fun marginFor(remainingSec: Long): Long? {
+    private fun marginFor(remainingSec: Long, approx: Boolean): Long? {
         val mta = mtaEpochMs
         if (mta <= 0L || remainingSec < 0) return null
         val now    = System.currentTimeMillis()
         val margin = ArrivalMargin.marginSeconds(mta, now, remainingSec)
+        if (approx) return margin
         // Appena impostato: niente avviso (giro 12/09: "Margine perso" un secondo
         // dopo il SET). Se resta negativo, la gate lo dà a fine grazia.
         if (now - mtaSetAtMs < MTA_ALERT_GRACE_MS) return margin
@@ -1533,7 +1539,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     icon            = R.drawable.ic_launcher_foreground,
                     title           = getString(R.string.mta_alert_title),
                     detail          = "ETA $eta, MTA ${fmt.format(Date(mta))}",
-                    autoDismissMs   = 15_000L,
+                    autoDismissMs   = 30_000L,   // 15 s: intravisto appena (17/09)
                     backgroundColor = R.color.alert_bg,
                     textColor       = R.color.alert_text,
                 )
