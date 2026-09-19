@@ -150,7 +150,14 @@ class EtaMasterDataType(
 
         // 3. Delta vs prima stima del giro: positivo = arrivo più tardi del previsto
         val delta  = state.deltaSeconds
-        val colors = style.colorsFor(paceOf(delta))
+        // Colore della pagina = il numero che la terza riga mostra: con un MTA il
+        // margine, senza il pace vs plan. Fino al 19/09 era sempre il pace, e con
+        // un MTA la pagina restava rossa (in ritardo sul piano) con la cella del
+        // margine verde (in anticipo sull'MTA): due segnali, uno solo a schermo.
+        val colors = style.colorsFor(
+            if (state.mtaEpochMs > 0L) state.marginSeconds?.let(::marginPace) ?: Pace.UNKNOWN
+            else paceOf(delta)
+        )
 
         // Con un MTA la terza riga diventa MTA + margine: a sinistra "MTA" e l'ora,
         // a destra i minuti su una cella verde/rossa con la parola AHEAD/LATE, che

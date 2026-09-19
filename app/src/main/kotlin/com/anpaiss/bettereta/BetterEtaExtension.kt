@@ -72,6 +72,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // Polyline dell'ultimo percorso caricato: se il Karoo riemette lo stesso percorso
     // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
     @Volatile private var lastRoutePolyline: String = ""
+    // Da che stato di navigazione viene la route in memoria: lo stub di rientro
+    // esiste solo durante un NavigatingRoute
+    @Volatile private var lastRouteSource: String = ""
+    // Popup MTA in arrivo o a schermo (orario di inizio, 0 = no): l'avviso "margine
+    // perso" aspetta che si chiuda. A tempo, così un popup mai comparso (overlay
+    // fallito) non zittisce gli avvisi per tutto il giro.
+    @Volatile private var mtaAskPendingSinceMs = 0L
 
     // Fine dell'ultima route caricata: se la nuova route finisce nello stesso
     // punto (ricalcolo / back-to-start), campioni e baseline restano validi.
@@ -212,6 +219,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // (giro 12/09: soste di 8 e 9,5 min, arrivo cambiato, nessuna domanda).
         // Le auto-pause ai semafori (secondi) non contano.
         private const val MTA_REASK_PAUSE_MS  = 5 * 60_000L
+        // Attese del default (90 + 120 s) + popup a schermo (45 s) + margine
+        private const val MTA_ASK_PENDING_MAX_MS = 5 * 60_000L
+        // Su una stima "~" l'avviso scatta solo con un ritardo che la stima grossolana non spiega
+        private const val MTA_APPROX_ALERT_SLACK_S = 600L
         // Import storico automatico: parte poco dopo l'avvio, se non si registra
         private const val HISTORY_AUTO_IMPORT_DELAY_MS = 20_000L
         private const val HISTORY_MIN_KM = 10.0   // sotto: prove, test in casa, giri da niente
@@ -267,8 +278,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         prefs = Prefs(applicationContext)
         loadWayMemory()
         mtaPopup = MtaPopupController(applicationContext, logger,
-            onSet = { h, m -> setMta(h, m) },
-            onDismiss = { logger.log("MTA  ", if (mtaEpochMs > 0L) "Popup chiuso: MTA invariato" else "Nessun MTA impostato") })
+            onSet = { h, m -> mtaAskPendingSinceMs = 0L; setMta(h, m) },
+            onDismiss = {
+                mtaAskPendingSinceMs = 0L
+                logger.log("MTA  ", if (mtaEpochMs > 0L) "Popup chiuso: MTA invariato" else "Nessun MTA impostato")
+            })
 
         // Versione installata: correla il log al build effettivamente sul dispositivo
         runCatching {
@@ -346,7 +360,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 // per tornare sulla route dopo una deviazione). Non è una route: presa
                 // per tale azzerava posizione, baseline e campioni del confronto
                 // (giro 06/09, 18:13: 16 waypoint, ETA "1 min", 67 campioni persi).
-                if (source == "NavigatingToDestination" && lastRoutePolyline.isNotBlank() &&
+                // Solo se la route in memoria è una route pianificata: navigando verso
+                // una destinazione ("Home", giro 19/09) il ricalcolo degli ultimi 3 km
+                // è la route vera e veniva scartato come stub.
+                if (source == "NavigatingToDestination" && lastRouteSource == "NavigatingRoute" &&
+                    lastRoutePolyline.isNotBlank() &&
                     polyline != lastRoutePolyline && routeStubM(polyline) < REJOIN_STUB_MAX_M) {
                     logger.log("ROUTE", "[$source] stub di rientro (%.0fm) ignorato — route e stato preservati".format(routeStubM(polyline)))
                     return@addConsumer
@@ -373,6 +391,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 val prevRouteHash = lastRoutePolyline.hashCode()
                 val routeHash     = polyline.hashCode()
                 lastRoutePolyline = polyline
+                lastRouteSource   = source
                 karooOnRoute      = null      // riferito alla route precedente
                 offRoute          = false
                 hintChecked       = false
@@ -1454,6 +1473,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 logger.log("MTA  ", "Popup non mostrato: permesso overlay assente")
                 return@launch
             }
+            mtaAskPendingSinceMs = System.currentTimeMillis()
             val t0 = System.currentTimeMillis()
             val located = withTimeoutOrNull(MTA_LOCATED_WAIT_MS) {
                 etaState.first { it.remainingSeconds > 0 && !offRoute && pipeline.isLocated() }.remainingSeconds
@@ -1517,15 +1537,20 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * Margine attuale (null senza MTA o senza ETA) e avviso al primo passaggio
      * in negativo. Va chiamato anche in pausa: l'orologio corre, il margine cala.
      * Con una stima approssimata ("~": fuori route, Rejoin, non agganciati) il
-     * margine si mostra ma non fa scattare l'avviso: giro 17/09, "Margine perso"
-     * su una stima Rejoin sforata di 47 s, sei minuti dopo il margine vero era +8 min.
+     * margine si mostra ma fa scattare l'avviso solo se è sotto di oltre 10 min:
+     * giro 17/09, "Margine perso" su una stima Rejoin sforata di 47 s, sei minuti
+     * dopo il margine vero era +8 min; giro 19/09, un'ora fuori route, margine a
+     * −23 min alle 17:20 e avviso solo alle 17:34 al primo ETA agganciato.
      */
     private fun marginFor(remainingSec: Long, approx: Boolean): Long? {
         val mta = mtaEpochMs
         if (mta <= 0L || remainingSec < 0) return null
         val now    = System.currentTimeMillis()
         val margin = ArrivalMargin.marginSeconds(mta, now, remainingSec)
-        if (approx) return margin
+        if (approx && margin > -MTA_APPROX_ALERT_SLACK_S) return margin
+        // Popup MTA a schermo (riproposto dopo una sosta): l'avviso finirebbe sotto
+        // l'overlay (giro 19/09, 17:34:21). La gate resta armata: scatta alla chiusura.
+        if (now - mtaAskPendingSinceMs < MTA_ASK_PENDING_MAX_MS) return margin
         // Appena impostato: niente avviso (giro 12/09: "Margine perso" un secondo
         // dopo il SET). Se resta negativo, la gate lo dà a fine grazia.
         if (now - mtaSetAtMs < MTA_ALERT_GRACE_MS) return margin
