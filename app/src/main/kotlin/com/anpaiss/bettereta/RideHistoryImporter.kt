@@ -94,8 +94,7 @@ class RideHistoryImporter(
         var passKey = 0L; var passDist = 0.0; var passSec = 0.0
         fun closePass(timeMs: Long) {
             if (passKey != 0L && passDist >= PASS_MIN_M && passSec >= PASS_MIN_SEC) {
-                wayMemory.record(passKey, passDist / passSec, timeMs)
-                passes++
+                if (!wayMemory.record(passKey, passDist / passSec, timeMs, passDist)) passes++
             }
             passKey = 0L; passDist = 0.0; passSec = 0.0
         }

@@ -1316,11 +1316,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             val speed  = passDistM / passSec
             val factor = speedModel.currentDayFactor.coerceIn(0.3, 3.0)
             val base   = speed / factor
-            wayMemory.record(key, base, System.currentTimeMillis())
+            val merged = wayMemory.record(key, base, System.currentTimeMillis(), passDistM)
             val est = wayMemory.estimate(key)
-            logger.log("WAY  ", "way %d %s: %.1fkm/h su %.0fm in %ds → base %.1fkm/h (f=%.2f), passaggi %d, media %.1fkm/h".format(
+            logger.log("WAY  ", "way %d %s: %.1fkm/h su %.0fm in %ds → base %.1fkm/h (f=%.2f), passaggi %d%s, media %.1fkm/h".format(
                 WaySpeedMemory.wayIdOf(key), if (WaySpeedMemory.isForward(key)) "→" else "←",
-                speed * 3.6, passDistM, passSec, base * 3.6, factor, est?.passes ?: 0, (est?.speedMs ?: 0.0) * 3.6))
+                speed * 3.6, passDistM, passSec, base * 3.6, factor, est?.passes ?: 0,
+                if (merged) " (fuso col precedente)" else "", (est?.speedMs ?: 0.0) * 3.6))
         }
         passKey   = 0L
         passDistM = 0.0
