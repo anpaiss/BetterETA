@@ -287,8 +287,8 @@ class MainActivity : AppCompatActivity() {
         // Prefs ancora a cinque bucket (prima del primo salvataggio dopo l'update):
         // stessa migrazione del modello, così le etichette restano giuste
         val saved = prefs.getInt("bucket_layout", 5)
-        fun emas(prefix: String)   = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getFloat("${prefix}${it}_ema", 0f) })
-        fun counts(prefix: String) = AdaptiveSpeedModel.migrateLegacyFive((0 until saved).map { prefs.getInt("${prefix}${it}_cnt", 0) })
+        fun emas(prefix: String)   = AdaptiveSpeedModel.migrateLegacy((0 until saved).map { prefs.getFloat("${prefix}${it}_ema", 0f) })
+        fun counts(prefix: String) = AdaptiveSpeedModel.migrateLegacyCounts((0 until saved).map { prefs.getInt("${prefix}${it}_cnt", 0) })
         // Colonne: globale + i quattro fondi (stessi prefissi di BetterEtaExtension.saveModel)
         val columns = listOf("all" to "b", "paved" to "p", "gravel" to "u", "trail" to "t", "gnarly" to "g")
         val table = findViewById<android.widget.TableLayout>(R.id.table_model)
@@ -306,7 +306,7 @@ class MainActivity : AppCompatActivity() {
         })
         val allEmas = columns.map { emas(it.second) }
         val allCounts = columns.map { counts(it.second) }
-        val shortLabels = listOf("Desc", "Gentle", "Flat", "Climb", "Steep", "Wall")
+        val shortLabels = listOf("Desc", "Gentle", "Flat", "Climb", "Steep", "Wall", "Wall+")
         shortLabels.forEachIndexed { i, label ->
             table.addView(android.widget.TableRow(this).apply {
                 addView(cell(label, white, 11f))

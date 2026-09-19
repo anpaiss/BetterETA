@@ -84,7 +84,7 @@ class DayFactorTest {
             restore(AdaptiveSpeedModel.Snapshot(7.0, 100, listOf(7.7, 6.0, 3.8, 3.4, 3.0), listOf(20, 20, 20, 20, 20)))
         }
         assertEquals(1.0, legacy.currentDayFactor, 1e-9)
-        assertEquals(6, legacy.effectiveFactors().size)
+        assertEquals(AdaptiveSpeedModel.BUCKETS, legacy.effectiveFactors().size)
     }
 
     @Test

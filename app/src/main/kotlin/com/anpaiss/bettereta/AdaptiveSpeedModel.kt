@@ -3,13 +3,22 @@ package com.anpaiss.bettereta
 /**
  * Modello adattivo velocità/pendenza calibrato sull'uscita in corso.
  *
- * Usa 6 bucket di pendenza:
+ * Usa 7 bucket di pendenza:
  *   0: < -6%          discesa libera
  *   1: -6% .. -2%     discesa dolce (pedalata + gravità: la fascia più veloce)
  *   2: -2% .. +2%     pianura vera
  *   3: +2% .. +6%     salita media
  *   4: +6% .. +10%    salita ripida
- *   5: > +10%         muro
+ *   5: +10% .. +16%   muro
+ *   6: > +16%         muro estremo
+ *
+ * Il settimo è del 19/09: nel giro 19/09 (lastricato medievale, +400 m al
+ * 18-21 %) il bucket unico "> 10 %" dava 9,0 km/h contro 7,7 reali. Sui sei
+ * giri dal 05/09 c'è un gradino al 16 %: asfalto 9,4 → 8,0 km/h, non asfalto
+ * 8,5 → 7,7; sotto, tra 10 e 16 %, le fasce stanno in ±0,5 km/h. In discesa
+ * nessuno schema (dispersione ±4-10 km/h): lì non si è diviso. Sul replay
+ * (tools/replay_factor.py) l'errore medio non cambia (6,0 %): il vantaggio
+ * è locale, ~15 % sui tratti oltre il 16 % (~2 min sul giro 19/09).
  *
  * Fino al 05/09 erano cinque, con "pianura" da -5% a +2%: nel giro di quel
  * giorno la fascia -6..-2% andava a 15,5 km/h e la 0..+2% a 9,9, e la media
@@ -63,12 +72,18 @@ class AdaptiveSpeedModel {
         private const val MIN_TRUSTED        = 5      // campioni minimi per fidarsi del bucket
         private const val DEFAULT_FLAT_MS    = 5.0    // ~18 km/h, fallback iniziale
 
-        const val BUCKETS     = 6
+        const val BUCKETS     = 7
         const val FLAT_BUCKET = 2
-        private const val LEGACY_BUCKETS = 5
+        private const val LEGACY_FIVE = 5
+        private const val LEGACY_SIX  = 6
+        // Un bucket nato da una migrazione eredita la velocità del genitore ma
+        // con pochi campioni: con i conteggi veri (decine di migliaia, finestra
+        // EMA 6 h) non si staccherebbe mai dal valore copiato. 600 = 10 minuti:
+        // dopo un giro con un muro vero il bucket è già suo.
+        private const val SPLIT_SEED_COUNT = 600
 
-        // Soglie di pendenza (%) che delimitano i bucket 0..5
-        private val THRESHOLDS = doubleArrayOf(-6.0, -2.0, 2.0, 6.0, 10.0)
+        // Soglie di pendenza (%) che delimitano i bucket 0..6
+        private val THRESHOLDS = doubleArrayOf(-6.0, -2.0, 2.0, 6.0, 10.0, 16.0)
 
         /**
          * Bucket a gradient. Public because rung 3 of the cascade lives in a
@@ -80,13 +95,23 @@ class AdaptiveSpeedModel {
         }
 
         /**
-         * Snapshot a cinque bucket (fino al 05/09) → sei: il vecchio bucket 1
-         * (-5..+2%) diventa sia "discesa dolce" sia "pianura", che poi si
-         * riallineano da sole in una finestra EMA. Liste vuote o già a sei
-         * passano invariate.
+         * Snapshot dei layout precedenti → sette bucket. A cinque (fino al
+         * 05/09): il vecchio bucket 1 (-5..+2%) diventa sia "discesa dolce" sia
+         * "pianura". A sei (fino al giro del 19/09): il vecchio "> 10%" diventa sia
+         * "10..16%" sia "> 16%". Liste vuote o già a sette passano invariate.
          */
-        fun <T> migrateLegacyFive(l: List<T>): List<T> =
-            if (l.size == LEGACY_BUCKETS) listOf(l[0], l[1], l[1], l[2], l[3], l[4]) else l
+        fun <T> migrateLegacy(l: List<T>): List<T> = when (l.size) {
+            LEGACY_FIVE -> migrateLegacy(listOf(l[0], l[1], l[1], l[2], l[3], l[4]))
+            LEGACY_SIX  -> l + l[LEGACY_SIX - 1]
+            else        -> l
+        }
+
+        /** Come [migrateLegacy], ma il bucket nato dalla divisione del muro parte con pochi campioni. */
+        fun migrateLegacyCounts(l: List<Int>): List<Int> {
+            val m = migrateLegacy(l)
+            if (m.size == l.size || m.size != BUCKETS) return m
+            return m.toMutableList().also { it[BUCKETS - 1] = minOf(it[BUCKETS - 1], SPLIT_SEED_COUNT) }
+        }
     }
 
     private data class Bucket(
@@ -289,11 +314,11 @@ class AdaptiveSpeedModel {
         overallEma     = snap.overallEma
         overallSamples = snap.overallSamples
         smoothedGrade  = 0.0
-        val bEma = migrateLegacyFive(snap.bucketEmas);  val bCnt = migrateLegacyFive(snap.bucketCounts)
-        val pEma = migrateLegacyFive(snap.pavedEmas);   val pCnt = migrateLegacyFive(snap.pavedCounts)
-        val uEma = migrateLegacyFive(snap.unpavedEmas); val uCnt = migrateLegacyFive(snap.unpavedCounts)
-        val tEma = migrateLegacyFive(snap.trailEmas);   val tCnt = migrateLegacyFive(snap.trailCounts)
-        val gEma = migrateLegacyFive(snap.gnarlyEmas);  val gCnt = migrateLegacyFive(snap.gnarlyCounts)
+        val bEma = migrateLegacy(snap.bucketEmas);  val bCnt = migrateLegacyCounts(snap.bucketCounts)
+        val pEma = migrateLegacy(snap.pavedEmas);   val pCnt = migrateLegacyCounts(snap.pavedCounts)
+        val uEma = migrateLegacy(snap.unpavedEmas); val uCnt = migrateLegacyCounts(snap.unpavedCounts)
+        val tEma = migrateLegacy(snap.trailEmas);   val tCnt = migrateLegacyCounts(snap.trailCounts)
+        val gEma = migrateLegacy(snap.gnarlyEmas);  val gCnt = migrateLegacyCounts(snap.gnarlyCounts)
         for (i in buckets.indices) {
             buckets[i]        = Bucket(bEma.getOrElse(i) { 0.0 }, bCnt.getOrElse(i) { 0 })
             pavedBuckets[i]   = Bucket(pEma.getOrElse(i) { 0.0 }, pCnt.getOrElse(i) { 0 })

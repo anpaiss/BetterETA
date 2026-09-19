@@ -1416,8 +1416,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             logger.log("MODEL", "Nessun modello salvato — si parte da zero")
             return
         }
-        // Layout salvato: 5 bucket fino al 05/09, 6 dopo. Le liste a cinque
-        // vengono migrate da AdaptiveSpeedModel.restore (bucket piano sdoppiato).
+        // Layout salvato: 5 bucket fino al 05/09, 6 fino al 19/09, 7 dopo. Le liste
+        // più corte vengono migrate da AdaptiveSpeedModel.restore.
         val savedBuckets = prefs.getInt("bucket_layout", 5)
         val idx = 0 until savedBuckets
         val snap = AdaptiveSpeedModel.Snapshot(
@@ -1440,7 +1440,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         )
         speedModel.restore(snap)
         if (savedBuckets != AdaptiveSpeedModel.BUCKETS) {
-            logger.log("MODEL", "Migrato da $savedBuckets a ${AdaptiveSpeedModel.BUCKETS} bucket: il vecchio piano (-5..+2%) sdoppiato in discesa dolce e piano")
+            logger.log("MODEL", "Migrato da $savedBuckets a ${AdaptiveSpeedModel.BUCKETS} bucket di pendenza (i nuovi partono dal valore del bucket da cui nascono)")
             saveModel()
         }
 

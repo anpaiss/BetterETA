@@ -25,8 +25,29 @@ Uso:
 import sys, re, glob, math, argparse
 from datetime import datetime
 
-THRESHOLDS = [-6.0, -2.0, 2.0, 6.0, 10.0]
-FACTORS = [1.15, 1.10, 1.0, 0.80, 0.65, 0.50]
+# Come AdaptiveSpeedModel dal 19/09: sette bucket, muro diviso al 16 %.
+# --legacy-six rifà i conti col layout precedente (confronto prima/dopo).
+THRESHOLDS = [-6.0, -2.0, 2.0, 6.0, 10.0, 16.0]
+FACTORS = [1.15, 1.10, 1.0, 0.80, 0.65, 0.50, 0.42]
+NB = 7
+
+
+def set_thresholds(extra, legacy_six=False):
+    """--split 20: aggiunge soglie in salita; gli snapshot più corti vengono
+    migrati duplicando l'ultimo bucket (come fa l'app)."""
+    global THRESHOLDS, FACTORS, NB
+    if legacy_six:
+        THRESHOLDS, FACTORS = THRESHOLDS[:5], FACTORS[:6]
+    for t in extra:
+        THRESHOLDS.append(t); FACTORS.append(FACTORS[-1] * 0.85)
+    NB = len(THRESHOLDS) + 1
+
+
+def migrate(lst):
+    lst = list(lst)
+    while 0 < len(lst) < NB:
+        lst.append(lst[-1])
+    return lst
 FLAT = 2
 MIN_TRUSTED = 5
 ALPHA_GRADE = 0.10
@@ -57,16 +78,16 @@ class Buckets:
     """Base come AdaptiveSpeedModel: bucket globali + per fondo, EMA lunga."""
     def __init__(self, snapshot, window=BASE_WINDOW):
         self.window = window
-        self.ema = [0.0] * 6; self.cnt = [0] * 6
-        self.surf = {s: ([0.0] * 6, [0] * 6) for s in SURFACES}
+        self.ema = [0.0] * NB; self.cnt = [0] * NB
+        self.surf = {s: ([0.0] * NB, [0] * NB) for s in SURFACES}
         self.overall, self.n = 0.0, 0
         self.smoothed = 0.0
         if snapshot:
             self.overall, self.n = snapshot['overall']
-            for i, (e, c) in enumerate(snapshot['buckets']):
+            for i, (e, c) in enumerate(migrate(snapshot['buckets'])):
                 self.ema[i], self.cnt[i] = e, c
             for s in SURFACES:
-                for i, (e, c) in enumerate(snapshot.get(s, [])):
+                for i, (e, c) in enumerate(migrate(snapshot.get(s, []))):
                     self.surf[s][0][i], self.surf[s][1][i] = e, c
 
     def _step(self, ema, x, prev):
@@ -127,9 +148,9 @@ class FactorModel:
         self.mode, self.pg, self.pl, self.s, self.w, self.up = mode, pg, pl, s, w, up
         self.carry_f = carry_f   # quota del fattore globale finale riportata al giro dopo (0 = riparte da 1)
         self.g = Ema()
-        self.bk = [Ema() for _ in range(6)]
+        self.bk = [Ema() for _ in range(NB)]
         self.cls = {'PAVED': Ema(), 'UNPAVED': Ema()}
-        self.leaf = {'PAVED': [Ema() for _ in range(6)], 'UNPAVED': [Ema() for _ in range(6)]}
+        self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
         self.name = name or f"{mode}(pg={pg},pl={pl},S={s}{',up=' + str(up) if up else ''})"
 
     def update(self, v, g, surface):
@@ -168,9 +189,9 @@ class FactorModel:
         """Idle → Recording: fattori a 1, base conservata (come AdaptiveSpeedModel.newRide)."""
         start = 1.0 + self.carry_f * (self.g.f - 1.0)
         self.g = Ema(); self.g.f = start
-        self.bk = [Ema() for _ in range(6)]
+        self.bk = [Ema() for _ in range(NB)]
         self.cls = {'PAVED': Ema(), 'UNPAVED': Ema()}
-        self.leaf = {'PAVED': [Ema() for _ in range(6)], 'UNPAVED': [Ema() for _ in range(6)]}
+        self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
 
 
 # ── dati ────────────────────────────────────────────────────────────────
@@ -234,7 +255,7 @@ def load_logs(pattern):
                     k = 1 / 3.6 if m.group('unit') else 1.0
                     snap = {'overall': (float(m.group('ov')) * k, int(m.group('on')))}
                     b = {int(i): (float(e) * k, int(n)) for i, e, n in BUCKET_RE.findall(m.group('rest'))}
-                    snap['buckets'] = [b.get(i, (0.0, 0)) for i in range(6)]
+                    snap['buckets'] = [b.get(i, (0.0, 0)) for i in range(NB)]
                     for name, body in SURF_RE.findall(m.group('rest')):
                         vals = re.findall(r'([\d.]+)\(n=(\d+)\)', body)
                         snap[SURF_KEY[name]] = [(float(e) * k, int(n)) for e, n in vals]
@@ -334,6 +355,8 @@ def main():
     ap.add_argument('--logs', required=True, help='glob dei log (snapshot per giorno e righe WAY)')
     ap.add_argument('--from', dest='from_day', default='')
     ap.add_argument('--trace', default='', help='traccia f nel tempo per la variante con questo nome')
+    ap.add_argument('--legacy-six', action='store_true', help='layout a sei bucket (fino al 19/09)')
+    ap.add_argument('--split', type=float, nargs='*', default=[], help='soglie di pendenza in più in salita, es. --split 20')
     ap.add_argument('--smooth-pred', action='store_true', help='pendenza smussata anche in previsione')
     ap.add_argument('--start', default='device', choices=['device', 'empty', 'nosurf'],
                     help='--carry: base di partenza = snapshot del dispositivo, vuota, o snapshot senza i bucket per fondo')
@@ -341,6 +364,7 @@ def main():
     args = ap.parse_args()
     global SMOOTH_PRED
     SMOOTH_PRED = args.smooth_pred
+    set_thresholds(args.split, args.legacy_six)
 
     snaps, ways = load_logs(args.logs)
     print(f"snapshot trovati: {len(snaps)}, passaggi way: {len(ways)}")
@@ -381,8 +405,8 @@ def main():
                 for k, (t, v, g, surf, d, _dt) in enumerate(samples):
                     m.update(v, g, surf)
                     if (k + 1) % 300 == 0:
-                        pav = ' '.join(f"{shrink(m.leaf['PAVED'][i], shrink(m.cls['PAVED'], m.g.f, m.s), m.s):.2f}" for i in range(6))
-                        unp = ' '.join(f"{shrink(m.leaf['UNPAVED'][i], shrink(m.cls['UNPAVED'], m.g.f, m.s), m.s):.2f}" for i in range(6))
+                        pav = ' '.join(f"{shrink(m.leaf['PAVED'][i], shrink(m.cls['PAVED'], m.g.f, m.s), m.s):.2f}" for i in range(NB))
+                        unp = ' '.join(f"{shrink(m.leaf['UNPAVED'][i], shrink(m.cls['UNPAVED'], m.g.f, m.s), m.s):.2f}" for i in range(NB))
                         print(f"    {(k+1)//60:3d}  {m.g.f:.2f}   {shrink(m.cls['PAVED'], m.g.f, m.s):.2f}   {shrink(m.cls['UNPAVED'], m.g.f, m.s):.2f}  | {pav} | {unp}")
     print("\n== media sui giorni")
     print(f"  {'variante':24s} {'|err|':>6s} {'segno':>6s} {'|15min|':>7s} {'mem':>6s}")
