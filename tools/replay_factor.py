@@ -437,6 +437,8 @@ def carry(args, snaps, ways):
         ('H+B  base 2h pg400', dict(mode='hier',   pg=400, base_window=7200)),
         ('no factor base 2h', dict(mode='none',   pg=100000, base_window=7200)),
         ('no factor base 6h', dict(mode='none',   pg=100000, base_window=21600)),
+        ('solo per bucket',   dict(mode='bucket', pg=100000, base_window=21600)),
+        ('solo globale pg400', dict(mode='none',  pg=400, base_window=21600)),
         ('PROD f-carry 0.5',  dict(mode='bucket', pg=120, base_window=21600, carry_f=0.5)),
         ('PROD f-carry 1.0',  dict(mode='bucket', pg=120, base_window=21600, carry_f=1.0)),
         ('B    f-carry 0.5',  dict(mode='bucket', pg=400, base_window=21600, carry_f=0.5)),
