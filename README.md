@@ -114,7 +114,7 @@ Then add the BetterETA fields to a ride profile from the Karoo page editor.
 
 ## Sharing ride data with the developer
 
-Recorded rides are what the model is tuned on, and a ride by someone else is worth as much as one of mine. Nothing leaves the device by itself: the app page has an **Export share file** button that writes `better_eta_share.csv` next to the sample log, and a **Send…** button next to it opens the Android share sheet with that file (companion app, mail, a messaging app: the tester picks). Nothing is sent by itself.
+Recorded rides are what the model is tuned on, and a ride by someone else is worth as much as one of mine. Nothing leaves the device by itself: the app page has an **Export share file** button that writes `better_eta_share.csv` next to the sample log, and sending it is a separate, deliberate step: the Karoo has no app that can send a file (an Android share sheet answers "No apps can perform this action"), so the tester connects the Karoo to a computer by USB and copies the file from `Android/data/com.anpaiss.bettereta/files`.
 
 The export keeps what the replay tools read — per-second speed, gradient, surface, position along the route, our and the Karoo's estimates, the day factor's margin — and drops what says who and when: route names become an 8-hex-digit tag (same route, same tag), the marker timestamp becomes a ride ordinal (one ride per calendar day, as the tools count it), `t_ms` restarts from zero at every ride, free-text `#` notes are dropped. Verified on my own rides: `tools/replay_model.py` gives identical figures on the exported file and on the original. The file is pseudonymous, not anonymous: the gradient/speed profile still describes the route and the rider, and the app says so next to the button.
 

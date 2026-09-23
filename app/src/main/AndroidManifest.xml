@@ -37,17 +37,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Condivisione del file esportato per i tester (Export share file → Send) -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.share"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/share_paths" />
-        </provider>
-
         <service
             android:name=".BetterEtaExtension"
             android:exported="true"

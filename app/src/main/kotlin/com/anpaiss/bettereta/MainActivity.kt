@@ -83,8 +83,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<Button>(R.id.btn_export_share).setOnClickListener { exportShareFile() }
-        findViewById<Button>(R.id.btn_send_share).setOnClickListener { sendShareFile() }
-        findViewById<Button>(R.id.btn_send_share).isEnabled = shareFile().exists()
         findViewById<Button>(R.id.btn_grant_storage).setOnClickListener {
             requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE,
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
@@ -99,30 +97,11 @@ class MainActivity : AppCompatActivity() {
     /**
      * Writes better_eta_share.csv next to the sample log: every generation of the
      * sample CSV (oldest first) through [ShareExport]. Off the main thread, the
-     * files are megabytes.
+     * files are megabytes. No share intent: the Karoo has no app that can send a
+     * file ("No apps can perform this action", tried 23/09), so the tester copies
+     * it over USB.
      */
     private fun shareDir() = getExternalFilesDir(null) ?: filesDir
-    private fun shareFile() = java.io.File(shareDir(), "better_eta_share.csv")
-
-    /**
-     * Hands the exported file to whatever the Karoo can send it with (the
-     * companion app, mail, a messaging app): the tester picks, nothing goes
-     * out on its own. The URI is granted read-only for the duration of the send.
-     */
-    private fun sendShareFile() {
-        val f = shareFile()
-        if (!f.exists()) { findViewById<TextView>(R.id.tv_share_status).text = "Share file: export it first"; return }
-        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.share", f)
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "BetterETA ride data")
-            putExtra(Intent.EXTRA_TEXT, "BetterETA ride data export (no names, dates or coordinates). ${f.length() / 1024} KB.")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        runCatching { startActivity(Intent.createChooser(send, "Send ride data with…")) }
-            .onFailure { findViewById<TextView>(R.id.tv_share_status).text = "Share file: no app on this device can send it (${it.message})" }
-    }
 
     private fun exportShareFile() {
         val status = findViewById<TextView>(R.id.tv_share_status)
@@ -137,8 +116,10 @@ class MainActivity : AppCompatActivity() {
                 var rides = 0
                 out.bufferedWriter().use { w ->
                     val lines = sequence { for (f in sources) f.bufferedReader().useLines { yieldAll(it) } }
+                    var lastRide = ""
                     for (line in ShareExport.transform(lines)) {
-                        if (line.startsWith("# ride")) rides++
+                        // one ordinal per ride; the Karoo re-emits the route, so markers repeat
+                        if (line.startsWith("# ride")) { val r = line.substringBefore(" name="); if (r != lastRide) { lastRide = r; rides++ } }
                         w.write(line); w.newLine()
                     }
                 }
@@ -148,7 +129,6 @@ class MainActivity : AppCompatActivity() {
                 status.text = result.fold(
                     { "Share file: $it rides, ${out.length() / 1024} KB\n${out.absolutePath}" },
                     { "Share file: export failed (${it.message})" })
-                findViewById<Button>(R.id.btn_send_share).isEnabled = result.isSuccess && out.exists()
             }
         }.start()
     }
