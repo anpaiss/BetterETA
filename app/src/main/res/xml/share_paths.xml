@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo il file esportato per i tester (better_eta_share.csv), nella cartella files/ esterna -->
+<paths>
+    <external-files-path name="share" path="." />
+</paths>
