@@ -352,7 +352,7 @@ def variants(snap):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('csv', nargs='+')
-    ap.add_argument('--logs', required=True, help='glob dei log (snapshot per giorno e righe WAY)')
+    ap.add_argument('--logs', default='', help='glob dei log (snapshot per giorno e righe WAY); assente = file condivisi dai tester: base vuota, --carry')
     ap.add_argument('--from', dest='from_day', default='')
     ap.add_argument('--trace', default='', help='traccia f nel tempo per la variante con questo nome')
     ap.add_argument('--legacy-six', action='store_true', help='layout a sei bucket (fino al 19/09)')
@@ -366,8 +366,10 @@ def main():
     SMOOTH_PRED = args.smooth_pred
     set_thresholds(args.split, args.legacy_six)
 
-    snaps, ways = load_logs(args.logs)
+    snaps, ways = load_logs(args.logs) if args.logs else ([], [])
     print(f"snapshot trovati: {len(snaps)}, passaggi way: {len(ways)}")
+    if not snaps and not args.carry:
+        print("senza log non c'è uno snapshot di partenza: usa --carry (base vuota, impara giro dopo giro)"); return
     if args.carry:
         return carry(args, snaps, ways)
     totals = {}
@@ -420,9 +422,9 @@ def carry(args, snaps, ways):
     rides = [r for r in load_rides(args.csv) if r['day'] >= args.from_day]
     rides = [(r['day'], prepare(r['rows'])) for r in rides]
     rides = [(d, s) for d, s in rides if len(s) >= 900]
-    first, how = pick_snapshot(snaps, rides[0][1][0][0])
+    first, how = pick_snapshot(snaps, rides[0][1][0][0]) if snaps else ((0, None), 'nessun log: base vuota')
     print(f"partenza dallo snapshot {datetime.fromtimestamp(first[0]/1000):%Y-%m-%d %H:%M} ({how}), {len(rides)} giri in sequenza, base di partenza: {args.start}")
-    if args.start == 'empty':
+    if first[1] is None or args.start == 'empty':
         first = (first[0], None)
     elif args.start == 'nosurf':
         first = (first[0], {k: v for k, v in first[1].items() if k in ('overall', 'buckets')})

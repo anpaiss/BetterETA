@@ -196,6 +196,40 @@
         android:layout_marginTop="4dp"
         android:text="Rebuild model from history (resets learning)" />
 
+    <!-- Share ride data: the sample CSV stripped of names and dates, for the developer -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Share ride data"
+        android:textColor="#FF5823"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Ride data helps tune the model. The export keeps per-second speed, gradient, surface, position along the route and the ETA estimates (ours and the Karoo's). It drops route names, dates and times: rides are numbered and their clock starts at zero. It still describes your routes by their gradient profile, so it is not anonymous. Nothing is sent by itself: the file is written on the device and you decide whether to send it."
+        android:textColor="#BBBBBB"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/tv_share_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text=""
+        android:textColor="#FFFFFF"
+        android:textSize="13sp" />
+
+    <Button
+        android:id="@+id/btn_export_share"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Export share file" />
+
     <!-- INFO: modello velocità appreso (snapshot salvato a ogni pausa/stop) -->
     <TextView
         android:layout_width="match_parent"
