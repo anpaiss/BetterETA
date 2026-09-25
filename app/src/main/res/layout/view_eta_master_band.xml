@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dashboard nello stile di BigFields (25/09/2026): due righe uguali, ETA e
+     tempo mancante, didascalia fissa in alto e numero come immagine disegnata
+     da BigNumber (cifre adattate al loro contorno, Barlow Condensed).
+     Con la fascia in fondo per il banner della navigazione.
+     Due layout invece di setViewVisibility, che sul Karoo non viene applicato;
+     solo classi ammesse dai RemoteViews (niente View semplici). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_master"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <LinearLayout
+        android:id="@+id/row_eta"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/master_pad_h"
+        android:paddingEnd="@dimen/master_pad_h"
+        android:paddingTop="@dimen/master_pad_top"
+        android:paddingBottom="@dimen/master_pad_bottom"
+        android:background="#000000">
+
+        <TextView
+            android:id="@+id/tv_lbl_eta"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/master_label_row"
+            android:gravity="center"
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:textSize="@dimen/master_label_text"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:includeFontPadding="false" />
+
+        <ImageView
+            android:id="@+id/iv_eta"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/row_togo"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="@dimen/master_row_gap"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/master_pad_h"
+        android:paddingEnd="@dimen/master_pad_h"
+        android:paddingTop="@dimen/master_pad_top"
+        android:paddingBottom="@dimen/master_pad_bottom"
+        android:background="#000000">
+
+        <TextView
+            android:id="@+id/tv_lbl_togo"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/master_label_row"
+            android:gravity="center"
+            android:textStyle="bold"
+            android:textColor="#9E9E9E"
+            android:textSize="@dimen/master_label_text"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:includeFontPadding="false" />
+
+        <ImageView
+            android:id="@+id/iv_togo"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <!-- Fascia libera per il banner "next cue" della navigazione -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/master_band" />
+
+</LinearLayout>

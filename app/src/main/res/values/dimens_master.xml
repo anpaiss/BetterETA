@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dashboard: misure in pixel veri (Karoo 3: 480x800, density 1.875), le
+         stesse che EtaMasterDataType usa per calcolare l'area dei numeri. -->
+    <dimen name="master_pad_h">8px</dimen>
+    <dimen name="master_pad_top">6px</dimen>
+    <dimen name="master_pad_bottom">6px</dimen>
+    <dimen name="master_label_row">44px</dimen>
+    <dimen name="master_label_text">22sp</dimen>
+    <dimen name="master_row_gap">4px</dimen>
+    <!-- Fascia per il banner "next cue": stima, la stessa di BigFields -->
+    <dimen name="master_band">100px</dimen>
+</resources>

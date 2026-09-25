@@ -1,214 +1,82 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Dashboard: tre righe uguali, didascalia a sinistra (due righe) e valore a
-     destra, tutto autosize per riempire la riga come nei campi singoli.
-       1. ETA          orario di arrivo
-       2. TO GO ±xm   tempo mancante secondo l'ETA (l'incertezza sta nella
-                       didascalia, così il valore resta grande)
-       3. PACE VS PLAN oppure, con un MTA impostato, "MTA hh:mm / AHEAD|LATE"
-                       col margine: stessa coppia di TextView, cambia solo il testo,
-                       perché il renderer del Karoo ignora setViewVisibility.
-     I valori hanno lo stesso tetto (56sp): è la misura a cui entra ancora la
-     stringa più lunga ("2h 15m") nella sua colonna, così ETA e TO GO escono
-     con lo stesso corpo invece di dimensionarsi ciascuno sulla propria larghezza.
-     La fascia in basso resta vuota: il banner "next cue" del Karoo copre il
-     fondo pagina senza avvisare le estensioni. -->
+<!-- Dashboard nello stile di BigFields (25/09/2026): due righe uguali, ETA e
+     tempo mancante, didascalia fissa in alto e numero come immagine disegnata
+     da BigNumber (cifre adattate al loro contorno, Barlow Condensed).
+     Senza fascia: fuori navigazione il banner non c'è.
+     Due layout invece di setViewVisibility, che sul Karoo non viene applicato;
+     solo classi ammesse dai RemoteViews (niente View semplici). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root_master"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/transparent"
     android:orientation="vertical"
-    android:paddingStart="8dp"
-    android:paddingEnd="8dp"
-    android:paddingTop="4dp"
-    android:paddingBottom="4dp">
+    android:background="#000000">
 
-    <!-- ROW 1: ETA -->
     <LinearLayout
+        android:id="@+id/row_eta"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:baselineAligned="false">
+        android:orientation="vertical"
+        android:paddingStart="@dimen/master_pad_h"
+        android:paddingEnd="@dimen/master_pad_h"
+        android:paddingTop="@dimen/master_pad_top"
+        android:paddingBottom="@dimen/master_pad_bottom"
+        android:background="#000000">
+
         <TextView
-            android:id="@+id/tv_master_lbl_eta"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.34"
-            android:gravity="center_vertical|start"
-            android:paddingEnd="6dp"
-            android:text="ETA"
+            android:id="@+id/tv_lbl_eta"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/master_label_row"
+            android:gravity="center"
             android:textStyle="bold"
             android:textColor="#9E9E9E"
-            android:maxLines="2"
-            android:includeFontPadding="false"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="12sp"
-            android:autoSizeMaxTextSize="34sp"
-            android:autoSizeStepGranularity="1sp" />
-        <TextView
-            android:id="@+id/tv_master_eta"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.66"
-            android:gravity="center_vertical|end"
-            android:text="--:--"
-            android:textStyle="bold"
-            android:textColor="#FF5823"
+            android:textSize="@dimen/master_label_text"
             android:maxLines="1"
-            android:includeFontPadding="false"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="16sp"
-            android:autoSizeMaxTextSize="56sp"
-            android:autoSizeStepGranularity="2sp" />
+            android:ellipsize="end"
+            android:includeFontPadding="false" />
+
+        <ImageView
+            android:id="@+id/iv_eta"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tv_master_div1"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#9E9E9E" />
-
-    <!-- ROW 2: TIME TO GO ± -->
     <LinearLayout
+        android:id="@+id/row_togo"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:baselineAligned="false">
+        android:layout_marginTop="@dimen/master_row_gap"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/master_pad_h"
+        android:paddingEnd="@dimen/master_pad_h"
+        android:paddingTop="@dimen/master_pad_top"
+        android:paddingBottom="@dimen/master_pad_bottom"
+        android:background="#000000">
+
         <TextView
-            android:id="@+id/tv_master_lbl_remaining"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.34"
-            android:gravity="center_vertical|start"
-            android:paddingEnd="6dp"
-            android:text="TO GO"
+            android:id="@+id/tv_lbl_togo"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/master_label_row"
+            android:gravity="center"
             android:textStyle="bold"
             android:textColor="#9E9E9E"
-            android:maxLines="2"
-            android:includeFontPadding="false"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="12sp"
-            android:autoSizeMaxTextSize="34sp"
-            android:autoSizeStepGranularity="1sp" />
-        <TextView
-            android:id="@+id/tv_master_remaining"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.66"
-            android:gravity="center_vertical|end"
-            android:text="--"
-            android:textStyle="bold"
-            android:textColor="#FF5823"
+            android:textSize="@dimen/master_label_text"
             android:maxLines="1"
-            android:includeFontPadding="false"
-            android:autoSizeTextType="uniform"
-            android:autoSizeMinTextSize="16sp"
-            android:autoSizeMaxTextSize="56sp"
-            android:autoSizeStepGranularity="2sp" />
+            android:ellipsize="end"
+            android:includeFontPadding="false" />
+
+        <ImageView
+            android:id="@+id/iv_togo"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/tv_master_div2"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#9E9E9E" />
-
-    <!-- ROW 3: PACE VS PLAN, or MTA + margin. A sinistra una riga piccola
-         ("PACE" / "MTA") sopra una grande ("VS PLAN" / l'ora dell'MTA); a destra
-         una cella col valore grande e sotto la parola AHEAD/LATE, colorata di
-         verde/rosso solo con un MTA (senza, fondo trasparente e parola vuota). -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:baselineAligned="false">
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.40"
-            android:orientation="vertical"
-            android:gravity="center_vertical|start"
-            android:paddingEnd="6dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp">
-            <TextView
-                android:id="@+id/tv_master_lbl_third"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="start"
-                android:text="PACE"
-                android:textStyle="bold"
-                android:textColor="#9E9E9E"
-                android:textSize="18sp"
-                android:maxLines="1"
-                android:includeFontPadding="false" />
-            <TextView
-                android:id="@+id/tv_master_third_sub"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:gravity="center_vertical|start"
-                android:text="VS PLAN"
-                android:textStyle="bold"
-                android:textColor="#9E9E9E"
-                android:maxLines="1"
-                android:includeFontPadding="false"
-                android:autoSizeTextType="uniform"
-                android:autoSizeMinTextSize="12sp"
-                android:autoSizeMaxTextSize="44sp"
-                android:autoSizeStepGranularity="1sp" />
-        </LinearLayout>
-        <LinearLayout
-            android:id="@+id/cell_master_third"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="0.60"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="6dp"
-            android:orientation="vertical"
-            android:gravity="center_vertical|end"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:background="@android:color/transparent">
-            <TextView
-                android:id="@+id/tv_master_third"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:gravity="center_vertical|end"
-                android:text="--"
-                android:textStyle="bold"
-                android:textColor="#9E9E9E"
-                android:maxLines="1"
-                android:includeFontPadding="false"
-                android:autoSizeTextType="uniform"
-                android:autoSizeMinTextSize="16sp"
-                android:autoSizeMaxTextSize="56sp"
-                android:autoSizeStepGranularity="2sp" />
-            <TextView
-                android:id="@+id/tv_master_third_tag"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="end"
-                android:text=""
-                android:textStyle="bold"
-                android:textColor="#9E9E9E"
-                android:textSize="18sp"
-                android:maxLines="1"
-                android:includeFontPadding="false" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Bottom band left to the Karoo's "next cue" ticket -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="0.55" />
 
 </LinearLayout>

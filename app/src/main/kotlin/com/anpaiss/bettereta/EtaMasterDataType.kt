@@ -24,14 +24,15 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 /**
- * Dashboard "Da qui al traguardo": tre righe grandi, didascalia a sinistra e
- * valore a destra (stesso disegno dei campi singoli):
- *   1. ETA        orario di arrivo stimato ("~" se stima grossolana)
- *   2. TO GO      tempo mancante secondo l'ETA; nella didascalia "±xm",
- *                 l'incertezza della stima (EtaUncertainty)
- *   3. senza MTA  PACE VS PLAN: scarto dalla prima stima del giro
- *      con MTA    "MTA hh:mm" + AHEAD/LATE e il margine in minuti
- * Il colore della terza riga segue lo stato (verde/rosso) secondo lo stile.
+ * Dashboard "Da qui al traguardo", nello stile di BigFields (25/09/2026): due
+ * righe uguali, didascalia fissa in alto e numero grande disegnato da BigNumber.
+ *   1. ETA     orario di arrivo stimato ("~" se stima grossolana); con un MTA
+ *              la didascalia porta anche l'MTA e il margine
+ *   2. TO GO   tempo mancante (h:mm); nella didascalia "±xm", l'incertezza
+ *              della stima (EtaUncertainty)
+ * Il pace vs plan non è più sulla dashboard: resta nei log e nel campo singolo
+ * "PACE VS PLAN". Il colore della pagina segue il margine quando c'è un MTA,
+ * altrimenti è quello neutro dello stile.
  */
 class EtaMasterDataType(
     extension: String,
@@ -44,6 +45,10 @@ class EtaMasterDataType(
         // the minute — still far less often than the 1 Hz at which the engine
         // publishes state.
         private const val REDRAW_THROTTLE_MS = 5_000L
+
+        // Larghezze tipiche dei due numeri: fissano il corpo delle cifre
+        private const val ETA_TEMPLATE = "88:88"
+        private const val TOGO_TEMPLATE = "8:88"
     }
 
     /**
@@ -51,19 +56,13 @@ class EtaMasterDataType(
      * be gated on the displayed text changing rather than on the engine ticking.
      */
     private data class MasterView(
+        val etaLabel: String,
         val eta: String,
-        val remainingLabel: String,
-        val remaining: String,
-        /** Terza riga: didascalia piccola sopra, grande sotto ("PACE"/"VS PLAN" o "MTA"/ora) */
-        val thirdTop: String,
-        val thirdBottom: String,
-        val third: String,
-        /** Parola sotto il valore (AHEAD/LATE/MARGIN), vuota senza MTA */
-        val thirdTag: String,
-        val thirdColor: Int,
-        /** Fondo della cella del valore; 0 = trasparente (senza MTA) */
-        val thirdBg: Int,
+        val togoLabel: String,
+        val togo: String,
         val colors: FieldColors,
+        /** Fascia libera in fondo per il banner "next cue": solo con una route in navigazione */
+        val band: Boolean,
     )
 
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -89,8 +88,16 @@ class EtaMasterDataType(
 
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         BetterEtaLogger.shared?.log("VIEW ", "startView $dataTypeId size=${config.viewSize} preview=${config.preview}")
+        BigNumber.init(context)
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val prefs = Prefs(context)
+        val res = context.resources
+        val padH = res.getDimensionPixelSize(R.dimen.master_pad_h)
+        val padV = res.getDimensionPixelSize(R.dimen.master_pad_top) + res.getDimensionPixelSize(R.dimen.master_pad_bottom)
+        val labelRow = res.getDimensionPixelSize(R.dimen.master_label_row)
+        val gap = res.getDimensionPixelSize(R.dimen.master_row_gap)
+        val bandPx = res.getDimensionPixelSize(R.dimen.master_band)
+        val (cellW, cellH) = config.viewSize
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             combine(etaState, prefs.styleFlow()) { state, style -> render(context, state, style) }
@@ -98,28 +105,32 @@ class EtaMasterDataType(
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { view ->
+                    // Area del numero di ogni riga e cifre alte uguali nelle due righe
+                    val rowH = (cellH - (if (view.band) bandPx else 0) - gap) / 2
+                    val w = cellW - 2 * padH
+                    val h = rowH - padV - labelRow
+                    val digitH = minOf(BigNumber.maxDigitHeight(ETA_TEMPLATE, w, h),
+                        BigNumber.maxDigitHeight(TOGO_TEMPLATE, w, h))
                     val c = view.colors
-                    val views = RemoteViews(context.packageName, R.layout.view_eta_master)
-                    if (c.bgRes != null) views.setInt(R.id.root_master, "setBackgroundResource", c.bgRes)
-                    else views.setInt(R.id.root_master, "setBackgroundColor", c.bgColor ?: 0)
-                    views.setTextViewText(R.id.tv_master_eta, view.eta)
-                    views.setTextViewText(R.id.tv_master_lbl_remaining, view.remainingLabel)
-                    views.setTextViewText(R.id.tv_master_remaining, view.remaining)
-                    views.setTextViewText(R.id.tv_master_lbl_third, view.thirdTop)
-                    views.setTextViewText(R.id.tv_master_third_sub, view.thirdBottom)
-                    views.setTextViewText(R.id.tv_master_third, view.third)
-                    views.setTextViewText(R.id.tv_master_third_tag, view.thirdTag)
-                    for (id in intArrayOf(R.id.tv_master_lbl_eta, R.id.tv_master_lbl_remaining, R.id.tv_master_lbl_third))
-                        views.setTextColor(id, c.label)
-                    views.setTextColor(R.id.tv_master_third_sub, c.value)
-                    views.setTextColor(R.id.tv_master_eta, c.value)
-                    views.setTextColor(R.id.tv_master_remaining, c.value)
-                    views.setTextColor(R.id.tv_master_third, view.thirdColor)
-                    views.setTextColor(R.id.tv_master_third_tag, view.thirdColor)
-                    views.setInt(R.id.cell_master_third, "setBackgroundColor", view.thirdBg)
-                    views.setInt(R.id.tv_master_div1, "setBackgroundColor", c.label)
-                    views.setInt(R.id.tv_master_div2, "setBackgroundColor", c.label)
-                    emitter.updateView(views)
+                    val views = RemoteViews(context.packageName,
+                        if (view.band) R.layout.view_eta_master_band else R.layout.view_eta_master)
+                    for (row in intArrayOf(R.id.row_eta, R.id.row_togo)) {
+                        if (c.bgRes != null) views.setInt(row, "setBackgroundResource", c.bgRes)
+                        else views.setInt(row, "setBackgroundColor", c.bgColor ?: 0)
+                    }
+                    views.setTextViewText(R.id.tv_lbl_eta, view.etaLabel)
+                    views.setTextViewText(R.id.tv_lbl_togo, view.togoLabel)
+                    views.setTextColor(R.id.tv_lbl_eta, c.label)
+                    views.setTextColor(R.id.tv_lbl_togo, c.label)
+                    views.setImageViewBitmap(R.id.iv_eta, BigNumber.render(view.eta, w, h, digitH))
+                    views.setImageViewBitmap(R.id.iv_togo, BigNumber.render(view.togo, w, h, digitH))
+                    views.setInt(R.id.iv_eta, "setColorFilter", c.value)
+                    views.setInt(R.id.iv_togo, "setColorFilter", c.value)
+                    try {
+                        emitter.updateView(views)
+                    } catch (e: Exception) {
+                        BetterEtaLogger.shared?.logError("VIEW ", "Disegno della dashboard fallito", e)
+                    }
                 }
         }
         emitter.setCancellable {
@@ -130,84 +141,43 @@ class EtaMasterDataType(
 
     private fun render(context: Context, state: EtaState, style: EtaStyle): MasterView {
         val timeFmt = DateFormat.getTimeFormat(context)
+        val hasEstimate = state.hasRoute && state.remainingSeconds >= 0
 
-        // 1-2. ETA e tempo mancante, con l'incertezza nella didascalia
         val eta: String
-        val remaining: String
-        val remainingLabel: String
-        if (state.hasRoute && state.remainingSeconds >= 0) {
+        val togo: String
+        val togoLabel: String
+        if (hasEstimate) {
             val arrivalMs = System.currentTimeMillis() + state.remainingSeconds * 1000L
-            val cal = Calendar.getInstance().apply { timeInMillis = arrivalMs }
-            eta            = (if (state.estimateApprox) "~" else "") + timeFmt.format(cal.time)
-            remaining      = formatRemaining(state.remainingSeconds)
-            remainingLabel = if (state.uncertaintySeconds >= 0)
-                "TO GO\n±${(state.uncertaintySeconds + 30) / 60}m" else "TO GO"
+            eta       = (if (state.estimateApprox) "~" else "") +
+                timeFmt.format(Calendar.getInstance().apply { timeInMillis = arrivalMs }.time)
+            togo      = formatRemaining(state.remainingSeconds)
+            togoLabel = if (state.uncertaintySeconds >= 0)
+                "TO GO  ±${(state.uncertaintySeconds + 30) / 60}m" else "TO GO"
         } else {
-            eta            = "--:--"
-            remaining      = state.status
-            remainingLabel = "TO GO"
+            eta       = "--:--"
+            togo      = state.status
+            togoLabel = "TO GO"
         }
 
-        // 3. Delta vs prima stima del giro: positivo = arrivo più tardi del previsto
-        val delta  = state.deltaSeconds
-        // Colore della pagina = il numero che la terza riga mostra: con un MTA il
-        // margine, senza il pace vs plan. Fino al 19/09 era sempre il pace, e con
-        // un MTA la pagina restava rossa (in ritardo sul piano) con la cella del
-        // margine verde (in anticipo sull'MTA): due segnali, uno solo a schermo.
-        val colors = style.colorsFor(
-            if (state.mtaEpochMs > 0L) state.marginSeconds?.let(::marginPace) ?: Pace.UNKNOWN
-            else paceOf(delta)
-        )
-
-        // Con un MTA la terza riga diventa MTA + margine: a sinistra "MTA" e l'ora,
-        // a destra i minuti su una cella verde/rossa con la parola AHEAD/LATE, che
-        // dice il segno anche dove il colore non basta (pieno sole, stili chiari).
-        val thirdTop: String
-        val thirdBottom: String
-        val third: String
-        val thirdTag: String
-        val thirdColor: Int
-        val thirdBg: Int
+        // Con un MTA la didascalia dell'ETA porta ora e margine, e il colore della
+        // pagina segue il margine (verde in anticipo, rosso in ritardo)
+        val etaLabel: String
+        val colors: FieldColors
         if (state.mtaEpochMs > 0L) {
-            val margin     = state.marginSeconds
-            val marginPace = margin?.let(::marginPace) ?: Pace.UNKNOWN
-            val cell       = style.marginCell(marginPace)
-            thirdTop    = "MTA"
-            thirdBottom = timeFmt.format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
-            third       = formatSignedMinutes(margin)
-            thirdTag    = when (marginPace) {
-                Pace.EARLY -> "AHEAD"
-                Pace.LATE  -> "LATE"
-                else       -> "MARGIN"
-            }
-            thirdBg     = cell.first
-            thirdColor  = cell.second
+            val mta = timeFmt.format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
+            etaLabel = "ETA  ·  MTA $mta  ${formatSignedMinutes(state.marginSeconds)}"
+            colors   = style.colorsFor(state.marginSeconds?.let(::marginPace) ?: Pace.UNKNOWN)
         } else {
-            thirdTop    = "PACE"
-            thirdBottom = "VS PLAN"
-            third       = formatSignedMinutes(delta)
-            thirdTag    = ""
-            thirdBg     = 0
-            thirdColor  = colors.delta
+            etaLabel = "ETA"
+            colors   = style.colorsFor(null)
         }
 
-        return MasterView(
-            eta            = eta,
-            remainingLabel = remainingLabel,
-            remaining      = remaining,
-            thirdTop       = thirdTop,
-            thirdBottom    = thirdBottom,
-            third          = third,
-            thirdTag       = thirdTag,
-            thirdColor     = thirdColor,
-            thirdBg        = thirdBg,
-            colors         = colors,
-        )
+        return MasterView(etaLabel, eta, togoLabel, togo, colors, band = state.hasRoute)
     }
 
+    /** h:mm, come i campi di BigFields: "0:58", "2:05". */
     private fun formatRemaining(seconds: Long): String {
-        val h = seconds / 3600
-        val m = (seconds % 3600) / 60
-        return if (h > 0) "${h}h ${m}m" else "${m}m"
+        val min = (seconds + 30) / 60
+        return "%d:%02d".format(min / 60, min % 60)
     }
 }
