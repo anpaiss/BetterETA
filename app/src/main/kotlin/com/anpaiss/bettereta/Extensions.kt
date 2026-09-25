@@ -31,10 +31,15 @@ fun <T> Flow<T>.throttle(timeoutMs: Long): Flow<T> = conflate().transform {
  * is on screen" and everything is drawn. A gate that wrongly filtered us out
  * would freeze a field for an entire ride and fail silently — far worse than a
  * handful of wasted redraws.
+ *
+ * A [preview] in the profile editor is never gated: there the Karoo still
+ * reports the last ride page as visible, so the gate kept the preview blank
+ * and the field looked broken while being added (25/09/2026).
  */
 fun <T> Flow<T>.whileVisible(
     visibleDataTypeIds: StateFlow<Set<String>?>,
     dataTypeId: String,
-): Flow<T> = combine(visibleDataTypeIds) { value, visible ->
+    preview: Boolean = false,
+): Flow<T> = if (preview) this else combine(visibleDataTypeIds) { value, visible ->
     value to (visible == null || dataTypeId in visible)
 }.filter { it.second }.map { it.first }

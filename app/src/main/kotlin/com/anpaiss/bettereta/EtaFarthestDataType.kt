@@ -73,7 +73,7 @@ class EtaFarthestDataType(
                 formatDistance(state) to style.colorsFor(null)
             }
                 .distinctUntilChanged()
-                .whileVisible(visibleDataTypeIds, dataTypeId)
+                .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { (formattedText, c) ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_farthest)

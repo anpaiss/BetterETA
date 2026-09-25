@@ -74,7 +74,7 @@ class EtaMarginDataType(
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             combine(etaState, prefs.styleFlow()) { state, style -> render(context, state, style) }
                 .distinctUntilChanged()
-                .whileVisible(visibleDataTypeIds, dataTypeId)
+                .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { view ->
                     val c = view.colors

@@ -71,7 +71,7 @@ class EtaRemainingDataType(
                 Triple(formatRemaining(state), formatLabel(state), style.colorsFor(null))
             }
                 .distinctUntilChanged()
-                .whileVisible(visibleDataTypeIds, dataTypeId)
+                .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { (formattedText, label, c) ->
                     val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
