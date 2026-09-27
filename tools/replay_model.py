@@ -31,6 +31,12 @@ Uso:
 import sys, csv, math, argparse
 from collections import defaultdict
 
+# Giri esclusi da ogni replay: non rappresentano come pedala Andrea e sporcano
+# le tarature. 2026-09-27: giro breve in famiglia, lento (modello ripristinato
+# a mano sul k24 allo stato di prima del giro). La notte finta del 04/09 si
+# esclude già con --from 2026-09-05.
+EXCLUDED_DAYS = {'2026-09-27'}
+
 THRESHOLDS = [-6.0, -2.0, 2.0, 6.0, 10.0]
 FACTORS = [1.15, 1.10, 1.0, 0.80, 0.65, 0.50]
 FLAT = 2
@@ -220,7 +226,7 @@ def main():
 
     rides = load_rides(args.csv)
     for ride in rides:
-        if ride['day'] < args.from_day:
+        if ride['day'] < args.from_day or ride['day'] in EXCLUDED_DAYS:
             continue
         ride['rows'].sort(key=lambda r: r[0])
         samples = prepare(ride['rows'], require_on_route=not args.all_rows)

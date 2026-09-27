@@ -25,6 +25,12 @@ Uso:
 import sys, re, glob, math, argparse
 from datetime import datetime
 
+# Giri esclusi da ogni replay: non rappresentano come pedala Andrea e sporcano
+# le tarature. 2026-09-27: giro breve in famiglia, lento (modello ripristinato
+# a mano sul k24 allo stato di prima del giro). La notte finta del 04/09 si
+# esclude già con --from 2026-09-05.
+EXCLUDED_DAYS = {'2026-09-27'}
+
 # Come AdaptiveSpeedModel dal 19/09: sette bucket, muro diviso al 16 %.
 # --legacy-six rifà i conti col layout precedente (confronto prima/dopo).
 THRESHOLDS = [-6.0, -2.0, 2.0, 6.0, 10.0, 16.0]
@@ -374,7 +380,7 @@ def main():
         return carry(args, snaps, ways)
     totals = {}
     for ride in load_rides(args.csv):
-        if ride['day'] < args.from_day:
+        if ride['day'] < args.from_day or ride['day'] in EXCLUDED_DAYS:
             continue
         samples = prepare(ride['rows'])
         if len(samples) < 900:
@@ -419,7 +425,7 @@ def main():
 
 
 def carry(args, snaps, ways):
-    rides = [r for r in load_rides(args.csv) if r['day'] >= args.from_day]
+    rides = [r for r in load_rides(args.csv) if r['day'] >= args.from_day and r['day'] not in EXCLUDED_DAYS]
     rides = [(r['day'], prepare(r['rows'])) for r in rides]
     rides = [(d, s) for d, s in rides if len(s) >= 900]
     first, how = pick_snapshot(snaps, rides[0][1][0][0]) if snaps else ((0, None), 'nessun log: base vuota')
