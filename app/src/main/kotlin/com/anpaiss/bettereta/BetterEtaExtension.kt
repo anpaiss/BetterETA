@@ -117,6 +117,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // reckoning congelato — avanzare sulla route mentre si è altrove ha dato
     // 32 min di ETA sbagliato il 05/09 (partenza fuori route, aggancio al km 7,6)
     @Volatile private var offRoute = false
+    // "In route" deciso dal nostro GPS quando il Karoo dice fuori route (vedi SelfOnRouteDetector)
+    private val selfOnRoute = SelfOnRouteDetector()
+    @Volatile private var selfOverride = false
     // Il suggerimento di posizione del Karoo arriva ~1 min dopo la partenza: al
     // primo valore si verifica l'aggancio iniziale fatto senza di lui
     @Volatile private var hintChecked = false
@@ -199,6 +202,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         @Volatile var instance: BetterEtaExtension? = null
 
         private const val TICK_MS              = 1000L
+        // "In route" dal nostro GPS: traccia entro questa distanza (SelfOnRouteDetector)
+        private const val SELF_ROUTE_MAX_DIST_M = 30.0
+        private const val SELF_ROUTE_CONFIRM_S  = 30
+        // Oltre questo salto la baseline del pace riparte, come negli altri riagganci
+        private const val SELF_ROUTE_RESET_BASELINE_M = 300.0
         private const val GPS_TIMEOUT_MS       = 10_000L
         private const val PREFS_NAME           = "better_eta_model"
         private const val LOG_INTERVAL_TICKS   = 60       // 1 riga ETA al minuto
@@ -394,6 +402,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 lastRouteSource   = source
                 karooOnRoute      = null      // riferito alla route precedente
                 offRoute          = false
+                selfOnRoute.reset()
+                selfOverride      = false
                 hintChecked       = false
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
@@ -671,10 +681,43 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             }
                         }
                     }
-                    val nowOff    = karooOnRoute == 0.0
+                    // Fuori route = il Karoo dice fuori E il nostro GPS non vede la traccia
+                    // sotto le ruote con avanzamento. Il Karoo sbaglia quando la route è
+                    // presa a metà (giro 27/09): aspetta il passaggio dalla partenza.
+                    val karooOff = karooOnRoute == 0.0
+                    val gpsFresh = lastGpsUpdateMs > 0 && System.currentTimeMillis() - lastGpsUpdateMs <= GPS_TIMEOUT_MS
+                    val selfOn = if (karooOff) {
+                        val loc = locationFlow.value
+                        val match = if (gpsFresh && loc != null)
+                            pipeline.matchOnRoute(loc.first, loc.second, SELF_ROUTE_MAX_DIST_M, selfOnRoute.lastAlongM)
+                        else null
+                        selfOnRoute.onTick(System.currentTimeMillis(), match?.alongM)
+                    } else {
+                        selfOnRoute.reset()
+                        false
+                    }
+                    if (!karooOff && selfOverride) {
+                        selfOverride = false
+                        logger.log("ROUTE", "Karoo di nuovo in route (ON_ROUTE=1), d'accordo col GPS")
+                    }
+                    val nowOff    = karooOff && !selfOn
                     if (nowOff != offRoute) {
                         offRoute = nowOff
-                        if (nowOff) {
+                        if (nowOff && selfOverride) {
+                            selfOverride = false
+                            logger.log("ROUTE", "Traccia persa dal GPS e il Karoo dice fuori route — ETA sospeso, posizione congelata a %.0fm".format(pipeline.distanceAlongRouteM()))
+                        } else if (!nowOff && karooOff) {
+                            selfOverride = true
+                            val at = selfOnRoute.lastAlongM ?: pipeline.distanceAlongRouteM()
+                            val corr = pipeline.locateAt(at)
+                            logger.log("ROUTE", "In route secondo il GPS (traccia entro %.0fm e avanzamento da %ds), il Karoo dice fuori route — posizione %.0fm, correzione %.0fm".format(
+                                SELF_ROUTE_MAX_DIST_M, SELF_ROUTE_CONFIRM_S, at, corr))
+                            if (corr >= SELF_ROUTE_RESET_BASELINE_M) {
+                                initialRemainingSec = -1L
+                                movingElapsedSec    = 0L
+                                progressGate.reset()
+                            }
+                        } else if (nowOff) {
                             logger.log("ROUTE", "Off route (Karoo ON_ROUTE=0) — ETA sospeso, posizione congelata a %.0fm".format(pipeline.distanceAlongRouteM()))
                         } else {
                             logger.log("ROUTE", "Rientro in route" + (karooPosM?.let { " — posizione Karoo %.0fm, nostra %.0fm".format(it, pipeline.distanceAlongRouteM()) } ?: ""))
@@ -865,8 +908,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             sampleTickCounter++
                             if (sampleTickCounter >= SAMPLE_INTERVAL_TICKS) {
                                 sampleTickCounter = 0
+                                // Solo col Karoo in route: quando ci crede fuori, la sua stima
+                                // è assurda (27/09: route intera + rientro alla partenza) e il
+                                // confronto lo punirebbe per un suo stato sbagliato
                                 val k = karooEtaSec
-                                if (k > 0) synchronized(etaSamples) {
+                                if (k > 0 && karooOnRoute != 0.0) synchronized(etaSamples) {
                                     if (etaSamples.size < MAX_SAMPLES) {
                                         etaSamples.add(EtaSample(movingElapsedSec, remainingSec, k, shadow.seconds))
                                     }

@@ -340,6 +340,60 @@ class SegmentPipeline(
     // ── private helpers ──────────────────────────────────────────────────
 
     /** Sposta traveledM/currentIndex/consumedInCurrentM al punto targetM dall'inizio. */
+    /**
+     * Punto della traccia più vicino al fix, proiettato sui tratti tra waypoint:
+     * posizione lungo la route e distanza dal fix, oppure null se la traccia è
+     * più lontana di [maxDistM]. Con più rami vicini (anelli, andata e ritorno)
+     * vince quello più vicino a [refM], se dato, altrimenti il più vicino al fix.
+     *
+     * Serve a decidere "in route" con il nostro GPS quando il Karoo sbaglia
+     * (giro 27/09: route presa al km 20 partendo da casa, il Karoo ha tenuto
+     * ON_ROUTE=0 per un'ora e mezza aspettando il passaggio dalla partenza).
+     */
+    suspend fun matchOnRoute(lat: Double, lon: Double, maxDistM: Double, refM: Double? = null): RouteMatch? =
+        mutex.withLock {
+            if (waypoints.size < 2) return@withLock null
+            val mPerDegLat = 111_320.0
+            val mPerDegLon = 111_320.0 * cos(Math.toRadians(lat))
+            var best: RouteMatch? = null
+            var bestScore = Double.MAX_VALUE
+            for (i in 0 until waypoints.size - 1) {
+                val a = waypoints[i]
+                val b = waypoints[i + 1]
+                // Coordinate piane in metri con il fix nell'origine
+                val ax = (a.lon - lon) * mPerDegLon
+                val ay = (a.lat - lat) * mPerDegLat
+                val dx = (b.lon - lon) * mPerDegLon - ax
+                val dy = (b.lat - lat) * mPerDegLat - ay
+                val len2 = dx * dx + dy * dy
+                val t = if (len2 <= 0.0) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+                val px = ax + t * dx
+                val py = ay + t * dy
+                val dist = sqrt(px * px + py * py)
+                if (dist > maxDistM) continue
+                val along = waypointCumDist[i] + t * (waypointCumDist[i + 1] - waypointCumDist[i])
+                val score = if (refM != null) abs(along - refM) else dist
+                if (score < bestScore) {
+                    bestScore = score
+                    best = RouteMatch(along, dist)
+                }
+            }
+            best
+        }
+
+    /** Fissa la posizione su [alongM]: aggancio deciso dal nostro GPS (vedi [matchOnRoute]). */
+    suspend fun locateAt(alongM: Double): Double = mutex.withLock {
+        if (waypoints.isEmpty()) return@withLock 0.0
+        located            = true
+        offWindowTicks     = 0
+        rescueCandidateM   = -1.0
+        rescueConfirmCount = 0
+        lastGoodSnapMs     = nowMs()
+        val prev = traveledM
+        repositionTo(alongM.coerceIn(0.0, waypointCumDist.last()))
+        abs(traveledM - prev)
+    }
+
     private fun repositionTo(targetM: Double) {
         traveledM          = targetM
         currentIndex       = 0
@@ -532,3 +586,7 @@ class SegmentPipeline(
         return 2.0 * R * asin(sqrt(x))
     }
 }
+
+/** Punto della traccia agganciato dal GPS: posizione lungo la route e distanza dal fix, in metri. */
+data class RouteMatch(val alongM: Double, val distM: Double)
+
