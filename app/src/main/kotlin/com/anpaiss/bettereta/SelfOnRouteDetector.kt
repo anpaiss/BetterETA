@@ -4,10 +4,10 @@ import kotlin.math.abs
 
 /**
  * "In route" deciso dal nostro GPS, per quando il Karoo dice fuori route a
- * torto. Giro 27/09: partenza da casa con la route presa al km 20, il Karoo
- * ha tenuto ON_ROUTE=0 per un'ora e mezza aspettando il passaggio dalla
- * partenza, e BetterEta con lui ha mostrato "Off route", non ha imparato e
- * non ha registrato nulla.
+ * torto: difetto noto del Karoo ("riders stuck in an off-route state",
+ * dichiarato corretto nella 1.656.2526 del 17/09). Nei giri del 27/09 il
+ * Karoo aveva invece ragione (replay sul FIT: mai entro 30 m dalla traccia),
+ * e questo rilevatore non si sarebbe attivato.
  *
  * Conferma dopo [confirmMs] continui con la traccia entro la distanza usata
  * dal chiamante (una posizione lungo la route a ogni tick) e un avanzamento
@@ -34,6 +34,7 @@ class SelfOnRouteDetector(
     private var runStartAlongM = 0.0
     private var lastMatchMs = -1L
 
+    @Synchronized
     fun reset() {
         onRoute = false
         lastAlongM = null
@@ -42,6 +43,7 @@ class SelfOnRouteDetector(
     }
 
     /** Un tick: [alongM] = posizione agganciata, null se la traccia è lontana o il GPS manca. */
+    @Synchronized
     fun onTick(nowMs: Long, alongM: Double?): Boolean {
         if (alongM == null) {
             if (onRoute) {
@@ -54,7 +56,10 @@ class SelfOnRouteDetector(
             return onRoute
         }
         val prev = lastAlongM
-        if (runStartMs < 0 || (prev != null && abs(alongM - prev) > maxStepM)) {
+        // Salto (cambio di ramo) o avanzamento all'indietro sul ramo scelto
+        // (andata e ritorno sovrapposti): la conferma riparte da qui
+        val backwards = runStartMs >= 0 && alongM - runStartAlongM < -minProgressM
+        if (runStartMs < 0 || backwards || (prev != null && abs(alongM - prev) > maxStepM)) {
             runStartMs = nowMs
             runStartAlongM = alongM
         }

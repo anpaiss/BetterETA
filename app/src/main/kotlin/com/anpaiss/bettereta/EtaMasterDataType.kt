@@ -165,7 +165,8 @@ class EtaMasterDataType(
         val colors: FieldColors
         if (state.mtaEpochMs > 0L) {
             val mta = timeFmt.format(Calendar.getInstance().apply { timeInMillis = state.mtaEpochMs }.time)
-            etaLabel = "ETA  ·  MTA $mta  ${formatSignedMinutes(state.marginSeconds)}"
+            // Senza "ETA ·": con un margine di un'ora la riga superava i 462 px (review 27/09)
+            etaLabel = "MTA $mta  ${formatSignedMinutes(state.marginSeconds)}"
             colors   = style.colorsFor(state.marginSeconds?.let(::marginPace) ?: Pace.UNKNOWN)
         } else {
             etaLabel = "ETA"

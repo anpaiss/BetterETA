@@ -407,6 +407,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 hintChecked       = false
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
+                saveRouteForReplay(routeHash, routeName, polyline, elevPolyline)
 
                 logger.log("ROUTE", "[$source] '$routeName' dist=${routeTotalDistM.toInt()}m " +
                     "climbs=${routeClimbs.size} (asc=${routeClimbs.sumOf { it.totalElevation }.toInt()}m)")
@@ -665,7 +666,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                     // 0. Fuori route secondo il Karoo: transizioni e riaggancio al rientro
                     val karooPosM = karooAlongRouteM()
-                    if (karooPosM != null && !hintChecked && pipeline.isLocated()) {
+                    // Non durante l'override del GPS: il Karoo che ci crede fuori route
+                    // darebbe un suggerimento sbagliato (review 27/09, route a lecca-lecca)
+                    if (karooPosM != null && !hintChecked && !selfOverride && pipeline.isLocated()) {
                         hintChecked = true
                         val loc = locationFlow.value
                         val ours = pipeline.distanceAlongRouteM()
@@ -688,10 +691,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val gpsFresh = lastGpsUpdateMs > 0 && System.currentTimeMillis() - lastGpsUpdateMs <= GPS_TIMEOUT_MS
                     val selfOn = if (karooOff) {
                         val loc = locationFlow.value
-                        val match = if (gpsFresh && loc != null)
-                            pipeline.matchOnRoute(loc.first, loc.second, SELF_ROUTE_MAX_DIST_M, selfOnRoute.lastAlongM)
-                        else null
-                        selfOnRoute.onTick(System.currentTimeMillis(), match?.alongM)
+                        if (gpsFresh && loc != null) {
+                            // Ramo coerente con l'ultimo aggancio o, senza, con la posizione stimata
+                            val ref = selfOnRoute.lastAlongM ?: pipeline.distanceAlongRouteM()
+                            val match = pipeline.matchOnRoute(loc.first, loc.second, SELF_ROUTE_MAX_DIST_M, ref)
+                            selfOnRoute.onTick(System.currentTimeMillis(), match?.alongM)
+                        } else {
+                            // GPS assente (galleria, bosco fitto): lo stato resta com'è,
+                            // conta solo un fix vero lontano dalla traccia
+                            selfOnRoute.onRoute
+                        }
                     } else {
                         selfOnRoute.reset()
                         false
@@ -708,6 +717,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             logger.log("ROUTE", "Traccia persa dal GPS e il Karoo dice fuori route — ETA sospeso, posizione congelata a %.0fm".format(pipeline.distanceAlongRouteM()))
                         } else if (!nowOff && karooOff) {
                             selfOverride = true
+                            hintChecked  = true
                             val at = selfOnRoute.lastAlongM ?: pipeline.distanceAlongRouteM()
                             val corr = pipeline.locateAt(at)
                             logger.log("ROUTE", "In route secondo il GPS (traccia entro %.0fm e avanzamento da %ds), il Karoo dice fuori route — posizione %.0fm, correzione %.0fm".format(
@@ -1091,6 +1101,24 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             pos >= 0.0 && pos <= routeTotalDistM         -> pos
             else                                          -> null
         }
+    }
+
+    /**
+     * Copia della traccia in files/routes/route_<hash>.txt (nome, polyline,
+     * polyline delle quote), una volta per route. Serve a rigiocare dopo il
+     * giro il rilevamento "in route" sul GPS del FIT: il 27/09 non era
+     * possibile perché la traccia non stava da nessuna parte. Mai bloccante.
+     */
+    private fun saveRouteForReplay(hash: Int, name: String?, polyline: String, elevPolyline: String) {
+        runCatching {
+            val dir = java.io.File(getExternalFilesDir(null), "routes").apply { mkdirs() }
+            val f = java.io.File(dir, "route_%08x.txt".format(hash))
+            if (!f.exists()) {
+                val nl = System.lineSeparator()
+                f.writeText(listOf(name.orEmpty(), polyline, elevPolyline).joinToString(separator = nl, postfix = nl))
+                logger.log("ROUTE", "Traccia salvata per i replay: ${f.name}")
+            }
+        }.onFailure { logger.log("ROUTE", "Traccia non salvata: ${it.message}") }
     }
 
     private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

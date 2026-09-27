@@ -55,6 +55,12 @@ class SelfOnRouteTest {
         assertFalse(d.onTick(172_000L, null))                         // 21 s: perso
     }
 
+    @Test fun `going backwards restarts the confirmation, then forward confirms`() {
+        val d = SelfOnRouteDetector()
+        assertFalse(ride(d, 20_000.0, -4.0, 40))                       // ramo sbagliato: all'indietro
+        assertTrue(ride(d, 19_840.0, 4.0, 30, startMs = 41_000L))      // poi avanti per 30 s
+    }
+
     // ── Proiezione sulla traccia ─────────────────────────────────────────
 
     // Anello quadrato di 4 km (lato 1 km, punti ogni 50 m), partenza e arrivo

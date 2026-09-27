@@ -339,16 +339,14 @@ class SegmentPipeline(
 
     // ── private helpers ──────────────────────────────────────────────────
 
-    /** Sposta traveledM/currentIndex/consumedInCurrentM al punto targetM dall'inizio. */
     /**
      * Punto della traccia più vicino al fix, proiettato sui tratti tra waypoint:
      * posizione lungo la route e distanza dal fix, oppure null se la traccia è
      * più lontana di [maxDistM]. Con più rami vicini (anelli, andata e ritorno)
      * vince quello più vicino a [refM], se dato, altrimenti il più vicino al fix.
      *
-     * Serve a decidere "in route" con il nostro GPS quando il Karoo sbaglia
-     * (giro 27/09: route presa al km 20 partendo da casa, il Karoo ha tenuto
-     * ON_ROUTE=0 per un'ora e mezza aspettando il passaggio dalla partenza).
+     * Serve a decidere "in route" con il nostro GPS quando il Karoo resta
+     * bloccato fuori route (difetto noto, dichiarato corretto nella 1.656.2526).
      */
     suspend fun matchOnRoute(lat: Double, lon: Double, maxDistM: Double, refM: Double? = null): RouteMatch? =
         mutex.withLock {
@@ -394,6 +392,7 @@ class SegmentPipeline(
         abs(traveledM - prev)
     }
 
+    /** Sposta traveledM/currentIndex/consumedInCurrentM al punto targetM dall'inizio. */
     private fun repositionTo(targetM: Double) {
         traveledM          = targetM
         currentIndex       = 0
