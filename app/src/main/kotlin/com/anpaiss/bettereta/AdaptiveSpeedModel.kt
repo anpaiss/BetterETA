@@ -45,6 +45,9 @@ package com.anpaiss.bettereta
  *
  * Input/output velocità in m/s.
  */
+// Thread-safe (review 27/09): l'import dello storico gira su un altro thread del
+// ciclo principale e può sovrapporsi all'avvio di un giro; metodi pubblici
+// @Synchronized, nessuno chiama metodi sincronizzati di altri oggetti.
 class AdaptiveSpeedModel {
 
     companion object {
@@ -140,6 +143,7 @@ class AdaptiveSpeedModel {
      * Aggiorna il modello con un nuovo campione di (velocità, pendenza, fondo).
      * Chiamare ogni secondo durante la registrazione.
      */
+    @Synchronized
     fun update(speedMs: Double, gradePct: Double, surface: Surface = Surface.UNKNOWN) {
         // Ignora campioni a velocità troppo bassa (fermi a un semaforo, ecc.):
         // sia per il bucket che per lo smoothing della pendenza, così evitiamo
@@ -189,6 +193,7 @@ class AdaptiveSpeedModel {
      *   2. EMA del bucket globale di pendenza (se ≥ MIN_TRUSTED campioni)
      *   3. [fallback], per le pendenze su cui non abbiamo ancora campioni
      */
+    @Synchronized
     fun predictSpeed(
         gradePct: Double,
         surface: Surface = Surface.UNKNOWN,
@@ -202,6 +207,7 @@ class AdaptiveSpeedModel {
      * changing the fallback can matter at all: if the learned buckets cover
      * almost everything, even a much better rung 3 moves the ETA very little.
      */
+    @Synchronized
     fun predict(
         gradePct: Double,
         surface: Surface = Surface.UNKNOWN,
@@ -238,18 +244,22 @@ class AdaptiveSpeedModel {
     }
 
     /** Fattore di giornata globale (1.0 = come la base). */
+    @get:Synchronized
     val currentDayFactor: Double get() = dayFactor
 
     /** Fattore di giornata efficace per una pendenza: riscala velocità di base esterne (memoria per tratto). */
+    @Synchronized
     fun dayFactorFor(gradePct: Double): Double = effectiveFactor(bucketIndex(gradePct))
 
     /** Fattori efficaci per bucket, per log e diagnostica. */
+    @Synchronized
     fun effectiveFactors(): List<Double> = (0 until BUCKETS).map { effectiveFactor(it) }
 
     /**
      * Nuovo giro: il fattore di giornata riparte da 1 (la base resta).
      * Da chiamare al passaggio Idle → Recording, non alle pause.
      */
+    @Synchronized
     fun newRide() {
         dayFactor = 1.0
         dayCount  = 0
@@ -290,6 +300,7 @@ class AdaptiveSpeedModel {
     )
 
     /** Restituisce uno snapshot dell'attuale stato addestrato. */
+    @Synchronized
     fun snapshot() = Snapshot(
         overallEma     = overallEma,
         overallSamples = overallSamples,
@@ -310,6 +321,7 @@ class AdaptiveSpeedModel {
     )
 
     /** Ripristina lo stato dal snapshot. Chiama reset() prima se necessario. */
+    @Synchronized
     fun restore(snap: Snapshot) {
         overallEma     = snap.overallEma
         overallSamples = snap.overallSamples
@@ -333,6 +345,7 @@ class AdaptiveSpeedModel {
     }
 
     /** Azzera tutto — chiamato all'inizio di ogni nuova uscita. */
+    @Synchronized
     fun reset() {
         for (i in buckets.indices) {
             buckets[i]        = Bucket()

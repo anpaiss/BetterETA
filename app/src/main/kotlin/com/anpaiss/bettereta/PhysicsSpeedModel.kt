@@ -34,6 +34,9 @@ import kotlin.math.sqrt
  *
  * Speeds in m/s, gradients in %.
  */
+// Thread-safe (review 27/09): l'import dello storico gira su un altro thread del
+// ciclo principale e può sovrapporsi all'avvio di un giro; metodi pubblici
+// @Synchronized, nessuno chiama metodi sincronizzati di altri oggetti.
 class PhysicsSpeedModel {
 
     companion object {
@@ -95,10 +98,15 @@ class PhysicsSpeedModel {
     private var pHigh = Avg()   // unassisted regime: at or above the cutoff
     private var totalMassKg = DEFAULT_RIDER_KG + BIKE_MASS_KG
 
+    @get:Synchronized
     val powerLowW: Double?  get() = pLow.ema.takeIf { pLow.count > 0 }
+    @get:Synchronized
     val powerHighW: Double? get() = pHigh.ema.takeIf { pHigh.count > 0 }
+    @get:Synchronized
     val lowSamples: Int  get() = pLow.count
+    @get:Synchronized
     val highSamples: Int get() = pHigh.count
+    @get:Synchronized
     val massKg: Double get() = totalMassKg
 
     /**
@@ -108,6 +116,7 @@ class PhysicsSpeedModel {
      * with, so a material change invalidates what has been learned. Returns true
      * when that reset happened, so the caller can log it.
      */
+    @Synchronized
     fun setRiderMassKg(riderKg: Double): Boolean {
         if (riderKg <= 0.0) return false
         val newTotal = riderKg + BIKE_MASS_KG
@@ -119,6 +128,7 @@ class PhysicsSpeedModel {
     }
 
     /** Feeds one 1 Hz sample. Rejected silently where the physics says nothing useful. */
+    @Synchronized
     fun update(speedMs: Double, gradePct: Double, surface: Surface) {
         if (speedMs < MIN_SPEED_MS || gradePct < MIN_GRADE_PCT) return
         val power = powerAt(speedMs, gradePct, crrFor(surface))
@@ -136,6 +146,7 @@ class PhysicsSpeedModel {
      * not enough samples yet, or a gradient below [MIN_GRADE_PCT] where the
      * caller should fall back to the learned descent behaviour.
      */
+    @Synchronized
     fun predictSpeedMs(gradePct: Double, surface: Surface): Double? {
         if (gradePct < MIN_GRADE_PCT) return null
         val crr = crrFor(surface)
@@ -160,6 +171,7 @@ class PhysicsSpeedModel {
     }
 
     /** Power (W) needed to hold [speedMs] at this gradient and surface. */
+    @Synchronized
     internal fun powerAt(speedMs: Double, gradePct: Double, crr: Double): Double {
         val s = gradePct / 100.0
         return 0.5 * CDA * AIR_DENSITY * speedMs * speedMs * speedMs +
@@ -175,6 +187,7 @@ class PhysicsSpeedModel {
      * crossing; starting the bracket there keeps P monotonic over it, which is
      * what the bisection invariant needs.
      */
+    @Synchronized
     internal fun solveSpeed(powerW: Double, gradePct: Double, crr: Double): Double {
         val s = gradePct / 100.0
         val slopeTerm = s + crr
@@ -206,14 +219,17 @@ class PhysicsSpeedModel {
         val totalMassKg: Double,
     )
 
+    @Synchronized
     fun snapshot() = Snapshot(pLow.ema, pLow.count, pHigh.ema, pHigh.count, totalMassKg)
 
+    @Synchronized
     fun restore(snap: Snapshot) {
         pLow  = Avg(snap.lowEma, snap.lowCount)
         pHigh = Avg(snap.highEma, snap.highCount)
         if (snap.totalMassKg > 0.0) totalMassKg = snap.totalMassKg
     }
 
+    @Synchronized
     fun reset() {
         pLow  = Avg()
         pHigh = Avg()

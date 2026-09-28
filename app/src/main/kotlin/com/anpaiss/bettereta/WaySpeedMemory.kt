@@ -22,6 +22,9 @@ package com.anpaiss.bettereta
  * gonfiava il peso n/(n+1)). Gli spezzoni della stessa (way, verso) chiusi
  * entro [MERGE_WINDOW_MS] si fondono nell'ultimo passaggio, pesati sul tempo.
  */
+// Thread-safe (review 27/09): l'import dello storico gira su un altro thread del
+// ciclo principale e può sovrapporsi all'avvio di un giro; metodi pubblici
+// @Synchronized, nessuno chiama metodi sincronizzati di altri oggetti.
 class WaySpeedMemory(private val maxEntries: Int = MAX_ENTRIES) {
 
     class Estimate(val speedMs: Double, val passes: Int)
@@ -32,6 +35,7 @@ class WaySpeedMemory(private val maxEntries: Int = MAX_ENTRIES) {
 
     private val entries = HashMap<Long, Entry>()
 
+    @get:Synchronized
     val size: Int get() = entries.size
 
     /**
@@ -41,6 +45,7 @@ class WaySpeedMemory(private val maxEntries: Int = MAX_ENTRIES) {
      * interrotto da una pausa: si fonde (distanza totale / tempo totale) invece
      * di occupare un altro dei [KEEP_PASSES] posti. Restituisce true se ha fuso.
      */
+    @Synchronized
     fun record(wayKey: Long, baseSpeedMs: Double, nowMs: Long, distM: Double = 0.0): Boolean {
         if (wayKey == 0L || baseSpeedMs <= 0.0) return false
         val e = entries.getOrPut(wayKey) { Entry(ArrayDeque(), 0, nowMs) }
@@ -63,15 +68,18 @@ class WaySpeedMemory(private val maxEntries: Int = MAX_ENTRIES) {
     }
 
     /** Velocità di base attesa sul tratto e passaggi registrati; null se mai percorso. */
+    @Synchronized
     fun estimate(wayKey: Long): Estimate? {
         val e = entries[wayKey] ?: return null
         if (e.speeds.isEmpty()) return null
         return Estimate(e.speeds.average(), e.passes)
     }
 
+    @Synchronized
     fun clear() = entries.clear()
 
     /** Sostituisce il contenuto con quello serializzato in [text]; testo non valido = memoria vuota. */
+    @Synchronized
     fun loadFrom(text: String) {
         entries.clear()
         val lines = text.lineSequence().iterator()
@@ -97,6 +105,7 @@ class WaySpeedMemory(private val maxEntries: Int = MAX_ENTRIES) {
     //  WAYS1
     //  K <wayKey> <passes> <lastMs> v1;v2;v3
 
+    @Synchronized
     fun serialize(): String = buildString {
         append(HEADER).append('\n')
         for ((k, e) in entries) {
