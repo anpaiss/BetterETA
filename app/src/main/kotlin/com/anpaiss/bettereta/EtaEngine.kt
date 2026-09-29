@@ -67,7 +67,7 @@ class EtaEngine(
             val mem = if (seg.wayKey != 0L) wayMemory?.estimate(seg.wayKey) else null
             if (mem != null) {
                 val w = mem.passes / (mem.passes + 1.0)
-                v = (w * mem.speedMs * speedModel.dayFactorFor(seg.gradePct) + (1.0 - w) * v).coerceAtLeast(0.5)
+                v = (w * mem.speedMs * speedModel.dayFactorFor(seg.gradePct, seg.surface) + (1.0 - w) * v).coerceAtLeast(0.5)
                 memoryM += seg.distanceM
             }
             totalSec += seg.distanceM / v

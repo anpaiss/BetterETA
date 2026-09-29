@@ -62,6 +62,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private var passKey   = 0L
     private var passDistM = 0.0
     private var passSec   = 0
+    private var passSurface = Surface.UNKNOWN
 
     private val speedMsFlow  = MutableStateFlow(0.0)
     private val gradePctFlow = MutableStateFlow(0.0)
@@ -768,7 +769,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     if (!offRoute) pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
 
                     // 2b. Memoria dei tempi per tratto: accumula il passaggio sulla way corrente
-                    trackWayPass(if (offRoute) 0L else pipeline.currentWayKey(), moving, currentSpeedMs)
+                    trackWayPass(if (offRoute) 0L else pipeline.currentWayKey(), moving, currentSpeedMs, currentSurface)
 
                     // 3. Snap GPS (solo se fix recente)
                     val now      = System.currentTimeMillis()
@@ -1074,6 +1075,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // Shadow fisico: secondi e quota di route che ha risposto lui
         val phys  = if (shadowSec > 0 && physicsShare > 0.0) " phys=${shadowSec}s(%d%%)".format((physicsShare * 100).toInt()) else ""
         val fact  = " f=%.2f".format(speedModel.currentDayFactor) +
+            " pav=%.2f unp=%.2f".format(speedModel.dayFactorForSurface(Surface.PAVED), speedModel.dayFactorForSurface(Surface.GRAVEL)) +
             (if (memoryShare > 0.0) " mem=%d%%".format((memoryShare * 100).toInt()) else "") +
             (if (uncertaintySec >= 0) " ±%dm".format((uncertaintySec + 30) / 60) else "")
         val mta   = if (mtaEpochMs > 0L) " mta=%s margin=%s".format(
@@ -1373,10 +1375,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * se abbastanza lungo, la velocità media divisa per il fattore di giornata
      * finisce nella memoria: è la velocità "di base" su quel tratto.
      */
-    private fun trackWayPass(key: Long, moving: Boolean, speedMs: Double) {
+    private fun trackWayPass(key: Long, moving: Boolean, speedMs: Double, surface: Surface) {
         if (key != passKey) {
             closeWayPass()
             passKey = key
+            passSurface = surface
         }
         if (moving && key != 0L) {
             passDistM += speedMs * (TICK_MS / 1000.0)
@@ -1388,7 +1391,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val key = passKey
         if (key != 0L && passDistM >= WAY_PASS_MIN_M && passSec >= WAY_PASS_MIN_SEC) {
             val speed  = passDistM / passSec
-            val factor = speedModel.currentDayFactor.coerceIn(0.3, 3.0)
+            // Fattore della classe di fondo del tratto: è quello con cui la memoria verrà riletta
+            val factor = speedModel.dayFactorForSurface(passSurface).coerceIn(0.3, 3.0)
             val base   = speed / factor
             val merged = wayMemory.record(key, base, System.currentTimeMillis(), passDistM)
             val est = wayMemory.estimate(key)
@@ -1446,6 +1450,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             putInt("day_n", snap.dayCount)
             snap.bucketFactors.forEachIndexed      { i, v -> putFloat("f${i}_ema", v.toFloat()) }
             snap.bucketFactorCounts.forEachIndexed { i, c -> putInt("f${i}_cnt", c) }
+            snap.classFactors.forEachIndexed        { i, v -> putFloat("fc${i}_ema", v.toFloat()) }
+            snap.classFactorCounts.forEachIndexed   { i, c -> putInt("fc${i}_cnt", c) }
+            snap.pavedFactors.forEachIndexed        { i, v -> putFloat("fp${i}_ema", v.toFloat()) }
+            snap.pavedFactorCounts.forEachIndexed   { i, c -> putInt("fp${i}_cnt", c) }
+            snap.unpavedFactors.forEachIndexed      { i, v -> putFloat("fu${i}_ema", v.toFloat()) }
+            snap.unpavedFactorCounts.forEachIndexed { i, c -> putInt("fu${i}_cnt", c) }
             // Physics model (shadow). Persisted for the same reason as the
             // learned buckets: a shadow that restarted cold every ride would be
             // judged on a handicap and the comparison would be biased.
@@ -1467,7 +1477,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             surf("gravel", snap.unpavedEmas, snap.unpavedCounts) + " " +
             surf("trail", snap.trailEmas, snap.trailCounts) + " " +
             surf("gnarly", snap.gnarlyEmas, snap.gnarlyCounts)
-        val factStr = "f=%.2f [".format(snap.dayFactor) + speedModel.effectiveFactors().joinToString(",") { "%.2f".format(it) } + "]"
+        val factStr = "f=%.2f [".format(snap.dayFactor) + speedModel.effectiveFactors().joinToString(",") { "%.2f".format(it) } + "]" +
+            " pav=%.2f unp=%.2f".format(speedModel.dayFactorForSurface(Surface.PAVED), speedModel.dayFactorForSurface(Surface.GRAVEL))
         logger.log("MODEL", "Salvato (km/h): overall=%.1f n=%d | %s | %s | $factStr"
             .format(snap.overallEma * 3.6, snap.overallSamples, bucketStr, surfStr))
         logger.log("MODEL", "Physics (shadow): pLow=%s W (n=%d) pHigh=%s W (n=%d) massa=%.1fkg".format(
@@ -1512,6 +1523,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             dayCount       = prefs.getInt("day_n", 0),
             bucketFactors      = idx.map { prefs.getFloat("f${it}_ema", 1f).toDouble() },
             bucketFactorCounts = idx.map { prefs.getInt("f${it}_cnt", 0) },
+            classFactors        = (0..1).map { prefs.getFloat("fc${it}_ema", 1f).toDouble() },
+            classFactorCounts   = (0..1).map { prefs.getInt("fc${it}_cnt", 0) },
+            pavedFactors        = idx.map { prefs.getFloat("fp${it}_ema", 1f).toDouble() },
+            pavedFactorCounts   = idx.map { prefs.getInt("fp${it}_cnt", 0) },
+            unpavedFactors      = idx.map { prefs.getFloat("fu${it}_ema", 1f).toDouble() },
+            unpavedFactorCounts = idx.map { prefs.getInt("fu${it}_cnt", 0) },
         )
         speedModel.restore(snap)
         if (savedBuckets != AdaptiveSpeedModel.BUCKETS) {

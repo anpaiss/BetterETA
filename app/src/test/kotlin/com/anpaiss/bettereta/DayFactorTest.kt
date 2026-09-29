@@ -87,6 +87,55 @@ class DayFactorTest {
         assertEquals(AdaptiveSpeedModel.BUCKETS, legacy.effectiveFactors().size)
     }
 
+    private fun trainedBySurface(): AdaptiveSpeedModel = AdaptiveSpeedModel().apply {
+        restore(AdaptiveSpeedModel.Snapshot(
+            overallEma = 4.5, overallSamples = 100000,
+            bucketEmas    = listOf(5.8, 5.8, 4.9, 3.5, 2.9, 2.5, 2.1), bucketCounts  = List(7) { 10000 },
+            pavedEmas     = listOf(9.2, 6.9, 6.3, 4.5, 3.6, 2.9, 2.1), pavedCounts   = List(7) { 2000 },
+            unpavedEmas   = listOf(4.7, 4.7, 3.8, 3.0, 2.75, 2.5, 2.2), unpavedCounts = List(7) { 2000 },
+        ))
+    }
+
+    @Test
+    fun `a slow rough descent does not slow the tarmac ridden at its usual pace`() {
+        // 29/09, Pasubio: tarmac climb at the base, then the Scarubbi descent at 75% of the base
+        val m = trainedBySurface()
+        repeat(750) { m.update(3.6, 8.0, Surface.PAVED) }
+        repeat(1200) { m.update(4.7 * 0.75, -10.0, Surface.GRAVEL) }
+        assertTrue("global ${m.currentDayFactor}", m.currentDayFactor < 0.9)
+        val tarmac = m.predictSpeed(-4.0, Surface.PAVED)
+        assertTrue("tarmac $tarmac should stay near its base", tarmac > 6.9 * 0.95)
+        val gravel = m.predictSpeed(-10.0, Surface.GRAVEL)
+        assertTrue("gravel descent $gravel should be slow", gravel < 4.7 * 0.82)
+        // Off tarmac the slowdown still reaches gradients not ridden yet, trail included
+        val trail = m.predictSpeed(0.0, Surface.TRAIL)
+        assertTrue("trail flat $trail", trail < 4.9 * 0.9)
+        assertTrue(m.dayFactorForSurface(Surface.PAVED) > 0.95)
+        assertTrue(m.dayFactorForSurface(Surface.GRAVEL) < 0.82)
+    }
+
+    @Test
+    fun `a surface not ridden yet inherits the global factor`() {
+        val m = trainedBySurface()
+        repeat(600) { m.update(2.75 * 0.6, 8.0, Surface.GRAVEL) }
+        assertEquals(m.currentDayFactor, m.dayFactorForSurface(Surface.PAVED), 1e-9)
+        assertEquals(6.3 * m.currentDayFactor, m.predictSpeed(0.0, Surface.PAVED), 1e-9)
+    }
+
+    @Test
+    fun `surface factors survive a snapshot round trip and newRide resets them`() {
+        val m = trainedBySurface()
+        repeat(300) { m.update(3.6 * 1.2, 8.0, Surface.PAVED) }
+        repeat(300) { m.update(4.7 * 0.7, -10.0, Surface.GRAVEL) }
+        val back = AdaptiveSpeedModel().apply { restore(m.snapshot()) }
+        assertEquals(m.predictSpeed(8.0, Surface.PAVED), back.predictSpeed(8.0, Surface.PAVED), 1e-9)
+        assertEquals(m.predictSpeed(-10.0, Surface.GRAVEL), back.predictSpeed(-10.0, Surface.GRAVEL), 1e-9)
+        assertEquals(m.dayFactorForSurface(Surface.GRAVEL), back.dayFactorForSurface(Surface.GRAVEL), 1e-9)
+        m.newRide()
+        assertEquals(1.0, m.dayFactorForSurface(Surface.PAVED), 1e-9)
+        assertEquals(1.0, m.dayFactorFor(-10.0, Surface.GRAVEL), 1e-9)
+    }
+
     @Test
     fun `an untrained model still answers through the fallback`() {
         val m = AdaptiveSpeedModel()

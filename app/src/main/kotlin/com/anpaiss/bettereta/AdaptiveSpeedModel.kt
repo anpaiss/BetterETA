@@ -40,6 +40,14 @@ package com.anpaiss.bettereta
  *  Taratura da replay dei CSV (tools/replay_model.py): errore ETA sul giro
  *  05/09 20% col solo bucket a 20 min, 16% col fattore globale, 9-11% con
  *  fattore per bucket; finestre 600-1200 s equivalenti, scelti 900/120/120.
+ *  Dal 29/09 il fattore è diviso per fondo, asfalto / non asfalto: globale →
+ *  classe di fondo → (classe, bucket), ogni livello pesato dai suoi campioni
+ *  (n/(n+120)) verso il livello sopra. Nel giro 29/09 (Pasubio) la discesa
+ *  sconnessa degli Scarubbi aveva portato il fattore a 0,76-0,83, applicato
+ *  poi all'asfalto finale fatto a ritmo normale: ETA +13..+15 %, +5 % tenendo
+ *  il fattore sul solo sterrato. Replay su 7 giri (tools/replay_factor.py
+ *  --carry, variante H+B): 6,6 % contro 7,0. Fondo ignoto → come prima,
+ *  globale + per bucket.
  *  Quando un bucket non ha abbastanza campioni, usa la velocità piana
  *  moltiplicata per un fattore di pendenza di default.
  *
@@ -84,6 +92,11 @@ class AdaptiveSpeedModel {
         // EMA 6 h) non si staccherebbe mai dal valore copiato. 600 = 10 minuti:
         // dopo un giro con un muro vero il bucket è già suo.
         private const val SPLIT_SEED_COUNT = 600
+
+        // Classi di fondo del fattore di giornata
+        private const val CLASSES = 2
+        private const val PAVED   = 0
+        private const val UNPAVED = 1
 
         // Soglie di pendenza (%) che delimitano i bucket 0..6
         private val THRESHOLDS = doubleArrayOf(-6.0, -2.0, 2.0, 6.0, 10.0, 16.0)
@@ -138,6 +151,11 @@ class AdaptiveSpeedModel {
     private var dayCount       = 0
     private val bucketFactor   = DoubleArray(BUCKETS) { 1.0 }
     private val bucketFactorN  = IntArray(BUCKETS)
+    // Per classe di fondo (asfalto / non asfalto) e per (classe, bucket)
+    private val classFactor    = DoubleArray(CLASSES) { 1.0 }
+    private val classFactorN   = IntArray(CLASSES)
+    private val leafFactor     = Array(CLASSES) { DoubleArray(BUCKETS) { 1.0 } }
+    private val leafFactorN    = Array(CLASSES) { IntArray(BUCKETS) }
 
     /**
      * Aggiorna il modello con un nuovo campione di (velocità, pendenza, fondo).
@@ -166,6 +184,14 @@ class AdaptiveSpeedModel {
             val ab = 1.0 / minOf(bucketFactorN[idx] + FACTOR_PRIOR + 1, FACTOR_WINDOW)
             bucketFactor[idx] = ab * r + (1.0 - ab) * bucketFactor[idx]
             bucketFactorN[idx]++
+            surfaceClass(surface)?.let { c ->
+                val ac = 1.0 / minOf(classFactorN[c] + FACTOR_PRIOR + 1, FACTOR_WINDOW)
+                classFactor[c] = ac * r + (1.0 - ac) * classFactor[c]
+                classFactorN[c]++
+                val al = 1.0 / minOf(leafFactorN[c][idx] + FACTOR_PRIOR + 1, FACTOR_WINDOW)
+                leafFactor[c][idx] = al * r + (1.0 - al) * leafFactor[c][idx]
+                leafFactorN[c][idx]++
+            }
         }
 
         val b   = buckets[idx]
@@ -215,7 +241,7 @@ class AdaptiveSpeedModel {
     ): Prediction {
         val idx = bucketIndex(gradePct)
         val raw = rawPredict(idx, surface, fallback, gradePct)
-        return Prediction((raw.speedMs * effectiveFactor(idx)).coerceAtLeast(0.5), raw.fromFallback)
+        return Prediction((raw.speedMs * effectiveFactor(idx, surface)).coerceAtLeast(0.5), raw.fromFallback)
     }
 
     /** Base senza fattore di giornata: bucket (pendenza, fondo), bucket globale, o fallback. */
@@ -236,20 +262,42 @@ class AdaptiveSpeedModel {
         )
     }
 
-    /** Fattore per il bucket: il suo, pesato dai campioni visti, altrimenti quello globale. */
-    private fun effectiveFactor(idx: Int): Double {
-        val n = bucketFactorN[idx].toDouble()
+    /**
+     * Fattore per (bucket, fondo). Fondo noto: quello di (classe, bucket), pesato
+     * dai campioni visti, verso quello della classe, a sua volta verso il globale.
+     * Fondo ignoto: quello del bucket verso il globale.
+     */
+    private fun effectiveFactor(idx: Int, surface: Surface = Surface.UNKNOWN): Double {
+        val c = surfaceClass(surface) ?: return shrink(bucketFactor[idx], bucketFactorN[idx], dayFactor)
+        return shrink(leafFactor[c][idx], leafFactorN[c][idx], classFactorOf(c))
+    }
+
+    private fun classFactorOf(c: Int): Double = shrink(classFactor[c], classFactorN[c], dayFactor)
+
+    private fun shrink(own: Double, n: Int, parent: Double): Double {
         val w = n / (n + FACTOR_SHRINK)
-        return w * bucketFactor[idx] + (1.0 - w) * dayFactor
+        return w * own + (1.0 - w) * parent
+    }
+
+    private fun surfaceClass(surface: Surface): Int? = when (surface) {
+        Surface.PAVED   -> PAVED
+        Surface.GRAVEL, Surface.TRAIL, Surface.GNARLY -> UNPAVED
+        Surface.UNKNOWN -> null
     }
 
     /** Fattore di giornata globale (1.0 = come la base). */
     @get:Synchronized
     val currentDayFactor: Double get() = dayFactor
 
-    /** Fattore di giornata efficace per una pendenza: riscala velocità di base esterne (memoria per tratto). */
+    /** Fattore di giornata efficace per una pendenza e un fondo: riscala velocità di base esterne (memoria per tratto). */
     @Synchronized
-    fun dayFactorFor(gradePct: Double): Double = effectiveFactor(bucketIndex(gradePct))
+    fun dayFactorFor(gradePct: Double, surface: Surface = Surface.UNKNOWN): Double =
+        effectiveFactor(bucketIndex(gradePct), surface)
+
+    /** Fattore di giornata della classe di fondo (asfalto / non asfalto); fondo ignoto → globale. */
+    @Synchronized
+    fun dayFactorForSurface(surface: Surface): Double =
+        surfaceClass(surface)?.let { classFactorOf(it) } ?: dayFactor
 
     /** Fattori efficaci per bucket, per log e diagnostica. */
     @Synchronized
@@ -265,6 +313,10 @@ class AdaptiveSpeedModel {
         dayCount  = 0
         bucketFactor.fill(1.0)
         bucketFactorN.fill(0)
+        classFactor.fill(1.0)
+        classFactorN.fill(0)
+        leafFactor.forEach { it.fill(1.0) }
+        leafFactorN.forEach { it.fill(0) }
     }
 
     /** @param fromFallback true when rung 3 answered, i.e. no learned data applied. */
@@ -297,6 +349,13 @@ class AdaptiveSpeedModel {
         val dayCount: Int              = 0,
         val bucketFactors: List<Double> = emptyList(),
         val bucketFactorCounts: List<Int> = emptyList(),
+        // Per classe di fondo [asfalto, non asfalto] e per (classe, bucket); assenti = 1.0
+        val classFactors: List<Double>      = emptyList(),
+        val classFactorCounts: List<Int>    = emptyList(),
+        val pavedFactors: List<Double>      = emptyList(),
+        val pavedFactorCounts: List<Int>    = emptyList(),
+        val unpavedFactors: List<Double>    = emptyList(),
+        val unpavedFactorCounts: List<Int>  = emptyList(),
     )
 
     /** Restituisce uno snapshot dell'attuale stato addestrato. */
@@ -318,6 +377,12 @@ class AdaptiveSpeedModel {
         dayCount       = dayCount,
         bucketFactors  = bucketFactor.toList(),
         bucketFactorCounts = bucketFactorN.toList(),
+        classFactors        = classFactor.toList(),
+        classFactorCounts   = classFactorN.toList(),
+        pavedFactors        = leafFactor[PAVED].toList(),
+        pavedFactorCounts   = leafFactorN[PAVED].toList(),
+        unpavedFactors      = leafFactor[UNPAVED].toList(),
+        unpavedFactorCounts = leafFactorN[UNPAVED].toList(),
     )
 
     /** Ripristina lo stato dal snapshot. Chiama reset() prima se necessario. */
@@ -339,6 +404,14 @@ class AdaptiveSpeedModel {
             gnarlyBuckets[i]  = Bucket(gEma.getOrElse(i) { 0.0 }, gCnt.getOrElse(i) { 0 })
             bucketFactor[i]   = snap.bucketFactors.getOrElse(i) { 1.0 }
             bucketFactorN[i]  = snap.bucketFactorCounts.getOrElse(i) { 0 }
+            leafFactor[PAVED][i]    = snap.pavedFactors.getOrElse(i) { 1.0 }
+            leafFactorN[PAVED][i]   = snap.pavedFactorCounts.getOrElse(i) { 0 }
+            leafFactor[UNPAVED][i]  = snap.unpavedFactors.getOrElse(i) { 1.0 }
+            leafFactorN[UNPAVED][i] = snap.unpavedFactorCounts.getOrElse(i) { 0 }
+        }
+        for (c in 0 until CLASSES) {
+            classFactor[c]  = snap.classFactors.getOrElse(c) { 1.0 }
+            classFactorN[c] = snap.classFactorCounts.getOrElse(c) { 0 }
         }
         dayFactor = snap.dayFactor
         dayCount  = snap.dayCount
