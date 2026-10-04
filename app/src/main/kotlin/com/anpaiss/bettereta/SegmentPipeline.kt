@@ -126,8 +126,20 @@ class SegmentPipeline(
             // e poi scatti di ~100 m, sempre ~100 m dietro il Karoo). Si corregge
             // solo quando stima e GPS divergono più del passo locale.
             if (bestOffset < holdToleranceM(bestIdx)) return@withLock 0.0
+            // I candidati sono waypoint, non tratti: su un rettilineo lungo senza
+            // waypoint il fix può essere a più di SNAP_MAX_DIST_M dai due estremi
+            // giusti e vicino ai waypoint del ramo prima di un tornante (giro 04/10,
+            // 12:43: 238 m senza waypoint, posizione indietro di 439 m e 5 s dopo
+            // avanti di 648). Se il fix cade sul tratto dove sta la stima, vale la
+            // sua proiezione su quel tratto: stima confermata, o corretta lungo il
+            // tratto, senza cambiare ramo.
+            val onLeg = projectOnLeg(legIndexAt(traveledM), lat, lon)
+            val targetM = if (onLeg != null && onLeg.distM <= SNAP_ON_LEG_MAX_M) {
+                if (abs(onLeg.alongM - traveledM) < SNAP_HOLD_MIN_M) return@withLock 0.0
+                onLeg.alongM
+            } else waypointCumDist[bestIdx]
             val prevTraveledM = traveledM
-            repositionTo(waypointCumDist[bestIdx])
+            repositionTo(targetM)
             return@withLock abs(traveledM - prevTraveledM)
         }
 
@@ -351,33 +363,45 @@ class SegmentPipeline(
     suspend fun matchOnRoute(lat: Double, lon: Double, maxDistM: Double, refM: Double? = null): RouteMatch? =
         mutex.withLock {
             if (waypoints.size < 2) return@withLock null
-            val mPerDegLat = 111_320.0
-            val mPerDegLon = 111_320.0 * cos(Math.toRadians(lat))
             var best: RouteMatch? = null
             var bestScore = Double.MAX_VALUE
             for (i in 0 until waypoints.size - 1) {
-                val a = waypoints[i]
-                val b = waypoints[i + 1]
-                // Coordinate piane in metri con il fix nell'origine
-                val ax = (a.lon - lon) * mPerDegLon
-                val ay = (a.lat - lat) * mPerDegLat
-                val dx = (b.lon - lon) * mPerDegLon - ax
-                val dy = (b.lat - lat) * mPerDegLat - ay
-                val len2 = dx * dx + dy * dy
-                val t = if (len2 <= 0.0) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
-                val px = ax + t * dx
-                val py = ay + t * dy
-                val dist = sqrt(px * px + py * py)
-                if (dist > maxDistM) continue
-                val along = waypointCumDist[i] + t * (waypointCumDist[i + 1] - waypointCumDist[i])
-                val score = if (refM != null) abs(along - refM) else dist
+                val m = projectOnLeg(i, lat, lon) ?: continue
+                if (m.distM > maxDistM) continue
+                val score = if (refM != null) abs(m.alongM - refM) else m.distM
                 if (score < bestScore) {
                     bestScore = score
-                    best = RouteMatch(along, dist)
+                    best = m
                 }
             }
             best
         }
+
+    /** Proiezione del fix sul tratto tra i waypoint [i] e [i]+1: posizione lungo la route e distanza dal fix. */
+    private fun projectOnLeg(i: Int, lat: Double, lon: Double): RouteMatch? {
+        if (i < 0 || i + 1 >= waypoints.size) return null
+        val mPerDegLat = 111_320.0
+        val mPerDegLon = 111_320.0 * cos(Math.toRadians(lat))
+        val a = waypoints[i]
+        val b = waypoints[i + 1]
+        // Coordinate piane in metri con il fix nell'origine
+        val ax = (a.lon - lon) * mPerDegLon
+        val ay = (a.lat - lat) * mPerDegLat
+        val dx = (b.lon - lon) * mPerDegLon - ax
+        val dy = (b.lat - lat) * mPerDegLat - ay
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 <= 0.0) 0.0 else (-(ax * dx + ay * dy) / len2).coerceIn(0.0, 1.0)
+        val px = ax + t * dx
+        val py = ay + t * dy
+        return RouteMatch(
+            waypointCumDist[i] + t * (waypointCumDist[i + 1] - waypointCumDist[i]),
+            sqrt(px * px + py * py),
+        )
+    }
+
+    /** Indice del tratto (waypoint i → i+1) su cui cade la posizione [alongM]. */
+    private fun legIndexAt(alongM: Double): Int =
+        (lowerBound(waypointCumDist, alongM) - 1).coerceIn(0, maxOf(0, waypoints.size - 2))
 
     /** Fissa la posizione su [alongM]: aggancio deciso dal nostro GPS (vedi [matchOnRoute]). */
     suspend fun locateAt(alongM: Double): Double = mutex.withLock {
@@ -472,6 +496,9 @@ class SegmentPipeline(
         // coerente dista meno di 0,6 passi di waypoint (minimo 30 m)
         private const val SNAP_HOLD_MIN_M = 30.0
         private const val SNAP_HOLD_STEP_FRACTION = 0.6
+        // Il fix "cade sul tratto" della stima se ne dista meno di questa soglia:
+        // allora si corregge lungo quel tratto e non verso un waypoint di un altro ramo
+        private const val SNAP_ON_LEG_MAX_M = 50.0
         // Finestra di ricerca intorno alla posizione stimata: dietro basta poco
         // (correzione di drift), davanti serve margine per il dead-reckoning lento
         private const val SNAP_BACK_WINDOW_M = 500.0

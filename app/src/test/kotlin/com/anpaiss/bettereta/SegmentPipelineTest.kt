@@ -175,6 +175,49 @@ class SegmentPipelineTest {
     }
 
     @Test
+    fun `snap does not jump back to the leg before a hairpin on a long stretch without waypoints`() = runBlocking {
+        val p = SegmentPipeline()
+        // Giro 04/10, 12:43: tornante, poi 238 m di rettilineo senza waypoint a
+        // ~60 m dal ramo precedente. A metà rettilineo il fix è a più di 100 m dai
+        // due waypoint giusti ma entro 100 m da quelli del ramo prima del tornante:
+        // la posizione tornava indietro di 439 m e 5 s dopo saltava avanti di 648.
+        val up     = (0..10).map { RouteWaypoint(45.0 + it * 0.0004, 9.0, 300.0) }          // ~44 m di passo
+        val top    = RouteWaypoint(45.004, 9.00076, 300.0)                                   // ~60 m più a est
+        val gapEnd = RouteWaypoint(45.004 - 0.00216, 9.00076, 300.0)                         // 240 m senza waypoint
+        val down   = (1..8).map { RouteWaypoint(gapEnd.lat - it * 0.0004, 9.00076, 300.0) }
+        p.setRoute(up + top + gapEnd + down)
+        val topM = 10 * 0.0004 * 111_195.0 + 59.8
+        p.snapToLocation(45.0, 9.0)
+        p.advanceByDistance(topM)
+        p.snapToLocation(top.lat, top.lon)
+        var prev = p.distanceAlongRouteM()
+        var truthM = 0.0
+        repeat(30) {
+            p.advanceByDistance(11.0)
+            truthM += 11.0
+            p.snapToLocation(top.lat - truthM / 111_195.0, top.lon)
+            val now = p.distanceAlongRouteM()
+            assertTrue("tick $it: posizione arretrata da $prev a $now", now >= prev)
+            prev = now
+        }
+        assertApprox(topM + truthM, p.distanceAlongRouteM(), delta = 20.0)
+    }
+
+    @Test
+    fun `snap corrects a stale estimate along a long stretch without waypoints`() = runBlocking {
+        val p = SegmentPipeline()
+        // Stesso rettilineo di 240 m: stima rimasta all'inizio, GPS a 200 m lungo
+        // il tratto. La correzione deve portare sulla proiezione del fix.
+        val a = RouteWaypoint(45.0, 9.0, 300.0)
+        val b = RouteWaypoint(45.00216, 9.0, 300.0)
+        val after = (1..5).map { RouteWaypoint(b.lat + it * 0.0004, 9.0, 300.0) }
+        p.setRoute(listOf(a, b) + after)
+        p.snapToLocation(45.0, 9.0)
+        p.snapToLocation(45.0 + 200.0 / 111_195.0, 9.0)
+        assertApprox(200.0, p.distanceAlongRouteM(), delta = 20.0)
+    }
+
+    @Test
     fun `snap does not jump to return leg of out-and-back route`() = runBlocking {
         val p = SegmentPipeline()
         // Andata verso nord + ritorno parallelo spostato di ~8m (entro i 100m di snap)
