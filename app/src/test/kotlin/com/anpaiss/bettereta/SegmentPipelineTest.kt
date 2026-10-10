@@ -5,6 +5,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
 
 class SegmentPipelineTest {
 
@@ -215,6 +218,48 @@ class SegmentPipelineTest {
         p.snapToLocation(45.0, 9.0)
         p.snapToLocation(45.0 + 200.0 / 111_195.0, 9.0)
         assertApprox(200.0, p.distanceAlongRouteM(), delta = 20.0)
+    }
+
+    @Test
+    fun `snap with a lagging estimate follows the fix onto the leg after a hairpin`() = runBlocking {
+        val p = SegmentPipeline()
+        // Giro 10/10, 11:59, discesa su ghiaia: waypoint 480-497 della route in
+        // metri rispetto al 489 (apice). L'andata arriva da est (y 20-40), il
+        // ritorno risale verso nord-est e passa a 70-80 m dai waypoint 486-488.
+        // Con la stima ~110 m indietro (all'apice) il waypoint più coerente con
+        // la stima entro 100 m dal fix è il 488 (−40 m): sul dispositivo la
+        // posizione è tornata indietro tre volte (−53, −54, −34) prima di
+        // saltare avanti di 226 m.
+        val xy = listOf(
+            260.0 to 20.0, 220.0 to 25.0, 177.0 to 28.9, 160.8 to 32.3, 115.2 to 39.0, 97.4 to 40.1, 74.2 to 37.8,
+            51.8 to 32.3, 23.2 to 20.0, 0.0 to 0.0, -17.8 to -1.1, -23.2 to 8.9, 7.7 to 66.8, 44.1 to 104.6,
+            89.7 to 148.1, 101.3 to 162.5, 52.6 to 138.0, 42.5 to 130.2,
+        )
+        val mLat = 111_195.0
+        val mLon = 111_195.0 * cos(Math.toRadians(45.0))
+        val route = xy.map { (x, y) -> RouteWaypoint(45.0 + y / mLat, 9.0 + x / mLon, 300.0) }
+        p.setRoute(route)
+        fun distM(a: RouteWaypoint, b: RouteWaypoint) = hypot((b.lat - a.lat) * mLat, (b.lon - a.lon) * mLon)
+        val cum = DoubleArray(route.size)
+        for (i in 1 until route.size) cum[i] = cum[i - 1] + distM(route[i - 1], route[i])
+        fun at(d: Double): RouteWaypoint {
+            val i = (cum.indexOfFirst { it > d }.takeIf { it > 0 } ?: (route.size - 1)) - 1
+            val t = ((d - cum[i]) / (cum[i + 1] - cum[i])).coerceIn(0.0, 1.0)
+            return RouteWaypoint(route[i].lat + t * (route[i + 1].lat - route[i].lat), route[i].lon + t * (route[i + 1].lon - route[i].lon), 300.0)
+        }
+        var truthM = cum[11] + 40.0        // sul tratto 491 → 492
+        p.locateAt(truthM - 110.0)         // stima all'apice
+        var prev = p.distanceAlongRouteM()
+        repeat(25) {
+            truthM += 5.5
+            p.advanceByDistance(5.5 * 0.9)
+            val fix = at(truthM)
+            p.snapToLocation(fix.lat, fix.lon)
+            val now = p.distanceAlongRouteM()
+            assertTrue("tick $it (vero %.0f): posizione arretrata da %.0f a %.0f".format(truthM, prev, now), now >= prev - 20.0)
+            prev = now
+        }
+        assertTrue("fine: stima %.0f contro vero %.0f".format(p.distanceAlongRouteM(), truthM), abs(p.distanceAlongRouteM() - truthM) < 40.0)
     }
 
     @Test

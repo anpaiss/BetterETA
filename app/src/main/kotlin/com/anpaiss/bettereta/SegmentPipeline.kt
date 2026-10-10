@@ -137,7 +137,22 @@ class SegmentPipeline(
             val targetM = if (onLeg != null && onLeg.distM <= SNAP_ON_LEG_MAX_M) {
                 if (abs(onLeg.alongM - traveledM) < SNAP_HOLD_MIN_M) return@withLock 0.0
                 onLeg.alongM
-            } else waypointCumDist[bestIdx]
+            } else {
+                // Stima in ritardo (giro 10/10, 11:59: ~110 m dietro, all'apice di
+                // un tornante): il waypoint più coerente con la stima è quello del
+                // ramo di andata, 40 m dietro e 80 m dal fix, mentre il fix sta a
+                // pochi metri sul ramo di ritorno poco più avanti. Tre passi
+                // indietro e poi +226 m. Se il candidato farebbe arretrare la
+                // posizione ed è lontano dal fix, vale il tratto davanti alla
+                // stima su cui il fix cade, entro un limite corto: il ritorno di
+                // un andata-ritorno sta a chilometri, non entra (difetto 02/07).
+                // Replay sui FIT con la stima rallentata (×0,7): passi indietro
+                // 6 → 0 (10/10), 59 → 1 (29/09), 14 → 0 (04/10), 3 → 0 (02/07).
+                val candidateDistM = haversineM(lat, lon, waypoints[bestIdx].lat, waypoints[bestIdx].lon)
+                val ahead = if (waypointCumDist[bestIdx] < traveledM && candidateDistM > SNAP_AHEAD_CANDIDATE_MIN_M)
+                    legAheadUnderFix(lat, lon) else null
+                ahead?.alongM ?: waypointCumDist[bestIdx]
+            }
             val prevTraveledM = traveledM
             repositionTo(targetM)
             return@withLock abs(traveledM - prevTraveledM)
@@ -400,6 +415,19 @@ class SegmentPipeline(
     }
 
     /** Indice del tratto (waypoint i → i+1) su cui cade la posizione [alongM]. */
+    /** Tratto tra la stima e stima + [SNAP_AHEAD_MAX_M] su cui il fix cade entro [SNAP_AHEAD_ON_LEG_M], il più vicino al fix. */
+    private fun legAheadUnderFix(lat: Double, lon: Double): RouteMatch? {
+        val first = legIndexAt(traveledM)
+        val last  = legIndexAt(traveledM + SNAP_AHEAD_MAX_M)
+        var best: RouteMatch? = null
+        for (i in first..last) {
+            val m = projectOnLeg(i, lat, lon) ?: continue
+            if (m.alongM <= traveledM || m.distM > SNAP_AHEAD_ON_LEG_M) continue
+            if (best == null || m.distM < best.distM) best = m
+        }
+        return best
+    }
+
     private fun legIndexAt(alongM: Double): Int =
         (lowerBound(waypointCumDist, alongM) - 1).coerceIn(0, maxOf(0, waypoints.size - 2))
 
@@ -499,6 +527,13 @@ class SegmentPipeline(
         // Il fix "cade sul tratto" della stima se ne dista meno di questa soglia:
         // allora si corregge lungo quel tratto e non verso un waypoint di un altro ramo
         private const val SNAP_ON_LEG_MAX_M = 50.0
+        // Stima in ritardo: un candidato che farebbe arretrare la posizione, a più
+        // di 30 m dal fix, perde contro un tratto entro 300 m davanti alla stima
+        // su cui il fix cade entro 10 m (replay: 300 m e 2000 m identici, 300 per
+        // non riaprire il salto sul ramo di ritorno del 02/07)
+        private const val SNAP_AHEAD_CANDIDATE_MIN_M = 30.0
+        private const val SNAP_AHEAD_MAX_M           = 300.0
+        private const val SNAP_AHEAD_ON_LEG_M        = 10.0
         // Finestra di ricerca intorno alla posizione stimata: dietro basta poco
         // (correzione di drift), davanti serve margine per il dead-reckoning lento
         private const val SNAP_BACK_WINDOW_M = 500.0
