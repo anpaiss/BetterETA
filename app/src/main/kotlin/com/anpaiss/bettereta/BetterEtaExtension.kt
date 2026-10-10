@@ -9,6 +9,7 @@ import io.hammerhead.karooext.models.InRideAlert
 import io.hammerhead.karooext.models.OnLocationChanged
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
+import io.hammerhead.karooext.models.PlayBeepPattern
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UserProfile
@@ -1591,6 +1592,18 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
             } else ArrivalMargin.defaultPickerTime(System.currentTimeMillis(), remaining)
             mtaPopup.show(h, m)
+            // Il popup è un overlay muto e si chiude da solo in 45 s: il 10/10 Andrea
+            // l'ha visto tardi. Tre note ascendenti, diverse dai bip del Karoo (e dal
+            // doppio 800 Hz di PoiAhead), per dire "guarda lo schermo".
+            karooSystem.dispatch(
+                PlayBeepPattern(listOf(
+                    PlayBeepPattern.Tone(600, 150),
+                    PlayBeepPattern.Tone(null, 80),
+                    PlayBeepPattern.Tone(800, 150),
+                    PlayBeepPattern.Tone(null, 80),
+                    PlayBeepPattern.Tone(1000, 250),
+                ))
+            )
         }
     }
 
