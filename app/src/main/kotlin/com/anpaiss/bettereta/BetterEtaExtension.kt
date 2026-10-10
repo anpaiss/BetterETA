@@ -62,7 +62,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // Passaggio in corso su una way: chiave, metri e secondi accumulati in movimento
     private var passKey   = 0L
     private var passDistM = 0.0
-    private var passSec   = 0
+    private var passSec   = 0.0
     private var passSurface = Surface.UNKNOWN
 
     private val speedMsFlow  = MutableStateFlow(0.0)
@@ -107,7 +107,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // il delta, che misura se la parte pedalata sta rispettando le medie.
     // Si azzera solo al cambio route, mai su pause/riprese o Idle transitori.
     @Volatile private var initialRemainingSec = -1L
-    @Volatile private var movingElapsedSec    = 0L
+    // Tempo in movimento in secondi veri tra i tick (10/10: il tick dura 1,036 s
+    // di mediana, non 1 s: contare un secondo fisso perdeva il 3,6 % del tempo e
+    // il dead reckoning il 3,8 % della strada). Letto e azzerato in secondi interi.
+    @Volatile private var movingElapsedExact = 0.0
+    private var movingElapsedSec: Long
+        get() = movingElapsedExact.toLong()
+        set(v) { movingElapsedExact = v.toDouble() }
 
     // ── Karoo native references — recorded only, never fed into the ETA ──
     // These are the Karoo's own answers to questions we compute ourselves.
@@ -259,7 +265,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val MAX_SAMPLES                = 600
         // Memoria tratti: un passaggio conta solo se lungo/durato almeno tanto
         private const val WAY_PASS_MIN_M             = 50.0
-        private const val WAY_PASS_MIN_SEC           = 10
+        private const val WAY_PASS_MIN_SEC           = 10.0
         internal const val RESULTS_PREFS             = "better_eta_results"
         internal const val RESULTS_KEY               = "history"
         internal const val RESULTS_MAX               = 20
@@ -646,8 +652,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
             // ── Ticker principale ─────────────────────────────────────────────────
             tickerJob = extensionScope.launch {
+                var lastTickMs = System.currentTimeMillis()
                 while (true) {
                     delay(TICK_MS)
+                    // Durata vera del tick: la delay più il lavoro del ciclo (misurato
+                    // 1,036 s di mediana sul k24, p99 1,074). Tetto a 2 s: dopo un
+                    // blocco più lungo non si salta, lo snap recupera.
+                    val tickNowMs = System.currentTimeMillis()
+                    val tickSec   = ((tickNowMs - lastTickMs) / 1000.0).coerceIn(0.5, 2.0)
+                    lastTickMs    = tickNowMs
 
                     val hasRoute = pipeline.hasRoute()
                     if (!hasRoute || !navActive) {
@@ -767,10 +780,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     // 2. Avanzamento stimato (congelato fuori route)
-                    if (!offRoute) pipeline.advanceByDistance(currentSpeedMs * (TICK_MS / 1000.0))
+                    if (!offRoute) pipeline.advanceByDistance(currentSpeedMs * tickSec)
 
                     // 2b. Memoria dei tempi per tratto: accumula il passaggio sulla way corrente
-                    trackWayPass(if (offRoute) 0L else pipeline.currentWayKey(), moving, currentSpeedMs, currentSurface)
+                    trackWayPass(if (offRoute) 0L else pipeline.currentWayKey(), moving, currentSpeedMs, tickSec, currentSurface)
 
                     // 3. Snap GPS (solo se fix recente)
                     val now      = System.currentTimeMillis()
@@ -802,7 +815,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         // movimento conta per il pace e per il giudizio dei campioni
                         // (giro 12/09: ultimi 8 min fuori route non contati → "reale"
                         // troppo corto nel confronto di fine giro)
-                        if (initialRemainingSec >= 0 && currentSpeedMs >= 0.5) movingElapsedSec += TICK_MS / 1000
+                        if (initialRemainingSec >= 0 && currentSpeedMs >= 0.5) movingElapsedExact += tickSec
 
                         // Fuori route ma il Karoo sta facendo rientrare: ETA = deviazione
                         // di rientro (rejoinDistance, senza quote → velocità piana del
@@ -910,7 +923,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             synchronized(etaSamples) { etaSamples.clear() }
                             logger.log("ETA  ", "Baseline pace catturata: ${remainingSec}s previsti")
                         } else if (initialRemainingSec >= 0 && moving) {
-                            movingElapsedSec += TICK_MS / 1000
+                            movingElapsedExact += tickSec
                         }
                         if (initialRemainingSec >= 0) {
                             deltaSec = movingElapsedSec + remainingSec - initialRemainingSec
@@ -1376,15 +1389,15 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * se abbastanza lungo, la velocità media divisa per il fattore di giornata
      * finisce nella memoria: è la velocità "di base" su quel tratto.
      */
-    private fun trackWayPass(key: Long, moving: Boolean, speedMs: Double, surface: Surface) {
+    private fun trackWayPass(key: Long, moving: Boolean, speedMs: Double, tickSec: Double, surface: Surface) {
         if (key != passKey) {
             closeWayPass()
             passKey = key
             passSurface = surface
         }
         if (moving && key != 0L) {
-            passDistM += speedMs * (TICK_MS / 1000.0)
-            passSec++
+            passDistM += speedMs * tickSec
+            passSec   += tickSec
         }
     }
 
@@ -1397,14 +1410,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             val base   = speed / factor
             val merged = wayMemory.record(key, base, System.currentTimeMillis(), passDistM)
             val est = wayMemory.estimate(key)
-            logger.log("WAY  ", "way %d %s: %.1fkm/h su %.0fm in %ds → base %.1fkm/h (f=%.2f), passaggi %d%s, media %.1fkm/h".format(
+            logger.log("WAY  ", "way %d %s: %.1fkm/h su %.0fm in %.0fs → base %.1fkm/h (f=%.2f), passaggi %d%s, media %.1fkm/h".format(
                 WaySpeedMemory.wayIdOf(key), if (WaySpeedMemory.isForward(key)) "→" else "←",
                 speed * 3.6, passDistM, passSec, base * 3.6, factor, est?.passes ?: 0,
                 if (merged) " (fuso col precedente)" else "", (est?.speedMs ?: 0.0) * 3.6))
         }
         passKey   = 0L
         passDistM = 0.0
-        passSec   = 0
+        passSec   = 0.0
     }
 
     private fun wayMemoryFile() = java.io.File(filesDir, "way_speeds.txt")
