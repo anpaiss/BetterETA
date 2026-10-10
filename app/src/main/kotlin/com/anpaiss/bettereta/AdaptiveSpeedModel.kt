@@ -48,6 +48,12 @@ package com.anpaiss.bettereta
  *  il fattore sul solo sterrato. Replay su 7 giri (tools/replay_factor.py
  *  --carry, variante H+B): 6,6 % contro 7,0. Fondo ignoto → come prima,
  *  globale + per bucket.
+ *  Dal 10/10 il fattore non impara nel primo chilometro del giro: la partenza
+ *  è paese, semafori, code (10/10: stanghe chiuse, f=0.89 sull'asfalto per
+ *  tutto il giro; 03/10 lo stesso). Replay --carry su 10 giri: 6,5 % contro
+ *  7,0 dell'H+B puro, meglio in 7 giri su 10 (10/10: 5,0 contro 7,9);
+ *  500 m–1,5 km equivalenti, 2 km e oltre peggio perché buttano via anche la
+ *  salita vera con cui alcuni giri iniziano. La base impara da subito.
  *  Quando un bucket non ha abbastanza campioni, usa la velocità piana
  *  moltiplicata per un fattore di pendenza di default.
  *
@@ -77,6 +83,7 @@ class AdaptiveSpeedModel {
         private const val FACTOR_PRIOR_GLOBAL = 400
         private const val FACTOR_PRIOR        = 120
         private const val FACTOR_SHRINK       = 120.0
+        private const val FACTOR_WARMUP_M     = 1000.0  // metri di movimento prima che il fattore impari
         private const val RATIO_MIN          = 0.2
         private const val RATIO_MAX          = 3.0
         private const val ALPHA_GRADE        = 0.10   // Peso per lo smoothing della pendenza
@@ -149,6 +156,7 @@ class AdaptiveSpeedModel {
     // Fattore di giornata: globale + per bucket, con i rispettivi conteggi
     private var dayFactor      = 1.0
     private var dayCount       = 0
+    private var dayMovedM      = 0.0   // metri in movimento del giro (campioni a 1 Hz), per il warm-up
     private val bucketFactor   = DoubleArray(BUCKETS) { 1.0 }
     private val bucketFactorN  = IntArray(BUCKETS)
     // Per classe di fondo (asfalto / non asfalto) e per (classe, bucket)
@@ -174,9 +182,11 @@ class AdaptiveSpeedModel {
 
         val idx = bucketIndex(smoothedGrade)
 
-        // Fattore di giornata: rapporto contro la base PRIMA di aggiornarla
+        // Fattore di giornata: rapporto contro la base PRIMA di aggiornarla,
+        // ma non nel primo chilometro (partenza in paese, code)
         val base = rawPredict(idx, surface, GradientFactorFallback).speedMs
-        if (base > 0.0) {
+        dayMovedM += speedMs
+        if (base > 0.0 && dayMovedM >= FACTOR_WARMUP_M) {
             val r  = (speedMs / base).coerceIn(RATIO_MIN, RATIO_MAX)
             val ag = 1.0 / minOf(dayCount + FACTOR_PRIOR_GLOBAL + 1, FACTOR_WINDOW)
             dayFactor = ag * r + (1.0 - ag) * dayFactor
@@ -311,6 +321,7 @@ class AdaptiveSpeedModel {
     fun newRide() {
         dayFactor = 1.0
         dayCount  = 0
+        dayMovedM = 0.0
         bucketFactor.fill(1.0)
         bucketFactorN.fill(0)
         classFactor.fill(1.0)
@@ -347,6 +358,7 @@ class AdaptiveSpeedModel {
         // Fattore di giornata (persistito perché l'estensione può ripartire a metà giro)
         val dayFactor: Double          = 1.0,
         val dayCount: Int              = 0,
+        val dayMovedM: Double          = 0.0,
         val bucketFactors: List<Double> = emptyList(),
         val bucketFactorCounts: List<Int> = emptyList(),
         // Per classe di fondo [asfalto, non asfalto] e per (classe, bucket); assenti = 1.0
@@ -375,6 +387,7 @@ class AdaptiveSpeedModel {
         gnarlyCounts   = gnarlyBuckets.map { it.count },
         dayFactor      = dayFactor,
         dayCount       = dayCount,
+        dayMovedM      = dayMovedM,
         bucketFactors  = bucketFactor.toList(),
         bucketFactorCounts = bucketFactorN.toList(),
         classFactors        = classFactor.toList(),
@@ -415,6 +428,7 @@ class AdaptiveSpeedModel {
         }
         dayFactor = snap.dayFactor
         dayCount  = snap.dayCount
+        dayMovedM = snap.dayMovedM
     }
 
     /** Azzera tutto — chiamato all'inizio di ogni nuova uscita. */

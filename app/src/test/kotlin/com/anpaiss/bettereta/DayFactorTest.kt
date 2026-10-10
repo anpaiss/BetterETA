@@ -20,6 +20,9 @@ class DayFactorTest {
         ))
     }
 
+    /** The factor ignores the first kilometre (town, queues): ride it at the base speed, which teaches nothing. */
+    private fun AdaptiveSpeedModel.pastWarmUp(flatMs: Double) = repeat((1000 / flatMs).toInt() + 2) { update(flatMs, 0.0) }
+
     @Test
     fun `a fresh ride predicts the base`() {
         val m = trained()
@@ -30,7 +33,7 @@ class DayFactorTest {
 
     @Test
     fun `slow climbing lowers the prediction for gradients not yet ridden`() {
-        val m = trained()
+        val m = trained().apply { pastWarmUp(6.0) }
         repeat(600) { m.update(3.4 * 0.6, 8.0) }       // ten minutes at 60% of the base on the steep bucket
         // Global prior 400 (17/09, was 120): (400 + 600 × 0.6) / 1000 = 0.76 — it used to reach 0.67
         assertTrue("factor ${m.currentDayFactor}", m.currentDayFactor in 0.7..0.85)
@@ -42,7 +45,7 @@ class DayFactorTest {
 
     @Test
     fun `a bucket with its own samples uses its own factor over the global one`() {
-        val m = trained()
+        val m = trained().apply { pastWarmUp(6.0) }
         repeat(600) { m.update(3.4 * 0.6, 8.0) }       // climbing at 60%
         repeat(600) { m.update(7.7 * 1.0, -10.0) }     // descending at 100% of the base
         val descent = m.predictSpeed(-10.0)
@@ -63,7 +66,7 @@ class DayFactorTest {
 
     @Test
     fun `newRide resets the factor and keeps the base`() {
-        val m = trained()
+        val m = trained().apply { pastWarmUp(6.0) }
         repeat(600) { m.update(3.0, 0.0) }
         assertTrue(m.currentDayFactor < 0.75)   // (400 + 600 × 0.5) / 1000 = 0.70 with the global prior at 400
         m.newRide()
@@ -73,7 +76,7 @@ class DayFactorTest {
 
     @Test
     fun `factor state survives a snapshot round trip and a legacy snapshot starts at 1`() {
-        val m = trained()
+        val m = trained().apply { pastWarmUp(6.0) }
         repeat(300) { m.update(3.4 * 0.6, 8.0) }
         val back = AdaptiveSpeedModel().apply { restore(m.snapshot()) }
         assertEquals(m.currentDayFactor, back.currentDayFactor, 1e-9)
@@ -99,7 +102,7 @@ class DayFactorTest {
     @Test
     fun `a slow rough descent does not slow the tarmac ridden at its usual pace`() {
         // 29/09, Pasubio: tarmac climb at the base, then the Scarubbi descent at 75% of the base
-        val m = trainedBySurface()
+        val m = trainedBySurface().apply { pastWarmUp(4.9) }
         repeat(750) { m.update(3.6, 8.0, Surface.PAVED) }
         repeat(1200) { m.update(4.7 * 0.75, -10.0, Surface.GRAVEL) }
         assertTrue("global ${m.currentDayFactor}", m.currentDayFactor < 0.9)
@@ -116,7 +119,7 @@ class DayFactorTest {
 
     @Test
     fun `a surface not ridden yet inherits the global factor`() {
-        val m = trainedBySurface()
+        val m = trainedBySurface().apply { pastWarmUp(4.9) }
         repeat(600) { m.update(2.75 * 0.6, 8.0, Surface.GRAVEL) }
         assertEquals(m.currentDayFactor, m.dayFactorForSurface(Surface.PAVED), 1e-9)
         assertEquals(6.3 * m.currentDayFactor, m.predictSpeed(0.0, Surface.PAVED), 1e-9)
@@ -124,7 +127,7 @@ class DayFactorTest {
 
     @Test
     fun `surface factors survive a snapshot round trip and newRide resets them`() {
-        val m = trainedBySurface()
+        val m = trainedBySurface().apply { pastWarmUp(4.9) }
         repeat(300) { m.update(3.6 * 1.2, 8.0, Surface.PAVED) }
         repeat(300) { m.update(4.7 * 0.7, -10.0, Surface.GRAVEL) }
         val back = AdaptiveSpeedModel().apply { restore(m.snapshot()) }
@@ -134,6 +137,26 @@ class DayFactorTest {
         m.newRide()
         assertEquals(1.0, m.dayFactorForSurface(Surface.PAVED), 1e-9)
         assertEquals(1.0, m.dayFactorFor(-10.0, Surface.GRAVEL), 1e-9)
+    }
+
+    @Test
+    fun `the first kilometre does not teach the factor`() {
+        // 10/10: closed railway gates and the queue behind them in the first three minutes
+        val m = trained()
+        repeat(300) { m.update(3.0, 0.0) }          // 900 m at half the base speed
+        assertEquals(1.0, m.currentDayFactor, 1e-9)
+        assertTrue("base nudged, not scaled: ${m.predictSpeed(0.0)}", m.predictSpeed(0.0) > 5.9)
+        repeat(300) { m.update(3.0, 0.0) }          // past the kilometre the factor learns
+        assertTrue("factor ${m.currentDayFactor}", m.currentDayFactor < 0.9)
+    }
+
+    @Test
+    fun `the warm-up survives a snapshot round trip`() {
+        val m = trained()
+        repeat(300) { m.update(3.0, 0.0) }          // 900 m
+        val back = AdaptiveSpeedModel().apply { restore(m.snapshot()) }
+        repeat(100) { back.update(3.0, 0.0) }       // 300 m more: past the kilometre, learning
+        assertTrue("factor ${back.currentDayFactor}", back.currentDayFactor < 1.0)
     }
 
     @Test

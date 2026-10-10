@@ -148,24 +148,30 @@ class FactorModel:
       'hier'    globale → per fondo → per (fondo, bucket); fondo ignoto → per bucket
     pg = prior del globale, pl = prior delle foglie, s = shrink, w = finestra EMA,
     up = prior del globale quando il rapporto è > 1 (asimmetrico), None = pg.
+    warm_s / warm_m: warm-up, il fattore non impara finché il giro non ha
+    questi secondi / metri in movimento (10/10: coda alle stanghe nei primi
+    3 minuti → f=0.89 sull'asfalto per tutto il giro). La base impara sempre.
     """
-    def __init__(self, snapshot, mode='bucket', pg=120, pl=120, s=120, w=900, up=None, name=None, base_window=BASE_WINDOW, carry_f=0.0):
+    def __init__(self, snapshot, mode='bucket', pg=120, pl=120, s=120, w=900, up=None, name=None, base_window=BASE_WINDOW, carry_f=0.0, warm_s=0.0, warm_m=0.0):
         self.b = Buckets(snapshot, base_window)
         self.mode, self.pg, self.pl, self.s, self.w, self.up = mode, pg, pl, s, w, up
         self.carry_f = carry_f   # quota del fattore globale finale riportata al giro dopo (0 = riparte da 1)
+        self.warm_s, self.warm_m = warm_s, warm_m
+        self.moved_s, self.moved_m = 0.0, 0.0
         self.g = Ema()
         self.bk = [Ema() for _ in range(NB)]
         self.cls = {'PAVED': Ema(), 'UNPAVED': Ema()}
         self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
         self.name = name or f"{mode}(pg={pg},pl={pl},S={s}{',up=' + str(up) if up else ''})"
 
-    def update(self, v, g, surface):
+    def update(self, v, g, surface, dt=1.0):
         if v < 0.5:
             return
         gi = bucket_index(self.b.smoothed if self.b.n else g)
         base = self.b.raw(gi, surface)
         i = self.b.update(v, g, surface)
-        if base <= 0.0:
+        self.moved_s += dt; self.moved_m += v * dt
+        if base <= 0.0 or self.moved_s < self.warm_s or self.moved_m < self.warm_m:
             return
         r = max(RATIO_MIN, min(RATIO_MAX, v / base))
         prior_g = self.up if (self.up and r > 1.0) else self.pg
@@ -195,6 +201,7 @@ class FactorModel:
         """Idle → Recording: fattori a 1, base conservata (come AdaptiveSpeedModel.newRide)."""
         start = 1.0 + self.carry_f * (self.g.f - 1.0)
         self.g = Ema(); self.g.f = start
+        self.moved_s, self.moved_m = 0.0, 0.0
         self.bk = [Ema() for _ in range(NB)]
         self.cls = {'PAVED': Ema(), 'UNPAVED': Ema()}
         self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
@@ -322,7 +329,7 @@ def evaluate(factory, samples, ways, step_s=60, min_remaining_s=300, early_s=900
                 errs.append(e)
                 if t - t_start <= early_s * 1000:
                     early.append(e)
-        model.update(v, g, surf)
+        model.update(v, g, surf, _dt)
     if not errs:
         return None
     mem = [abs(math.log(fp / model.factor(gm, sm))) for sm, gm, fp in pass_f if fp > 0]
@@ -352,6 +359,14 @@ def variants(snap):
         lambda: FactorModel(snap, 'bucket', 120, 120, 120, up=400, name='C    bucket up400'),
         lambda: FactorModel(snap, 'none', 120, 120, 120, name='none pg120'),
         lambda: FactorModel(snap, 'none', 100000, 120, 120, name='no factor'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_s=300, name='H+B  warm 5min'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_s=600, name='H+B  warm 10min'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, name='H+B  warm 1km'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=2000, name='H+B  warm 2km'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=3000, name='H+B  warm 3km'),
+        lambda: FactorModel(snap, 'hier', 1000, 120, 120, name='H    hier pg1000'),
+        lambda: FactorModel(snap, 'bucket', 400, 120, 120, warm_m=2000, name='B    warm 2km'),
+        lambda: FactorModel(snap, 'none', 400, 120, 120, warm_m=2000, name='glob pg400 warm 2km'),
     ]
 
 
@@ -451,6 +466,17 @@ def carry(args, snaps, ways):
         ('PROD f-carry 1.0',  dict(mode='bucket', pg=120, base_window=21600, carry_f=1.0)),
         ('B    f-carry 0.5',  dict(mode='bucket', pg=400, base_window=21600, carry_f=0.5)),
         ('B    f-carry 1.0',  dict(mode='bucket', pg=400, base_window=21600, carry_f=1.0)),
+        ('H+B  base 6h pg400', dict(mode='hier',   pg=400, base_window=21600)),
+        ('H+B  warm 5min',    dict(mode='hier',   pg=400, base_window=21600, warm_s=300)),
+        ('H+B  warm 10min',   dict(mode='hier',   pg=400, base_window=21600, warm_s=600)),
+        ('H+B  warm 500m',    dict(mode='hier',   pg=400, base_window=21600, warm_m=500)),
+        ('H+B  warm 1km',     dict(mode='hier',   pg=400, base_window=21600, warm_m=1000)),
+        ('H+B  warm 1.5km',   dict(mode='hier',   pg=400, base_window=21600, warm_m=1500)),
+        ('H+B  warm 2km',     dict(mode='hier',   pg=400, base_window=21600, warm_m=2000)),
+        ('H+B  warm 3km',     dict(mode='hier',   pg=400, base_window=21600, warm_m=3000)),
+        ('H    hier pg1000',  dict(mode='hier',   pg=1000, base_window=21600)),
+        ('B    warm 2km',     dict(mode='bucket', pg=400, base_window=21600, warm_m=2000)),
+        ('glob pg400 warm 2km', dict(mode='none', pg=400, base_window=21600, warm_m=2000)),
     ]
     print(f"  {'variante':20s} " + ' '.join(f"{d[5:]:>12s}" for d, _ in rides) + "   media |err|  segno")
     for name, kw in configs:

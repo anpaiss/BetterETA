@@ -1449,6 +1449,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             putInt("bucket_layout", AdaptiveSpeedModel.BUCKETS)   // assente = 5 bucket (fino al 05/09)
             putFloat("day_f", snap.dayFactor.toFloat())
             putInt("day_n", snap.dayCount)
+            putFloat("day_warm_m", snap.dayMovedM.toFloat())
             snap.bucketFactors.forEachIndexed      { i, v -> putFloat("f${i}_ema", v.toFloat()) }
             snap.bucketFactorCounts.forEachIndexed { i, c -> putInt("f${i}_cnt", c) }
             snap.classFactors.forEachIndexed        { i, v -> putFloat("fc${i}_ema", v.toFloat()) }
@@ -1522,6 +1523,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             gnarlyCounts   = idx.map { prefs.getInt("g${it}_cnt", 0) },
             dayFactor      = prefs.getFloat("day_f", 1f).toDouble(),
             dayCount       = prefs.getInt("day_n", 0),
+            dayMovedM      = prefs.getFloat("day_warm_m", 0f).toDouble(),
             bucketFactors      = idx.map { prefs.getFloat("f${it}_ema", 1f).toDouble() },
             bucketFactorCounts = idx.map { prefs.getInt("f${it}_cnt", 0) },
             classFactors        = (0..1).map { prefs.getFloat("fc${it}_ema", 1f).toDouble() },
