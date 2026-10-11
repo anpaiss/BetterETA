@@ -131,6 +131,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     // Il suggerimento di posizione del Karoo arriva ~1 min dopo la partenza: al
     // primo valore si verifica l'aggancio iniziale fatto senza di lui
     @Volatile private var hintChecked = false
+    // In route per tutti e due ma il Karoo da un minuto è altrove e avanza:
+    // tratto saltato con rami sovrapposti (giro 11/10), lo snap non lo vede
+    private val hintWatch = HintDisagreeWatch()
     @Volatile private var karooAscentRemM = -1.0
 
     // Route metadata published by NavigatingRoute that used to be discarded.
@@ -413,6 +416,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 selfOnRoute.reset()
                 selfOverride      = false
                 hintChecked       = false
+                hintWatch.reset()
                 hasElevationData  = elevPolyline.isNotBlank()
                 val waypoints = decodeRoute(polyline, elevPolyline, source)
                 saveRouteForReplay(routeHash, routeName, polyline, elevPolyline)
@@ -777,6 +781,27 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     } else if (moving && learningPaused) {
                         learningPaused = false
                         logger.log("MODEL", "Apprendimento ripreso: avanzamento sulla route rilevato")
+                    }
+
+                    // 1b. Il Karoo ci vede altrove da un minuto, in route e in
+                    // avanzamento: tratto saltato su rami sovrapposti (giro 11/10).
+                    // Il passaggio way aperto è maturato sul ramo sbagliato: via.
+                    if (karooPosM != null && !offRoute && !selfOverride && pipeline.isLocated()) {
+                        val ours = pipeline.distanceAlongRouteM()
+                        val loc  = locationFlow.value
+                        if (hintWatch.onTick(ours, karooPosM, currentSpeedMs, tickSec) && loc != null) {
+                            val corr = pipeline.relocateWithHint(loc.first, loc.second, karooPosM)
+                            if (corr > 0.0) {
+                                logger.log("GPS  ", "Karoo altrove da un minuto (Karoo %.0fm, nostra %.0fm) e avanza: riagganciato, correzione ${corr.toInt()}m — baseline pace azzerata".format(karooPosM, ours))
+                                initialRemainingSec = -1L
+                                movingElapsedSec    = 0L
+                                progressGate.reset()
+                                hintWatch.reset()
+                                discardWayPass()
+                            }
+                        }
+                    } else {
+                        hintWatch.reset()
                     }
 
                     // 2. Avanzamento stimato (congelato fuori route)
@@ -1415,6 +1440,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 speed * 3.6, passDistM, passSec, base * 3.6, factor, est?.passes ?: 0,
                 if (merged) " (fuso col precedente)" else "", (est?.speedMs ?: 0.0) * 3.6))
         }
+        passKey   = 0L
+        passDistM = 0.0
+        passSec   = 0.0
+    }
+
+    /** Butta il passaggio in corso senza registrarlo: la posizione era sbagliata. */
+    private fun discardWayPass() {
         passKey   = 0L
         passDistM = 0.0
         passSec   = 0.0

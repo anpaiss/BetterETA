@@ -223,10 +223,14 @@ class SegmentPipeline(
         // auto-pausa) allarga la finestra e il riaggancio legittimo passa,
         // mentre un teletrasporto a inizio/fine route dopo pochi secondi
         // fuori traccia viene rifiutato finché non diventa plausibile.
+        // Il candidato dove il Karoo dice che siamo passa comunque: è il Karoo,
+        // non un fix spurio, a dire che il salto è vero (giro 11/10: anello
+        // saltato, 4,8 km di salto rifiutati per 7,5 minuti).
         if (located) {
             val elapsedSec = (nowMs() - lastGoodSnapMs) / 1000.0
             val maxJumpM   = elapsedSec * RESCUE_MAX_SPEED_MS + RESCUE_JUMP_MARGIN_M
-            if (abs(candidateM - traveledM) > maxJumpM) return@withLock 0.0
+            val hintAgrees = hintM != null && abs(candidateM - hintM) < RESCUE_HINT_AGREE_M
+            if (abs(candidateM - traveledM) > maxJumpM && !hintAgrees) return@withLock 0.0
         }
 
         located            = true
@@ -549,6 +553,8 @@ class SegmentPipeline(
         // (ebike in discesa con margine) e tolleranza base sul salto
         private const val RESCUE_MAX_SPEED_MS  = 20.0
         private const val RESCUE_JUMP_MARGIN_M = 500.0
+        // Un candidato entro tanto dalla posizione secondo il Karoo salta la guardia
+        private const val RESCUE_HINT_AGREE_M  = 200.0
         // Sotto questo scarto il riaggancio al rientro in route non tocca la posizione
         private const val RELOCATE_MIN_JUMP_M  = 300.0
         // Aggancio iniziale: entro questa distanza dallo start si parte dallo start;

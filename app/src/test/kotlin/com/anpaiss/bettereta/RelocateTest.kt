@@ -89,6 +89,30 @@ class RelocateTest {
     }
 
     @Test
+    fun `global rescue accepts an implausible jump when the Karoo hint agrees with the candidate`() = runBlocking {
+        suspend fun locked(): SegmentPipeline {
+            val p = SegmentPipeline(nowMs = { 1_000L })   // clock stopped: elapsed 0 → max jump 500 m
+            p.setRoute(outAndBack())
+            p.snapToLocation(latAtM(50.0), 9.0)
+            assertApprox(50.0, p.distanceAlongRouteM())
+            return p
+        }
+        // Fix jumps to km 4 on the line (outside the local window): 30 ticks off window,
+        // then 3 coherent rescue proposals; the jump of ~4 km fails the plausibility guard
+        val p = locked()
+        repeat(33) { p.snapToLocation(latAtM(4000.0), 9.0) }
+        assertApprox(50.0, p.distanceAlongRouteM())
+        // Same fixes, but the Karoo says km 4.05: the guard yields to the hint
+        val q = locked()
+        repeat(33) { q.snapToLocation(latAtM(4000.0), 9.0, hintM = 4050.0) }
+        assertApprox(4000.0, q.distanceAlongRouteM())
+        // A hint on the other branch (km 6) does not unlock the km 4 candidate
+        val r = locked()
+        repeat(33) { r.snapToLocation(latAtM(4000.0), 9.0, hintM = 6000.0) }
+        assertApprox(50.0, r.distanceAlongRouteM())
+    }
+
+    @Test
     fun `relocateWithHint is a no-op when already coherent or when no waypoint is near`() = runBlocking {
         val p = SegmentPipeline()
         p.setRoute(outAndBack())
