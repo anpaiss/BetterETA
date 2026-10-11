@@ -152,17 +152,32 @@ class FactorModel:
     questi secondi / metri in movimento (10/10: coda alle stanghe nei primi
     3 minuti → f=0.89 sull'asfalto per tutto il giro). La base impara sempre.
     """
-    def __init__(self, snapshot, mode='bucket', pg=120, pl=120, s=120, w=900, up=None, name=None, base_window=BASE_WINDOW, carry_f=0.0, warm_s=0.0, warm_m=0.0):
+    def __init__(self, snapshot, mode='bucket', pg=120, pl=120, s=120, w=900, up=None, name=None, base_window=BASE_WINDOW, carry_f=0.0, warm_s=0.0, warm_m=0.0, split=None, split_glob=False):
         self.b = Buckets(snapshot, base_window)
         self.mode, self.pg, self.pl, self.s, self.w, self.up = mode, pg, pl, s, w, up
+        # split (11/10): classe di fondo divisa per verso, 'UP' dai bucket >= split, 'DOWN' sotto
+        # (il fattore asfalto imparato in salita non parla alla discesa e viceversa);
+        # split_glob: anche il globale diviso per verso.
+        self.split, self.split_glob = split, split_glob
         self.carry_f = carry_f   # quota del fattore globale finale riportata al giro dopo (0 = riparte da 1)
         self.warm_s, self.warm_m = warm_s, warm_m
         self.moved_s, self.moved_m = 0.0, 0.0
-        self.g = Ema()
-        self.bk = [Ema() for _ in range(NB)]
-        self.cls = {'PAVED': Ema(), 'UNPAVED': Ema()}
-        self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
+        self._reset_factors(1.0)
         self.name = name or f"{mode}(pg={pg},pl={pl},S={s}{',up=' + str(up) if up else ''})"
+
+    def regime(self, i):
+        return 'ALL' if self.split is None else ('UP' if i >= self.split else 'DOWN')
+
+    def _reset_factors(self, start):
+        regs = ('ALL',) if self.split is None else ('UP', 'DOWN')
+        self.g = {r: Ema() for r in (regs if self.split_glob else ('ALL',))}
+        for e in self.g.values(): e.f = start
+        self.bk = [Ema() for _ in range(NB)]
+        self.cls = {(c, r): Ema() for c in ('PAVED', 'UNPAVED') for r in regs}
+        self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
+
+    def glob(self, i):
+        return self.g[self.regime(i) if self.split_glob else 'ALL']
 
     def update(self, v, g, surface, dt=1.0):
         if v < 0.5:
@@ -175,21 +190,22 @@ class FactorModel:
             return
         r = max(RATIO_MIN, min(RATIO_MAX, v / base))
         prior_g = self.up if (self.up and r > 1.0) else self.pg
-        self.g.push(r, prior_g, self.w)
+        self.glob(i).push(r, prior_g, self.w)
         self.bk[i].push(r, self.pl, self.w)
         c = surface_class(surface)
         if c and self.mode in ('surface', 'hier'):
-            self.cls[c].push(r, self.pl, self.w)
+            self.cls[(c, self.regime(i))].push(r, self.pl, self.w)
             self.leaf[c][i].push(r, self.pl, self.w)
 
     def factor(self, g, surface):
         i = bucket_index(g)
         c = surface_class(surface)
+        gf = self.glob(i).f
         if self.mode == 'none':
-            return self.g.f
+            return gf
         if self.mode == 'bucket' or c is None:
-            return shrink(self.bk[i], self.g.f, self.s)
-        parent = shrink(self.cls[c], self.g.f, self.s)
+            return shrink(self.bk[i], gf, self.s)
+        parent = shrink(self.cls[(c, self.regime(i))], gf, self.s)
         if self.mode == 'surface':
             return parent
         return shrink(self.leaf[c][i], parent, self.s)
@@ -199,12 +215,9 @@ class FactorModel:
 
     def new_ride(self):
         """Idle → Recording: fattori a 1, base conservata (come AdaptiveSpeedModel.newRide)."""
-        start = 1.0 + self.carry_f * (self.g.f - 1.0)
-        self.g = Ema(); self.g.f = start
+        start = 1.0 + self.carry_f * (self.g['ALL'].f - 1.0) if 'ALL' in self.g else 1.0
         self.moved_s, self.moved_m = 0.0, 0.0
-        self.bk = [Ema() for _ in range(NB)]
-        self.cls = {'PAVED': Ema(), 'UNPAVED': Ema()}
-        self.leaf = {'PAVED': [Ema() for _ in range(NB)], 'UNPAVED': [Ema() for _ in range(NB)]}
+        self._reset_factors(start)
 
 
 # ── dati ────────────────────────────────────────────────────────────────
@@ -367,6 +380,12 @@ def variants(snap):
         lambda: FactorModel(snap, 'hier', 1000, 120, 120, name='H    hier pg1000'),
         lambda: FactorModel(snap, 'bucket', 400, 120, 120, warm_m=2000, name='B    warm 2km'),
         lambda: FactorModel(snap, 'none', 400, 120, 120, warm_m=2000, name='glob pg400 warm 2km'),
+        lambda: FactorModel(snap, 'bucket', 400, 120, 120, warm_m=1000, name='B    warm 1km'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, split=3, name='H+B  w1km split@b3'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, split=4, name='H+B  w1km split@b4'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, split=3, split_glob=True, name='H+B  w1km split@b3 +glob'),
+        lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, split=4, split_glob=True, name='H+B  w1km split@b4 +glob'),
+        lambda: FactorModel(snap, 'bucket', 400, 120, 120, warm_m=1000, split=3, split_glob=True, name='B    w1km glob split@b3'),
     ]
 
 
@@ -428,9 +447,12 @@ def main():
                 for k, (t, v, g, surf, d, _dt) in enumerate(samples):
                     m.update(v, g, surf)
                     if (k + 1) % 300 == 0:
-                        pav = ' '.join(f"{shrink(m.leaf['PAVED'][i], shrink(m.cls['PAVED'], m.g.f, m.s), m.s):.2f}" for i in range(NB))
-                        unp = ' '.join(f"{shrink(m.leaf['UNPAVED'][i], shrink(m.cls['UNPAVED'], m.g.f, m.s), m.s):.2f}" for i in range(NB))
-                        print(f"    {(k+1)//60:3d}  {m.g.f:.2f}   {shrink(m.cls['PAVED'], m.g.f, m.s):.2f}   {shrink(m.cls['UNPAVED'], m.g.f, m.s):.2f}  | {pav} | {unp}")
+                        pav = ' '.join(f"{shrink(m.leaf['PAVED'][i], shrink(m.cls[('PAVED', m.regime(i))], m.glob(i).f, m.s), m.s):.2f}" for i in range(NB))
+                        unp = ' '.join(f"{shrink(m.leaf['UNPAVED'][i], shrink(m.cls[('UNPAVED', m.regime(i))], m.glob(i).f, m.s), m.s):.2f}" for i in range(NB))
+                        gl = '/'.join(f"{e.f:.2f}" for e in m.g.values())
+                        cp = '/'.join(f"{shrink(m.cls[k2], m.g.get(k2[1], m.g.get('ALL')).f, m.s):.2f}" for k2 in sorted(m.cls) if k2[0] == 'PAVED')
+                        cu = '/'.join(f"{shrink(m.cls[k2], m.g.get(k2[1], m.g.get('ALL')).f, m.s):.2f}" for k2 in sorted(m.cls) if k2[0] == 'UNPAVED')
+                        print(f"    {(k+1)//60:3d}  {gl}   {cp}   {cu}  | {pav} | {unp}")
     print("\n== media sui giorni")
     print(f"  {'variante':24s} {'|err|':>6s} {'segno':>6s} {'|15min|':>7s} {'mem':>6s}")
     for name, t in sorted(totals.items(), key=lambda kv: sum(kv[1]['abs']) / len(kv[1]['abs'])):
@@ -477,6 +499,12 @@ def carry(args, snaps, ways):
         ('H    hier pg1000',  dict(mode='hier',   pg=1000, base_window=21600)),
         ('B    warm 2km',     dict(mode='bucket', pg=400, base_window=21600, warm_m=2000)),
         ('glob pg400 warm 2km', dict(mode='none', pg=400, base_window=21600, warm_m=2000)),
+        ('B    warm 1km',      dict(mode='bucket', pg=400, base_window=21600, warm_m=1000)),
+        ('H+B  w1km split@b3', dict(mode='hier', pg=400, base_window=21600, warm_m=1000, split=3)),
+        ('H+B  w1km split@b4', dict(mode='hier', pg=400, base_window=21600, warm_m=1000, split=4)),
+        ('H+B  w1km split@b3 +glob', dict(mode='hier', pg=400, base_window=21600, warm_m=1000, split=3, split_glob=True)),
+        ('H+B  w1km split@b4 +glob', dict(mode='hier', pg=400, base_window=21600, warm_m=1000, split=4, split_glob=True)),
+        ('B    w1km glob split@b3', dict(mode='bucket', pg=400, base_window=21600, warm_m=1000, split=3, split_glob=True)),
     ]
     print(f"  {'variante':20s} " + ' '.join(f"{d[5:]:>12s}" for d, _ in rides) + "   media |err|  segno")
     for name, kw in configs:
