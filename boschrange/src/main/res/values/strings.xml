@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">boschRange</string>
+    <string name="extension_name">boschRange</string>
+
+    <string name="popup_title_start">Battery at start?</string>
+    <string name="popup_title_now">Battery now?</string>
+    <string name="popup_title_end">Battery at arrival?</string>
+    <string name="popup_set">SET</string>
+    <string name="popup_skip">SKIP</string>
+    <string name="condition_dry">DRY</string>
+    <string name="condition_wet">WET</string>
+    <string name="condition_mud">MUD</string>
+
+    <string name="alert_overlay_title">boschRange</string>
+    <string name="alert_overlay_text">Grant the overlay permission in the app to enter the battery %</string>
+</resources>

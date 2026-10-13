@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Battery, white on orange, like the icons of the other extensions -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF5823"
+        android:pathData="M4,4h40v40h-40z" />
+    <!-- body outline -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,15 h21 a2,2 0 0 1 2,2 v14 a2,2 0 0 1 -2,2 h-21 a2,2 0 0 1 -2,-2 v-14 a2,2 0 0 1 2,-2 z M13.5,17.5 v11 h18 v-11 z" />
+    <!-- terminal -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35.5,20 h2.5 v8 h-2.5 z" />
+    <!-- charge level -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M15,19 h11 v8 h-11 z" />
+</vector>

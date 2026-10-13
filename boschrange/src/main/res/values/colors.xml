@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- InRideAlert fallback when the overlay permission is missing: white on dark red (5.0:1) -->
+    <color name="alert_bg">#D32F2F</color>
+    <color name="alert_text">#FFFFFF</color>
+</resources>

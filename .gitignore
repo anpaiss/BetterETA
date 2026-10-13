@@ -2,6 +2,7 @@
 /build
 /app/build
 /eta-core/build
+/boschrange/build
 /captures
 local.properties
 *.jks
