@@ -38,6 +38,7 @@ data class DebugState(
     val flowShotStart: Boolean = false,
     val flowShotMid: Boolean = false,
     val flowShotEnd: Boolean = false,
+    val enabled: Boolean = true,
 )
 
 /**
@@ -88,6 +89,7 @@ class DebugFieldDataType(
     }
 
     private fun render(s: DebugState): Lines {
+        if (!s.enabled && !s.rideOpen) return Lines("boschRange OFF", "enable it in the app", "", "")
         if (!s.rideOpen) return Lines("no ride open", "s %.2f".format(s.sUsed), surfaceLine(s), "")
         val l1 = "now %.0f %%  (start %d%s)".format(s.estimatedPct, s.startPct, if (s.startAssumed) "?" else "")
         val l2 = "%.0f Wh spent (%.0f mech)  s %.2f%s".format(s.whEstimated, s.whMech, s.sUsed, if (s.manualUpdates > 0) "  upd ${s.manualUpdates}" else "")

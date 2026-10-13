@@ -8,6 +8,11 @@ class Prefs(ctx: Context) {
 
     val sp: SharedPreferences = ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
+    /** Master switch: off = no ride is opened, no popup, nothing recorded. */
+    var enabled: Boolean
+        get() = sp.getBoolean(KEY_ENABLED, true)
+        set(v) = sp.edit().putBoolean(KEY_ENABLED, v).apply()
+
     /** PowerMore 250 Wh range extender mounted: capacity 1000 Wh instead of 750. */
     var powerMore: Boolean
         get() = sp.getBoolean(KEY_POWER_MORE, true)
@@ -37,6 +42,7 @@ class Prefs(ctx: Context) {
 
     companion object {
         private const val NAME = "bosch_range_prefs"
+        private const val KEY_ENABLED    = "enabled"
         private const val KEY_POWER_MORE = "power_more"
         private const val KEY_THRESHOLD  = "alert_threshold_pct"
         private const val KEY_S          = "s_coefficient"

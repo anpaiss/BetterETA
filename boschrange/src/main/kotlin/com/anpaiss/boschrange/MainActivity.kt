@@ -45,6 +45,11 @@ class MainActivity : AppCompatActivity() {
             "the popups ask the battery % at start, after long stops and at arrival; every ride goes into the history."))
 
         root.addView(CheckBox(this).apply {
+            text = "boschRange ON: popups and ride recording (off = nothing happens during the ride)"
+            isChecked = prefs.enabled
+            setOnCheckedChangeListener { _, on -> prefs.enabled = on }
+        })
+        root.addView(CheckBox(this).apply {
             text = "PowerMore 250 Wh mounted (1000 Wh instead of 750)"
             isChecked = prefs.powerMore
             setOnCheckedChangeListener { _, on -> prefs.powerMore = on }
@@ -78,6 +83,7 @@ class MainActivity : AppCompatActivity() {
                 if (!Settings.canDrawOverlays(this@MainActivity)) { refresh(); return@setOnClickListener }
                 val popup = BatteryPopupController(applicationContext, BoschRangeLogger(applicationContext, announce = false))
                 window.decorView.postDelayed({
+                    BoschRangeExtension.instance?.playPopupSound()
                     popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, getString(R.string.reminder_flow_start)))
                 }, 3_000L)
             }

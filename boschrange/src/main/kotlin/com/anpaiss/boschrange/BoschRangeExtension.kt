@@ -15,6 +15,7 @@ import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.InRideAlert
 import io.hammerhead.karooext.models.OnNavigationState
 import io.hammerhead.karooext.models.OnStreamState
+import io.hammerhead.karooext.models.PlayBeepPattern
 import io.hammerhead.karooext.models.RideState
 import io.hammerhead.karooext.models.StreamState
 import io.hammerhead.karooext.models.UserProfile
@@ -177,6 +178,11 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         rideState = state
         if (prev::class == state::class) return
         logger.log("RIDE ", "${prev::class.simpleName} → ${state::class.simpleName}")
+        if (!prefs.enabled && synchronized(lock) { ride } == null) {
+            logger.log("RIDE ", "boschRange OFF nelle impostazioni: nessun giro aperto, nessun popup")
+            publishDebug()
+            return
+        }
         when {
             prev !is RideState.Recording && state is RideState.Recording ->
                 if (prev is RideState.Idle) onRideStart() else onRideResume()
@@ -324,7 +330,19 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             onSkip(); return
         }
         val cond = if (withCondition) (synchronized(lock) { ride?.condition } ?: Condition.DRY) else null
+        playPopupSound()
         popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, reminder, onReminderDone))
+    }
+
+    /** Three rising tones, boschRange's own: PoiAhead uses two equal 800 Hz beeps, the Karoo its own alerts. */
+    fun playPopupSound() {
+        runCatching {
+            karooSystem.dispatch(PlayBeepPattern(listOf(
+                PlayBeepPattern.Tone(600, 150), PlayBeepPattern.Tone(null, 60),
+                PlayBeepPattern.Tone(900, 150), PlayBeepPattern.Tone(null, 60),
+                PlayBeepPattern.Tone(1200, 250),
+            )))
+        }.onFailure { logger.logError("POPUP", "Suono popup fallito", it) }
     }
 
     // ── Route ─────────────────────────────────────────────────────────────
@@ -427,10 +445,10 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private fun publishDebug() {
         val r = synchronized(lock) { ride }
         debugState.value = if (r == null) DebugState(sUsed = prefs.sCoefficient, hasRoute = hasRoute,
-            routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete)
+            routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete, enabled = prefs.enabled)
         else DebugState(true, r.startPct, r.startAssumed, r.estimatedPct(), r.whMech, r.whEstimated, r.sUsed,
             hasRoute, r.routeUnclassifiedPct, r.surfaceComplete, r.manualUpdates.size,
-            r.flowShotStartMs != 0L, r.flowShotMidMs != 0L, r.flowShotEndMs != 0L)
+            r.flowShotStartMs != 0L, r.flowShotMidMs != 0L, r.flowShotEndMs != 0L, prefs.enabled)
     }
 
     /** Snapshot for the app screen. */
