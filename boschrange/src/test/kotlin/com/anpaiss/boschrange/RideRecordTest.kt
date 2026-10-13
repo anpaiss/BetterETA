@@ -80,6 +80,9 @@ class RideRecordTest {
         assertEquals(27.0, back.flowRiderSharePct!!, 0.0)
         assertEquals(8.2, back.flowKmByMode!!["emtb_plus"]!!, 0.0)
         assertEquals((95 - 41) / 100.0 * 750.0, back.whReal!!, 0.0)
+        assertTrue(back.validForRegression)
+        assertEquals(-1.0, back.routeUnclassifiedPct, 0.0)
+        assertNull(back.surfaceComplete)
 
         val open = RideRecord(startMs = 1L, capacityWh = 1000.0, sUsed = 1.25)
         val openBack = RideRecord.fromJson(JSONObject(open.toJson().toString()))
@@ -87,5 +90,21 @@ class RideRecordTest {
         assertNull(openBack.condition)
         assertNull(openBack.whReal)
         assertTrue(openBack.startAssumed)
+        assertTrue(!openBack.validForRegression)
+    }
+
+    @Test fun `an assumed start never yields real Wh and keeps the ride out of the regression`() {
+        val r = RideRecord(startMs = 1L, capacityWh = 1000.0, sUsed = 1.25)
+        r.arrivalPct = 40                       // arrival entered, start still the 100 % default
+        assertNull(r.whReal)
+        assertTrue(!r.validForRegression)
+        assertTrue(!RideRecord.fromJson(JSONObject(r.toJson().toString())).validForRegression)
+        r.setStart(100, assumed = false)        // SET pressed on the wheel, even at 100
+        assertEquals(600.0, r.whReal!!, 0.0)
+        assertTrue(r.validForRegression)
+        r.routeUnclassifiedPct = 12.5; r.surfaceComplete = false
+        val back = RideRecord.fromJson(JSONObject(r.toJson().toString()))
+        assertEquals(12.5, back.routeUnclassifiedPct, 0.0)
+        assertEquals(false, back.surfaceComplete)
     }
 }

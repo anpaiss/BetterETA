@@ -113,8 +113,10 @@ class MainActivity : AppCompatActivity() {
                 "${fmt.format(Date(r.startMs))}  ${r.startPct}${if (r.startAssumed) "?" else ""} → ${r.arrivalPct?.toString() ?: "–"} %  " +
                     "${"%.1f".format(r.distanceKm)} km  D+ ${r.ascentM.toInt()} m  est ${"%.0f".format(r.whEstimated)} Wh" +
                     (real?.let { "  real ${"%.0f".format(it)} Wh  s ${"%.2f".format(it / r.whMech.coerceAtLeast(1.0))}" } ?: "") +
-                    (r.condition?.let { "  ${it.name.lowercase()}" } ?: "")
-            } + "\n${rides.size} rides, ${rides.count { it.arrivalPct != null }} with arrival\n${history.historyFile.absolutePath}"
+                    (r.condition?.let { "  ${it.name.lowercase()}" } ?: "") +
+                    (if (r.routeUnclassifiedPct > 0.0) "  unk ${r.routeUnclassifiedPct.toInt()}%" else "") +
+                    (if (r.validForRegression) "" else "  [excluded]")
+            } + "\n${rides.size} rides, ${rides.count { it.validForRegression }} valid for the regression (start SET and arrival entered)\n${history.historyFile.absolutePath}"
     }
 
     private fun label(text: String) = TextView(this).apply { this.text = text; textSize = 14f; setPadding(0, 8, 0, 8) }

@@ -79,12 +79,18 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     @Volatile private var routeAscentM = -1.0
     @Volatile private var routeName = ""
     @Volatile private var hasRoute = false
+    @Volatile private var routeUnclassifiedPct = -1.0
+    @Volatile private var surfaceComplete: Boolean? = null
     private var lastRoutePolyline = ""
+    // Stops seen from the speed stream, independent of the Karoo auto-pause
+    @Volatile private var stoppedSinceMs = 0L
+    @Volatile private var lastStopPopupMs = 0L
 
     companion object {
         private const val TICK_MS              = 5_000L
         private const val START_POPUP_DELAY_MS = 30_000L
         private const val LONG_STOP_MS         = 5 * 60_000L
+        private const val STOP_POPUP_DEDUP_MS  = 2 * 60_000L
         private const val SAVE_EVERY_MS        = 60_000L
         private const val RESUME_OPEN_RIDE_MS  = 6 * 3_600_000L   // an open ride older than this is a leftover
         @Volatile var instance: BoschRangeExtension? = null
@@ -186,7 +192,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
         r.routeName = routeName; r.routeDistanceM = routeTotalDistM; r.routeAscentM = routeAscentM
         r.karooAscentRemainingAtStartM = karooAscentRemM
-        r.setStart(100, assumed = true)
+        r.routeUnclassifiedPct = routeUnclassifiedPct; r.surfaceComplete = surfaceComplete
+        r.setStart(100, assumed = true)   // stays "assumed" until SET on the popup
         sampleLog.ride(r)
         saveCurrent()
         logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, route '${routeName}' D+ ${routeAscentM.toInt()} m")
@@ -204,9 +211,21 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private fun onRideResume() {
         val pauseMs = if (pausedSinceMs > 0L) System.currentTimeMillis() - pausedSinceMs else 0L
         pausedSinceMs = 0L
+        stoppedSinceMs = 0L
+        if (pauseMs >= LONG_STOP_MS) askAfterStop("pausa Karoo di ${pauseMs / 60_000} min")
+    }
+
+    /**
+     * "Battery now?" after a long stop, whether the Karoo paused (auto-pause or
+     * button) or only the speed stayed at zero (auto-pause off): the ticker
+     * calls this too. One popup per stop.
+     */
+    private fun askAfterStop(reason: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastStopPopupMs < STOP_POPUP_DEDUP_MS) return
         val r = synchronized(lock) { ride } ?: return
-        if (pauseMs < LONG_STOP_MS) return
-        logger.log("RIDE ", "Ripresa dopo ${pauseMs / 60_000} min: chiedo la % attuale")
+        lastStopPopupMs = now
+        logger.log("RIDE ", "Ripresa ($reason): chiedo la % attuale")
         askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false) { pct, _ ->
             manualUpdate(pct)
         }
@@ -230,8 +249,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         r.arrivalPct = arrivalPct
         history.append(r)
         val real = r.whReal
-        logger.log("RIDE ", "Giro salvato nello storico: partenza ${r.startPct} %${if (r.startAssumed) " (assunta)" else ""}, " +
-            "arrivo ${arrivalPct?.toString() ?: "non inserito"}" +
+        logger.log("RIDE ", "Giro salvato nello storico: partenza ${r.startPct} %${if (r.startAssumed) " (NON confermata)" else ""}, " +
+            "arrivo ${arrivalPct?.toString() ?: "non inserito"}, ${if (r.validForRegression) "valido" else "ESCLUSO"} per la regressione" +
             (real?.let { ", Wh reali ${"%.0f".format(it)} vs stimati ${"%.0f".format(r.whEstimated)}: s reale ${"%.2f".format(it / r.whMech.coerceAtLeast(1.0))}" } ?: ""))
     }
 
@@ -284,10 +303,20 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             pipeline.setRoute(wps)
             hasRoute = wps.size >= 2
             val r = surfaceClassifier.classify(wps)
+            val unclassified: Double
             if (r != null) {
                 pipeline.applySurfaces(r.surfaces, r.wayKeys)
-                logger.log("SURF ", "Fondo applicato ai segmenti (${if (r.complete) "completo" else "parziale"})")
-            } else logger.log("SURF ", "Fondo non classificabile: UNKNOWN")
+                unclassified = r.surfaces.count { it == Surface.UNKNOWN } * 100.0 / r.surfaces.size.coerceAtLeast(1)
+                surfaceComplete = r.complete
+                logger.log("SURF ", "Fondo applicato ai segmenti: ${if (r.complete) "completo" else "PARZIALE (offline)"}, " +
+                    "${"%.1f".format(unclassified)} % dei waypoint senza classe")
+            } else {
+                unclassified = 100.0
+                surfaceComplete = null
+                logger.log("SURF ", "Fondo NON classificabile (niente mappe, niente rete, niente cache): tutta la route UNKNOWN, Crr 0,012")
+            }
+            routeUnclassifiedPct = unclassified
+            synchronized(lock) { ride?.let { it.routeUnclassifiedPct = unclassified; it.surfaceComplete = surfaceComplete } }
         }
     }
 
@@ -314,6 +343,14 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             if (rideState !is RideState.Recording) continue
             val r = synchronized(lock) { ride } ?: continue
             val v = speedMs; val g = gradePct
+            // Long standstill seen from the speed, for riders with the auto-pause off
+            if (v < RideRecord.MOVING_MS) {
+                if (stoppedSinceMs == 0L) stoppedSinceMs = now
+            } else if (stoppedSinceMs > 0L) {
+                val stopMs = now - stoppedSinceMs
+                stoppedSinceMs = 0L
+                if (stopMs >= LONG_STOP_MS) askAfterStop("fermo ${stopMs / 60_000} min dal GPS")
+            }
             val surface = currentSurface()
             synchronized(lock) {
                 r.tick(v, g, surface, dt, energy, temperatureC)

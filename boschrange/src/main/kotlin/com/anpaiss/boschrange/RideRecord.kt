@@ -40,9 +40,14 @@ class RideRecord(
     var routeAscentM: Double = -1.0
     /** The Karoo's own ASCENT_REMAINING at ride start. */
     var karooAscentRemainingAtStartM: Double = -1.0
+    /** Share of the route waypoints with no surface class after the classification at load; -1 = no route. */
+    var routeUnclassifiedPct: Double = -1.0
+    /** Classifier verdict at load: true = every part of the route answered, false = partial (offline), null = no route or no answer at all. */
+    var surfaceComplete: Boolean? = null
 
     var startPct: Int = 100
-    var startAssumed: Boolean = true         // true = popup skipped, 100 % by default
+    /** true until the rider presses SET on the start popup: a skipped or timed-out popup leaves the 100 % default, which is not a measurement. */
+    var startAssumed: Boolean = true
     var arrivalPct: Int? = null
     var condition: Condition? = null
     val manualUpdates = mutableListOf<ManualUpdate>()
@@ -66,14 +71,18 @@ class RideRecord(
     var anchorPct: Double = 100.0
     var anchorWhMech: Double = 0.0
 
-    // To fill by hand after the ride, from the Bosch Flow app
+    // Calibration phase only (first 5-10 rides): read from the Flow summary screenshot
+    // Andrea sends and written into the JSON on the PC; null when not available.
     var flowRiderSharePct: Double? = null
     var flowKmByMode: Map<String, Double>? = null
     var notes: String = ""
 
     val temperatureC: Double? get() = if (temperatureN > 0) temperatureSum / temperatureN else null
     val whEstimated: Double get() = whMech * sUsed
-    val whReal: Double? get() = arrivalPct?.let { (startPct - it) / 100.0 * capacityWh }
+    /** Battery actually spent, only when both ends were entered by the rider. */
+    val whReal: Double? get() = if (startAssumed) null else arrivalPct?.let { (startPct - it) / 100.0 * capacityWh }
+    /** Start confirmed with SET and arrival entered: the only rides the regression of s may use. */
+    val validForRegression: Boolean get() = !startAssumed && arrivalPct != null
     val distanceKm: Double get() = distanceM / 1000.0
 
     /** Battery % the model believes now: anchor minus what was spent since the anchor. */
@@ -111,11 +120,14 @@ class RideRecord(
         put("route_distance_m", r0(routeDistanceM))
         put("route_ascent_m", r0(routeAscentM))
         put("karoo_ascent_remaining_at_start_m", r0(karooAscentRemainingAtStartM))
+        put("route_unclassified_pct", r1(routeUnclassifiedPct))
+        put("surface_complete", surfaceComplete ?: JSONObject.NULL)
         put("capacity_wh", capacityWh)
         put("s_used", sUsed)
         put("start_pct", startPct)
         put("start_assumed", startAssumed)
         put("arrival_pct", arrivalPct ?: JSONObject.NULL)
+        put("valid_for_regression", validForRegression)
         put("condition", condition?.name ?: JSONObject.NULL)
         put("manual_updates", JSONArray().apply { manualUpdates.forEach { put(it.toJson()) } })
         put("distance_km", r1(distanceKm))
@@ -159,6 +171,8 @@ class RideRecord(
             r.routeDistanceM = o.optDouble("route_distance_m", -1.0)
             r.routeAscentM = o.optDouble("route_ascent_m", -1.0)
             r.karooAscentRemainingAtStartM = o.optDouble("karoo_ascent_remaining_at_start_m", -1.0)
+            r.routeUnclassifiedPct = o.optDouble("route_unclassified_pct", -1.0)
+            r.surfaceComplete = if (o.isNull("surface_complete")) null else o.getBoolean("surface_complete")
             r.startPct = o.optInt("start_pct", 100)
             r.startAssumed = o.optBoolean("start_assumed", true)
             r.arrivalPct = if (o.isNull("arrival_pct")) null else o.getInt("arrival_pct")

@@ -45,13 +45,16 @@ class EnergyModel(riderKg: Double) {
         private const val AIR_DENSITY = 1.225
         private const val G           = 9.81
 
-        /** Rolling resistance per surface class, same table as PhysicsSpeedModel. */
+        /** Rolling resistance per surface class, as PhysicsSpeedModel except UNKNOWN. */
         fun crrFor(surface: Surface): Double = when (surface) {
             Surface.PAVED   -> 0.005
             Surface.GRAVEL  -> 0.012
             Surface.TRAIL   -> 0.020
             Surface.GNARLY  -> 0.035
-            Surface.UNKNOWN -> 0.006
+            // No class (no maps, no network, route not classified): the middle of
+            // the usual gravel mix, never silent: the history records the
+            // unclassified share of the route and the km ridden as UNKNOWN.
+            Surface.UNKNOWN -> 0.012
         }
     }
 }
