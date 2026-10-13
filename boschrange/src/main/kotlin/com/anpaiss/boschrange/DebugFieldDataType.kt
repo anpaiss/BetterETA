@@ -81,7 +81,10 @@ class DebugFieldDataType(
     companion object {
         private const val REDRAW_THROTTLE_MS = 5_000L
         private const val FULL_PAGE_MIN_PX = 500
-        private const val ROWS = 13
+        private const val HEADER_PX = 40f           // "BOSCHRANGE DEBUG" line, 12 sp
+        private const val ROW_PITCH_PER_SP = 1.45f  // measured: 19 sp rows are 53 px apart, 16 sp rows 43 px
+        private const val CHAR_WIDTH_PER_SP = 0.5f  // measured: ~0.46 x density x sp per character, rounded up
+        private const val ROWS = 13   // 12 used during a ride
         private val KEY_IDS = intArrayOf(R.id.tv_k1, R.id.tv_k2, R.id.tv_k3, R.id.tv_k4, R.id.tv_k5, R.id.tv_k6, R.id.tv_k7, R.id.tv_k8, R.id.tv_k9, R.id.tv_k10, R.id.tv_k11, R.id.tv_k12, R.id.tv_k13)
         private val VALUE_IDS = intArrayOf(R.id.tv_v1, R.id.tv_v2, R.id.tv_v3, R.id.tv_v4, R.id.tv_v5, R.id.tv_v6, R.id.tv_v7, R.id.tv_v8, R.id.tv_v9, R.id.tv_v10, R.id.tv_v11, R.id.tv_v12, R.id.tv_v13)
         private val SURFACE_SHORT = mapOf(Surface.PAVED to "pav", Surface.GRAVEL to "grv", Surface.TRAIL to "trl",
@@ -104,9 +107,9 @@ class DebugFieldDataType(
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val fullPage = config.viewSize.second >= FULL_PAGE_MIN_PX
-        // full page: 11 rows of 16 sp (43 px each) plus the 44 sp number fit the ~610 px below the status bar
-        val bigSp = if (fullPage) 44f else 30f
-        val rowSp = if (fullPage) 16f else 12f
+        val heightPx = config.viewSize.second            // full page on the Karoo 3: 478 x 642 px, density 1.875
+        val widthPx = config.viewSize.first - 16 * context.resources.displayMetrics.density   // minus the 8 dp paddings
+        val density = context.resources.displayMetrics.density
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             state.map { render(it) }
@@ -114,6 +117,16 @@ class DebugFieldDataType(
                 .whileVisible(visibleDataTypeIds, dataTypeId, config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { page ->
+                    // One size for all rows: the largest at which every row fits the width and all rows fit the
+                    // height under a 44 sp number; the number then grows (up to 72 sp) into what is left.
+                    val n = page.rows.size.coerceAtLeast(1)
+                    val minBigSp = if (fullPage) 44f else 30f
+                    val availPx = heightPx - HEADER_PX - minBigSp * density * 1.2f - 10f
+                    val rowSpByHeight = (availPx / n / (density * ROW_PITCH_PER_SP)).toInt()
+                    val rowSpByWidth = page.rows.minOf { (k, v) -> (widthPx / ((k.length + v.length + 2) * density * CHAR_WIDTH_PER_SP)).toInt() }
+                    val rowSp = minOf(rowSpByHeight, rowSpByWidth).coerceIn(12, 30).toFloat()
+                    val leftPx = heightPx - HEADER_PX - 10f - n * rowSp * density * ROW_PITCH_PER_SP
+                    val bigSp = (leftPx / (density * 1.2f)).coerceIn(minBigSp, if (fullPage) 72f else 30f)
                     val views = RemoteViews(context.packageName, R.layout.view_debug)
                     views.setTextViewText(R.id.tv_big, page.big)
                     views.setTextViewTextSize(R.id.tv_big, TypedValue.COMPLEX_UNIT_SP, bigSp)
@@ -139,33 +152,35 @@ class DebugFieldDataType(
             rows += "start" to "%d%% %s%s".format(s.startPct, if (s.startAssumed) "? unconfirmed" else "\u2713", s.condition?.let { " $it" } ?: "")
             rows += "spent" to "%.0f Wh (%.0f mech)".format(s.whEstimated, s.whMech)
             rows += "s / cap" to "%.2f / %.0f Wh".format(s.sUsed, s.capacityWh)
-            rows += "last upd" to if (s.manualUpdates > 0) "%d%% at %.1f km (%d)".format(s.lastUpdatePct, s.lastUpdateKm, s.manualUpdates) else "-"
-            rows += "ride" to "%.1f km  D+ %s m  %s".format(s.distanceKm, m(s.ascentKarooM), hm(s.movingS))
+            rows += "last upd" to if (s.manualUpdates > 0) "%d%% @ %.1f km".format(s.lastUpdatePct, s.lastUpdateKm) else "-"
+            rows += "ride" to "%.1f km D+%s %s".format(s.distanceKm, m(s.ascentKarooM), hm(s.movingS))
         } else {
             big = "no ride"
             rows += "s / cap" to "%.2f / %.0f Wh".format(s.sUsed, s.capacityWh)
         }
         if (s.hasRoute) {
-            rows += "route" to "%.1f km  D+ %s m".format(s.routeKm, m(s.routeAscentM))
-            rows += "left" to "%s km  D+ %s m".format(if (s.karooDistToDestKm >= 0) "%.1f".format(s.karooDistToDestKm) else "-", m(s.karooAscentRemM))
+            rows += "route" to "%.1f km D+%s m".format(s.routeKm, m(s.routeAscentM))
+            rows += "left" to "%s km D+%s m".format(if (s.karooDistToDestKm >= 0) "%.1f".format(s.karooDistToDestKm) else "-", m(s.karooAscentRemM))
             rows += "surface" to surfaceValue(s)
             s.routeSurfaceKm?.let { km ->
                 val tot = km.sum().coerceAtLeast(0.001)
-                rows += "mix %" to Surface.entries.filter { km[it.ordinal] > 0 }
+                rows += "mix %" to Surface.entries.sortedByDescending { km[it.ordinal] }
+                    .filter { Math.round(km[it.ordinal] / tot * 100) >= 1 }.take(3)
                     .joinToString(" ") { "${SURFACE_SHORT[it]}${Math.round(km[it.ordinal] / tot * 100)}" }
             }
         } else {
             rows += "route" to "none"
         }
-        if (s.rideOpen) rows += "Flow shots" to "${tick(s.flowShotStart)} start ${tick(s.flowShotMid)} mid ${tick(s.flowShotEnd)} end"
-        rows += "history" to "%d rides, %d valid, Flow %d/%d".format(s.historyRides, s.historyValid, s.historyComparable, FlowComparison.MIN_RIDES)
+        if (s.rideOpen) rows += "Flow" to "${tick(s.flowShotStart)} start ${tick(s.flowShotMid)} mid ${tick(s.flowShotEnd)} end"
+        rows += "history" to "%d / %d valid".format(s.historyRides, s.historyValid)
+        rows += "vs Flow" to "%d/%d rides".format(s.historyComparable, FlowComparison.MIN_RIDES)
         return Page(big, rows)
     }
 
     private fun surfaceValue(s: DebugState): String = when {
         s.routeUnclassifiedPct < 0.0   -> "classifying\u2026"
         s.surfaceComplete == null      -> "NOT classified"
-        else -> "%s, %.0f%% unk".format(if (s.surfaceComplete) "classified" else "partial", s.routeUnclassifiedPct)
+        else -> "%s %.0f%% unk".format(if (s.surfaceComplete) "ok" else "partial", s.routeUnclassifiedPct)
     }
 
     private fun m(v: Double) = if (v >= 0) "%.0f".format(v) else "-"
