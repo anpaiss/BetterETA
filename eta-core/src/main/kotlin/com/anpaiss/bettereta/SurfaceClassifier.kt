@@ -27,7 +27,7 @@ import kotlin.math.sqrt
  */
 class SurfaceClassifier(
     context: Context,
-    private val logger: BetterEtaLogger,
+    private val logger: RideLogger,
     private val offlineMaps: MapsforgeSurfaceSource? = null,
 ) {
 

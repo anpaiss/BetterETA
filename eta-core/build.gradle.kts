@@ -5,6 +5,8 @@
 // preferences, no logging: those stay in each app. Extracted from app/ on
 // 2026-10-13 as a pure move (same package `com.anpaiss.bettereta`, same
 // sources); only the two functions the app calls lost their `internal`.
+// SurfaceClassifier and MapsforgeSurfaceSource followed the same day, with
+// the app logger behind the RideLogger interface.
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -26,6 +28,7 @@ kotlin {
 dependencies {
     implementation(libs.hammerhead.karoo.ext)       // RouteMetrics reads the Karoo's climb list
     implementation(libs.kotlinx.coroutines.android) // Mutex in SegmentPipeline, Flow helpers in Extensions.kt
+    implementation(libs.mapsforge.map.reader)       // MapsforgeSurfaceSource: surface from the Karoo offline maps
 
     testImplementation(libs.junit)
 }

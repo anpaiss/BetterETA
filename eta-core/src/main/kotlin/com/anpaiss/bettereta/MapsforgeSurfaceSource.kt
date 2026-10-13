@@ -25,7 +25,7 @@ import java.io.File
  */
 class MapsforgeSurfaceSource(
     private val context: Context,
-    private val logger: BetterEtaLogger,
+    private val logger: RideLogger,
     private val mapsDir: File = File(Environment.getExternalStorageDirectory(), "offline/maps"),
 ) {
     class Fetch(val ways: List<OsmWay>, val tiles: Int, val files: Int, val millis: Long, val tagKeys: Set<String> = emptySet()) {

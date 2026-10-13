@@ -27,7 +27,7 @@ import java.util.Locale
  * `adb logcat -s BetterEta`; se la scrittura su file fallisce, l'errore finisce
  * su Logcat invece di sparire in silenzio.
  */
-class BetterEtaLogger(context: Context, announce: Boolean = true) {
+class BetterEtaLogger(context: Context, announce: Boolean = true) : RideLogger {
 
     private val file: File
     private val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
@@ -62,7 +62,7 @@ class BetterEtaLogger(context: Context, announce: Boolean = true) {
 
     /** Scrive una riga timestampata. Thread-safe. */
     @Synchronized
-    fun log(tag: String, message: String) {
+    override fun log(tag: String, message: String) {
         Log.d(LOGCAT_TAG, "[${tag.trim()}] $message")
         runCatching {
             if (file.length() > MAX_SIZE_BYTES) rotate()
@@ -78,7 +78,7 @@ class BetterEtaLogger(context: Context, announce: Boolean = true) {
     }
 
     /** Come [log], ma accoda anche lo stacktrace dell'eccezione. */
-    fun logError(tag: String, message: String, t: Throwable) {
+    override fun logError(tag: String, message: String, t: Throwable) {
         log(tag, "$message: ${t::class.simpleName}: ${t.message}")
         t.stackTraceToString().lineSequence()
             .filter { it.isNotBlank() }

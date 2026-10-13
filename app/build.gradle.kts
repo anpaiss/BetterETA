@@ -52,6 +52,12 @@ android {
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
+
+    testOptions {
+        // SurfaceReplayTest drives the surface classifier with a stub Context
+        // (android.jar methods return defaults instead of throwing).
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 // Karoo extension manifest: the JSON the Karoo fetches from MANIFEST_URL (see
