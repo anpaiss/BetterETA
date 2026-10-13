@@ -99,9 +99,10 @@ class RideRecord(
     /** Battery % the model believes now: anchor minus what was spent since the anchor. */
     fun estimatedPct(): Double = anchorPct - (whMech - anchorWhMech) * sUsed / capacityWh * 100.0
 
+    /** The % read at the start: the anchor goes back to km 0 even when SET comes minutes later. */
     fun setStart(pct: Int, assumed: Boolean) {
         startPct = pct; startAssumed = assumed
-        anchorPct = pct.toDouble(); anchorWhMech = whMech
+        anchorPct = pct.toDouble(); anchorWhMech = 0.0
     }
 
     fun anchor(pct: Int, nowMs: Long) {

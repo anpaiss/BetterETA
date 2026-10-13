@@ -95,7 +95,12 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
 
     companion object {
         private const val TICK_MS              = 5_000L
-        private const val START_POPUP_DELAY_MS = 30_000L
+        // Popups never at the same time as BetterETA's MTA popup (same overlay, same
+        // place on the screen): the MTA comes 10-210 s after the start (it waits for a
+        // located ETA) and stays 45 s, so the start popup comes at 4.5 min; after a
+        // stop of 5+ min the MTA is re-proposed at once, so ours waits 60 s.
+        private const val START_POPUP_DELAY_MS = 270_000L
+        private const val STOP_POPUP_DELAY_MS  = 60_000L
         private const val LONG_STOP_MS         = 5 * 60_000L
         private const val STOP_POPUP_DEDUP_MS  = 2 * 60_000L
         private const val SAVE_EVERY_MS        = 60_000L
@@ -246,11 +251,15 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         if (now - lastStopPopupMs < STOP_POPUP_DEDUP_MS) return
         val r = synchronized(lock) { ride } ?: return
         lastStopPopupMs = now
-        logger.log("RIDE ", "Ripresa ($reason): chiedo la % attuale")
-        askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false,
+        logger.log("RIDE ", "Ripresa ($reason): chiedo la % attuale fra ${STOP_POPUP_DELAY_MS / 1000} s")
+        scope.launch {
+            delay(STOP_POPUP_DELAY_MS)
+            if (rideState !is RideState.Recording || synchronized(lock) { ride } !== r) return@launch
+            askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false,
             reminder = getString(R.string.reminder_flow_mid),
             onReminderDone = { flowShot(r) { it.flowShotMidMs = System.currentTimeMillis(); it.flowShotMidKm = it.distanceKm } }) { pct, _ ->
-            manualUpdate(pct)
+                manualUpdate(pct)
+            }
         }
     }
 
@@ -337,13 +346,17 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, reminder, onReminderDone))
     }
 
-    /** Three rising tones, boschRange's own: PoiAhead uses two equal 800 Hz beeps, the Karoo its own alerts. */
+    /**
+     * boschRange's own sound: two falling pairs (1200→900, twice). BetterETA's MTA
+     * popup is three rising notes (600/800/1000), PoiAhead two equal 800 Hz beeps.
+     */
     fun playPopupSound() {
         runCatching {
             karooSystem.dispatch(PlayBeepPattern(listOf(
-                PlayBeepPattern.Tone(600, 150), PlayBeepPattern.Tone(null, 60),
-                PlayBeepPattern.Tone(900, 150), PlayBeepPattern.Tone(null, 60),
-                PlayBeepPattern.Tone(1200, 250),
+                PlayBeepPattern.Tone(1200, 120), PlayBeepPattern.Tone(null, 40),
+                PlayBeepPattern.Tone(900, 160), PlayBeepPattern.Tone(null, 160),
+                PlayBeepPattern.Tone(1200, 120), PlayBeepPattern.Tone(null, 40),
+                PlayBeepPattern.Tone(900, 160),
             )))
         }.onFailure { logger.logError("POPUP", "Suono popup fallito", it) }
     }
