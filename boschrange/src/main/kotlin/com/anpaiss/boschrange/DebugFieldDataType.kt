@@ -67,9 +67,10 @@ data class DebugState(
  * Provisional, text-only data field for the test rides (13/10): estimated
  * battery now (start % minus the integrated energy), Wh spent, s, ride and
  * route figures, surface classification and composition, the Flow screenshot
- * checklist and the history counts. No arrival prediction: that is step 3.
- * "boschRange Debug" in the BOSCHRANGE group of the Karoo field picker. Text
- * sizes follow the slot: a full page gets the large set.
+ * checklist and the history counts, one item per row over the whole page. No
+ * arrival prediction: that is step 3. "boschRange Debug" in the BOSCHRANGE
+ * group of the Karoo field picker. Text sizes follow the slot: a full page
+ * gets the large set.
  */
 class DebugFieldDataType(
     extension: String,
@@ -80,13 +81,15 @@ class DebugFieldDataType(
     companion object {
         private const val REDRAW_THROTTLE_MS = 5_000L
         private const val FULL_PAGE_MIN_PX = 500
-        private val LINE_IDS = intArrayOf(R.id.tv_l1, R.id.tv_l2, R.id.tv_l3, R.id.tv_l4, R.id.tv_l5,
-            R.id.tv_l6, R.id.tv_l7, R.id.tv_l8, R.id.tv_l9, R.id.tv_l10)
+        private const val ROWS = 13
+        private val KEY_IDS = intArrayOf(R.id.tv_k1, R.id.tv_k2, R.id.tv_k3, R.id.tv_k4, R.id.tv_k5, R.id.tv_k6, R.id.tv_k7, R.id.tv_k8, R.id.tv_k9, R.id.tv_k10, R.id.tv_k11, R.id.tv_k12, R.id.tv_k13)
+        private val VALUE_IDS = intArrayOf(R.id.tv_v1, R.id.tv_v2, R.id.tv_v3, R.id.tv_v4, R.id.tv_v5, R.id.tv_v6, R.id.tv_v7, R.id.tv_v8, R.id.tv_v9, R.id.tv_v10, R.id.tv_v11, R.id.tv_v12, R.id.tv_v13)
         private val SURFACE_SHORT = mapOf(Surface.PAVED to "pav", Surface.GRAVEL to "grv", Surface.TRAIL to "trl",
             Surface.GNARLY to "gnr", Surface.UNKNOWN to "unk")
     }
 
-    private data class Lines(val big: String, val lines: List<String>)
+    /** The big number and the label/value rows, one item per row. */
+    private data class Page(val big: String, val rows: List<Pair<String, String>>)
 
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -101,21 +104,25 @@ class DebugFieldDataType(
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         val fullPage = config.viewSize.second >= FULL_PAGE_MIN_PX
-        val bigSp = if (fullPage) 64f else 34f
-        val lineSp = if (fullPage) 19f else 13f
+        // full page: 11 rows of 16 sp (43 px each) plus the 44 sp number fit the ~610 px below the status bar
+        val bigSp = if (fullPage) 44f else 30f
+        val rowSp = if (fullPage) 16f else 12f
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             state.map { render(it) }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { l ->
+                .collect { page ->
                     val views = RemoteViews(context.packageName, R.layout.view_debug)
-                    views.setTextViewText(R.id.tv_big, l.big)
+                    views.setTextViewText(R.id.tv_big, page.big)
                     views.setTextViewTextSize(R.id.tv_big, TypedValue.COMPLEX_UNIT_SP, bigSp)
-                    LINE_IDS.forEachIndexed { i, id ->
-                        views.setTextViewText(id, l.lines.getOrNull(i) ?: "")
-                        views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, lineSp)
+                    for (i in 0 until ROWS) {
+                        val (k, v) = page.rows.getOrNull(i) ?: ("" to "")
+                        views.setTextViewText(KEY_IDS[i], k)
+                        views.setTextViewText(VALUE_IDS[i], v)
+                        views.setTextViewTextSize(KEY_IDS[i], TypedValue.COMPLEX_UNIT_SP, rowSp)
+                        views.setTextViewTextSize(VALUE_IDS[i], TypedValue.COMPLEX_UNIT_SP, rowSp)
                     }
                     emitter.updateView(views)
                 }
@@ -123,45 +130,42 @@ class DebugFieldDataType(
         emitter.setCancellable { scope.cancel() }
     }
 
-    private fun render(s: DebugState): Lines {
-        if (!s.enabled && !s.rideOpen) return Lines("OFF", listOf("boschRange disabled in the app"))
-        val lines = mutableListOf<String>()
+    private fun render(s: DebugState): Page {
+        if (!s.enabled && !s.rideOpen) return Page("OFF", listOf("boschRange" to "disabled in the app"))
+        val rows = mutableListOf<Pair<String, String>>()
         val big: String
         if (s.rideOpen) {
             big = "%.0f %%".format(s.estimatedPct)
-            // every line at most ~27 characters: that is what fits a full page at 19 sp
-            lines += "start %d%% %s%s".format(s.startPct, if (s.startAssumed) "?" else "✓",
-                s.condition?.let { "  $it" } ?: "")
-            lines += "%.0f Wh (%.0f mech) s %.2f".format(s.whEstimated, s.whMech, s.sUsed)
-            lines += if (s.manualUpdates > 0) "upd %d: %d%% at %.1f km".format(s.manualUpdates, s.lastUpdatePct, s.lastUpdateKm)
-                     else "no upd  cap %.0f Wh".format(s.capacityWh)
-            lines += "%.1f km D+%s %s%s".format(s.distanceKm, m(s.ascentKarooM), hm(s.movingS),
-                s.temperatureC?.let { " %.0f°".format(it) } ?: "")
+            rows += "start" to "%d%% %s%s".format(s.startPct, if (s.startAssumed) "? unconfirmed" else "\u2713", s.condition?.let { " $it" } ?: "")
+            rows += "spent" to "%.0f Wh (%.0f mech)".format(s.whEstimated, s.whMech)
+            rows += "s / cap" to "%.2f / %.0f Wh".format(s.sUsed, s.capacityWh)
+            rows += "last upd" to if (s.manualUpdates > 0) "%d%% at %.1f km (%d)".format(s.lastUpdatePct, s.lastUpdateKm, s.manualUpdates) else "-"
+            rows += "ride" to "%.1f km  D+ %s m  %s".format(s.distanceKm, m(s.ascentKarooM), hm(s.movingS))
         } else {
             big = "no ride"
-            lines += "s %.2f  cap %.0f Wh".format(s.sUsed, s.capacityWh)
+            rows += "s / cap" to "%.2f / %.0f Wh".format(s.sUsed, s.capacityWh)
         }
         if (s.hasRoute) {
-            lines += "route %.1f km D+ %s m".format(s.routeKm, m(s.routeAscentM))
-            lines += "left %s km D+ %s m".format(if (s.karooDistToDestKm >= 0) "%.1f".format(s.karooDistToDestKm) else "-", m(s.karooAscentRemM))
-            lines += surfaceLine(s)
+            rows += "route" to "%.1f km  D+ %s m".format(s.routeKm, m(s.routeAscentM))
+            rows += "left" to "%s km  D+ %s m".format(if (s.karooDistToDestKm >= 0) "%.1f".format(s.karooDistToDestKm) else "-", m(s.karooAscentRemM))
+            rows += "surface" to surfaceValue(s)
             s.routeSurfaceKm?.let { km ->
                 val tot = km.sum().coerceAtLeast(0.001)
-                lines += Surface.entries.filter { km[it.ordinal] > 0 }
-                    .joinToString(" ") { "${SURFACE_SHORT[it]}${Math.round(km[it.ordinal] / tot * 100)}" } + " %"
+                rows += "mix %" to Surface.entries.filter { km[it.ordinal] > 0 }
+                    .joinToString(" ") { "${SURFACE_SHORT[it]}${Math.round(km[it.ordinal] / tot * 100)}" }
             }
         } else {
-            lines += "no route loaded"
+            rows += "route" to "none"
         }
-        if (s.rideOpen) lines += "Flow ${tick(s.flowShotStart)} start ${tick(s.flowShotMid)} mid ${tick(s.flowShotEnd)} end"
-        lines += "hist %d  valid %d  Flow %d/%d".format(s.historyRides, s.historyValid, s.historyComparable, FlowComparison.MIN_RIDES)
-        return Lines(big, lines)
+        if (s.rideOpen) rows += "Flow shots" to "${tick(s.flowShotStart)} start ${tick(s.flowShotMid)} mid ${tick(s.flowShotEnd)} end"
+        rows += "history" to "%d rides, %d valid, Flow %d/%d".format(s.historyRides, s.historyValid, s.historyComparable, FlowComparison.MIN_RIDES)
+        return Page(big, rows)
     }
 
-    private fun surfaceLine(s: DebugState): String = when {
-        s.routeUnclassifiedPct < 0.0   -> "surf classifying…"
-        s.surfaceComplete == null      -> "surf NOT classified"
-        else -> "surf %s %.0f%% unk".format(if (s.surfaceComplete) "classified" else "partial", s.routeUnclassifiedPct)
+    private fun surfaceValue(s: DebugState): String = when {
+        s.routeUnclassifiedPct < 0.0   -> "classifying\u2026"
+        s.surfaceComplete == null      -> "NOT classified"
+        else -> "%s, %.0f%% unk".format(if (s.surfaceComplete) "classified" else "partial", s.routeUnclassifiedPct)
     }
 
     private fun m(v: Double) = if (v >= 0) "%.0f".format(v) else "-"

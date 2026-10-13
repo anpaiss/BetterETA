@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Provisional debug field: one big number and up to ten text lines. Text sizes
-     are set from code (full page vs half page). -->
+<!-- Provisional debug field: one big number and 13 label/value rows, one item
+     per row over the whole page. Text sizes are set from code (full vs half page). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -27,14 +27,56 @@
         android:includeFontPadding="false"
         android:maxLines="1" />
 
-    <TextView android:id="@+id/tv_l1" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_text" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l2" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_text" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l3" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_text" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l4" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_text" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l5" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_muted" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l6" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_muted" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l7" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_muted" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l8" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_muted" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l9" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_text" android:maxLines="1" />
-    <TextView android:id="@+id/tv_l10" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:textColor="@color/page_muted" android:maxLines="1" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v1" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v2" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v3" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v4" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v5" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v6" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v7" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k8" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v8" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k9" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v9" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k10" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v10" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k11" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v11" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k12" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v12" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="1dp">
+        <TextView android:id="@+id/tv_k13" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/page_muted" android:maxLines="1" />
+        <TextView android:id="@+id/tv_v13" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:gravity="end" android:textColor="@color/page_text" android:maxLines="1" />
+    </LinearLayout>
 </LinearLayout>
