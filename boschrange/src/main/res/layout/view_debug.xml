@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Provisional debug field (step 2): three text lines, fits a half-page or full-page slot. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/transparent"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="BOSCHRANGE DEBUG"
+        android:textColor="@color/page_muted"
+        android:textSize="12sp"
+        android:letterSpacing="0.1" />
+
+    <TextView
+        android:id="@+id/tv_debug_1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/page_text"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/tv_debug_2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/page_text"
+        android:textSize="16sp"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/tv_debug_3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/page_muted"
+        android:textSize="16sp"
+        android:maxLines="1" />
+</LinearLayout>

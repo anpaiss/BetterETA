@@ -3,4 +3,7 @@
     <!-- InRideAlert fallback when the overlay permission is missing: white on dark red (5.0:1) -->
     <color name="alert_bg">#D32F2F</color>
     <color name="alert_text">#FFFFFF</color>
+    <!-- Data field text: the Karoo draws fields on its own background (day white / night black) -->
+    <color name="page_text">#000000</color>
+    <color name="page_muted">#666666</color>
 </resources>

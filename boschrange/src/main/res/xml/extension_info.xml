@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- No data types yet (step 2: history and popups only). The compact field and
-     the full page come with step 3. -->
+<!-- Step 2: only the provisional debug field. The compact field and the full
+     page come with step 3. -->
 <ExtensionInfo
     displayName="@string/extension_name"
     icon="@drawable/ic_launcher"
     id="bosch-range"
-    scansDevices="false" />
+    scansDevices="false">
+
+    <DataType
+        typeId="debug"
+        displayName="@string/debug_field_name"
+        description="@string/debug_field_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+</ExtensionInfo>

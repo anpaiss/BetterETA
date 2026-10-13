@@ -12,6 +12,9 @@
     <string name="condition_wet">WET</string>
     <string name="condition_mud">MUD</string>
 
+    <string name="debug_field_name">boschRange Debug</string>
+    <string name="debug_field_desc">Test rides only: estimated battery now, Wh spent since the start, s in use, surface classification state</string>
+
     <string name="alert_overlay_title">boschRange</string>
     <string name="alert_overlay_text">Grant the overlay permission in the app to enter the battery %</string>
 </resources>

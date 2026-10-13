@@ -10,6 +10,7 @@ import com.anpaiss.bettereta.interpolateElevations
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.DataTypeImpl
 import io.hammerhead.karooext.extension.KarooExtension
+import io.hammerhead.karooext.models.ActiveRidePage
 import io.hammerhead.karooext.models.DataType
 import io.hammerhead.karooext.models.InRideAlert
 import io.hammerhead.karooext.models.OnNavigationState
@@ -23,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -58,6 +60,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private var tickerJob: Job? = null
     private var startPopupJob: Job? = null
 
+    private val debugState = MutableStateFlow(DebugState())
+    private val visibleDataTypeIds = MutableStateFlow<Set<String>?>(null)
     private val lock = Any()
     private var ride: RideRecord? = null              // guarded by lock
     @Volatile private var rideState: RideState = RideState.Idle
@@ -96,7 +100,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         @Volatile var instance: BoschRangeExtension? = null
     }
 
-    override val types: List<DataTypeImpl> get() = emptyList()
+    override val types: List<DataTypeImpl> by lazy { listOf(DebugFieldDataType(extension, debugState, visibleDataTypeIds)) }
 
     override fun onCreate() {
         super.onCreate()
@@ -135,6 +139,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         karooSystem = KarooSystemService(applicationContext)
         karooSystem.connect { _ ->
             consumerIds += karooSystem.addConsumer(RideState.Params, { _ -> }, {}) { state: RideState -> onRideState(state) }
+            consumerIds += karooSystem.addConsumer(ActiveRidePage.Params, { _ -> }, {}) { ev: ActiveRidePage ->
+                visibleDataTypeIds.value = ev.page.elements.map { it.dataTypeId }.toSet()
+            }
             consumerIds += karooSystem.addConsumer(OnNavigationState.Params, { _ -> }, {}) { ev: OnNavigationState -> onNavigation(ev) }
             consumerIds += karooSystem.addConsumer(UserProfile.Params, { _ -> }, {}) { p: UserProfile ->
                 val kg = p.weight.toDouble()
@@ -196,6 +203,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         r.setStart(100, assumed = true)   // stays "assumed" until SET on the popup
         sampleLog.ride(r)
         saveCurrent()
+        publishDebug()
         logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, route '${routeName}' D+ ${routeAscentM.toInt()} m")
         startPopupJob?.cancel()
         startPopupJob = scope.launch {
@@ -204,6 +212,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             askBattery(getString(R.string.popup_title_start), 100, withCondition = true) { pct, cond ->
                 synchronized(lock) { ride?.let { it.setStart(pct, assumed = false); if (cond != null) it.condition = cond } }
                 saveCurrent()
+                publishDebug()
             }
         }
     }
@@ -248,6 +257,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         synchronized(lock) { if (ride !== r) return; ride = null }
         r.arrivalPct = arrivalPct
         history.append(r)
+        publishDebug()
         val real = r.whReal
         logger.log("RIDE ", "Giro salvato nello storico: partenza ${r.startPct} %${if (r.startAssumed) " (NON confermata)" else ""}, " +
             "arrivo ${arrivalPct?.toString() ?: "non inserito"}, ${if (r.validForRegression) "valido" else "ESCLUSO"} per la regressione" +
@@ -260,6 +270,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val before = r.estimatedPct()
         r.anchor(pct, System.currentTimeMillis())
         saveCurrent()
+        publishDebug()
         logger.log("RIDE ", "Aggiornamento manuale a ${"%.1f".format(r.distanceKm)} km: inserito $pct %, stima era ${"%.1f".format(before)} %")
     }
 
@@ -317,6 +328,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             }
             routeUnclassifiedPct = unclassified
             synchronized(lock) { ride?.let { it.routeUnclassifiedPct = unclassified; it.surfaceComplete = surfaceComplete } }
+            publishDebug()
         }
     }
 
@@ -357,6 +369,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
                 captureStreams(r)
             }
             sampleLog.record(now, v, g, surface, distanceM, karooDistToDestM, karooAscentRemM, temperatureC, r)
+            publishDebug()
             if (now - lastSaveMs >= SAVE_EVERY_MS) { lastSaveMs = now; saveCurrent() }
         }
     }
@@ -370,6 +383,15 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private fun saveCurrent() {
         val r = synchronized(lock) { ride } ?: return
         runCatching { history.saveCurrent(r) }.onFailure { logger.logError("RIDE ", "Salvataggio giro aperto fallito", it) }
+    }
+
+    /** The debug field reads this; cheap enough to call on every tick and event. */
+    private fun publishDebug() {
+        val r = synchronized(lock) { ride }
+        debugState.value = if (r == null) DebugState(sUsed = prefs.sCoefficient, hasRoute = hasRoute,
+            routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete)
+        else DebugState(true, r.startPct, r.startAssumed, r.estimatedPct(), r.whMech, r.whEstimated, r.sUsed,
+            hasRoute, r.routeUnclassifiedPct, r.surfaceComplete, r.manualUpdates.size)
     }
 
     /** Snapshot for the app screen. */
