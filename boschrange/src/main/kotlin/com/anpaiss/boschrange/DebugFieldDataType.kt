@@ -35,6 +35,9 @@ data class DebugState(
     val routeUnclassifiedPct: Double = -1.0,   // -1 = not classified yet / no route
     val surfaceComplete: Boolean? = null,
     val manualUpdates: Int = 0,
+    val flowShotStart: Boolean = false,
+    val flowShotMid: Boolean = false,
+    val flowShotEnd: Boolean = false,
 )
 
 /**
@@ -52,7 +55,7 @@ class DebugFieldDataType(
 
     companion object { private const val REDRAW_THROTTLE_MS = 5_000L }
 
-    private data class Lines(val l1: String, val l2: String, val l3: String)
+    private data class Lines(val l1: String, val l2: String, val l3: String, val l4: String)
 
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -77,6 +80,7 @@ class DebugFieldDataType(
                     views.setTextViewText(R.id.tv_debug_1, lines.l1)
                     views.setTextViewText(R.id.tv_debug_2, lines.l2)
                     views.setTextViewText(R.id.tv_debug_3, lines.l3)
+                    views.setTextViewText(R.id.tv_debug_4, lines.l4)
                     emitter.updateView(views)
                 }
         }
@@ -84,11 +88,17 @@ class DebugFieldDataType(
     }
 
     private fun render(s: DebugState): Lines {
-        if (!s.rideOpen) return Lines("no ride open", "s %.2f".format(s.sUsed), surfaceLine(s))
+        if (!s.rideOpen) return Lines("no ride open", "s %.2f".format(s.sUsed), surfaceLine(s), "")
         val l1 = "now %.0f %%  (start %d%s)".format(s.estimatedPct, s.startPct, if (s.startAssumed) "?" else "")
         val l2 = "%.0f Wh spent (%.0f mech)  s %.2f%s".format(s.whEstimated, s.whMech, s.sUsed, if (s.manualUpdates > 0) "  upd ${s.manualUpdates}" else "")
-        return Lines(l1, l2, surfaceLine(s))
+        return Lines(l1, l2, surfaceLine(s), shotsLine(s))
     }
+
+    /** Read-only checklist of the Flow screenshots; FATTO on the popups ticks them. */
+    private fun shotsLine(s: DebugState): String =
+        "Flow shots: ${tick(s.flowShotStart)} start  ${tick(s.flowShotMid)} mid  ${tick(s.flowShotEnd)} end"
+
+    private fun tick(done: Boolean) = if (done) "\u2713" else "\u25CB"
 
     private fun surfaceLine(s: DebugState): String = when {
         !s.hasRoute                    -> "surface: no route"

@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity() {
                 if (!Settings.canDrawOverlays(this@MainActivity)) { refresh(); return@setOnClickListener }
                 val popup = BatteryPopupController(applicationContext, BoschRangeLogger(applicationContext, announce = false))
                 window.decorView.postDelayed({
-                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}))
+                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, getString(R.string.reminder_flow_start)))
                 }, 3_000L)
             }
         })

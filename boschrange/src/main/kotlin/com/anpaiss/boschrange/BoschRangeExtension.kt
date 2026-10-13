@@ -136,6 +136,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             }
         }
 
+        writeFlowReport()   // the JSON may have been filled in on the PC and pushed back since the last start
+
         karooSystem = KarooSystemService(applicationContext)
         karooSystem.connect { _ ->
             consumerIds += karooSystem.addConsumer(RideState.Params, { _ -> }, {}) { state: RideState -> onRideState(state) }
@@ -209,7 +211,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         startPopupJob = scope.launch {
             delay(START_POPUP_DELAY_MS)
             if (rideState !is RideState.Recording) return@launch
-            askBattery(getString(R.string.popup_title_start), 100, withCondition = true) { pct, cond ->
+            askBattery(getString(R.string.popup_title_start), 100, withCondition = true,
+                reminder = getString(R.string.reminder_flow_start),
+                onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } }) { pct, cond ->
                 synchronized(lock) { ride?.let { it.setStart(pct, assumed = false); if (cond != null) it.condition = cond } }
                 saveCurrent()
                 publishDebug()
@@ -235,7 +239,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val r = synchronized(lock) { ride } ?: return
         lastStopPopupMs = now
         logger.log("RIDE ", "Ripresa ($reason): chiedo la % attuale")
-        askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false) { pct, _ ->
+        askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false,
+            reminder = getString(R.string.reminder_flow_mid),
+            onReminderDone = { flowShot(r) { it.flowShotMidMs = System.currentTimeMillis(); it.flowShotMidKm = it.distanceKm } }) { pct, _ ->
             manualUpdate(pct)
         }
     }
@@ -249,8 +255,23 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val est = Math.round(r.estimatedPct()).toInt().coerceIn(0, 100)
         logger.log("RIDE ", "Fine giro: ${"%.1f".format(r.distanceKm)} km, D+ Karoo ${r.ascentM.toInt()} m (integrato ${r.ascentIntegratedM.toInt()}), " +
             "Wh meccanici ${"%.0f".format(r.whMech)} → stimati ${"%.0f".format(r.whEstimated)}, stima arrivo $est %")
+        val missing = listOfNotNull(
+            if (r.flowShotStartMs == 0L) getString(R.string.reminder_flow_start) else null,
+            if (r.flowShotMidMs == 0L) getString(R.string.reminder_flow_mid) else null)
+        val reminder = getString(R.string.reminder_flow_end) +
+            if (missing.isEmpty()) "" else "\n" + getString(R.string.reminder_missing, missing.joinToString("; "))
         askBattery(getString(R.string.popup_title_end), est, withCondition = false,
+            reminder = reminder,
+            onReminderDone = { flowShot(r) { it.flowShotEndMs = System.currentTimeMillis() } },
             onSkip = { finish(r, null) }) { pct, _ -> finish(r, pct) }
+    }
+
+    /** FATTO on a popup: marks when/where a Flow screenshot was taken. */
+    private fun flowShot(r: RideRecord, mark: (RideRecord) -> Unit) {
+        mark(r)
+        logger.log("FLOW ", "Screenshot Flow segnato a ${"%.1f".format(r.distanceKm)} km")
+        if (synchronized(lock) { ride === r }) saveCurrent()
+        publishDebug()
     }
 
     private fun finish(r: RideRecord, arrivalPct: Int?) {
@@ -262,6 +283,22 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         logger.log("RIDE ", "Giro salvato nello storico: partenza ${r.startPct} %${if (r.startAssumed) " (NON confermata)" else ""}, " +
             "arrivo ${arrivalPct?.toString() ?: "non inserito"}, ${if (r.validForRegression) "valido" else "ESCLUSO"} per la regressione" +
             (real?.let { ", Wh reali ${"%.0f".format(it)} vs stimati ${"%.0f".format(r.whEstimated)}: s reale ${"%.2f".format(it / r.whMech.coerceAtLeast(1.0))}" } ?: ""))
+        writeFlowReport()
+    }
+
+    /** files/flow_comparison_report.txt, rewritten whenever the history holds enough rides compared with Flow. */
+    private fun writeFlowReport() {
+        runCatching {
+            val rides = history.load()
+            val text = FlowComparison.report(rides)
+            val file = java.io.File(history.historyFile.parentFile, "flow_comparison_report.txt")
+            if (text == null) {
+                logger.log("FLOW ", "Confronto con Flow: ${FlowComparison.comparable(rides).size}/${FlowComparison.MIN_RIDES} giri confrontabili, report non ancora generato")
+            } else {
+                file.writeText(text)
+                logger.log("FLOW ", "Report confronto con Flow scritto in ${file.absolutePath}:\n$text")
+            }
+        }.onFailure { logger.logError("FLOW ", "Report confronto con Flow fallito", it) }
     }
 
     /** Called from the popups and from the app (TEST / manual entry). */
@@ -274,7 +311,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         logger.log("RIDE ", "Aggiornamento manuale a ${"%.1f".format(r.distanceKm)} km: inserito $pct %, stima era ${"%.1f".format(before)} %")
     }
 
-    private fun askBattery(title: String, initial: Int, withCondition: Boolean, onSkip: () -> Unit = {}, onSet: (Int, Condition?) -> Unit) {
+    private fun askBattery(title: String, initial: Int, withCondition: Boolean, reminder: String? = null, onReminderDone: () -> Unit = {},
+                           onSkip: () -> Unit = {}, onSet: (Int, Condition?) -> Unit) {
         if (!popup.canShow()) {
             logger.log("POPUP", "Permesso overlay assente: '$title' non chiesto")
             if (!overlayAlertShown) {
@@ -286,7 +324,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             onSkip(); return
         }
         val cond = if (withCondition) (synchronized(lock) { ride?.condition } ?: Condition.DRY) else null
-        popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip))
+        popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, reminder, onReminderDone))
     }
 
     // ── Route ─────────────────────────────────────────────────────────────
@@ -391,7 +429,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         debugState.value = if (r == null) DebugState(sUsed = prefs.sCoefficient, hasRoute = hasRoute,
             routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete)
         else DebugState(true, r.startPct, r.startAssumed, r.estimatedPct(), r.whMech, r.whEstimated, r.sUsed,
-            hasRoute, r.routeUnclassifiedPct, r.surfaceComplete, r.manualUpdates.size)
+            hasRoute, r.routeUnclassifiedPct, r.surfaceComplete, r.manualUpdates.size,
+            r.flowShotStartMs != 0L, r.flowShotMidMs != 0L, r.flowShotEndMs != 0L)
     }
 
     /** Snapshot for the app screen. */

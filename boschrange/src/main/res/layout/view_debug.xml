@@ -44,4 +44,13 @@
         android:textColor="@color/page_muted"
         android:textSize="16sp"
         android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/tv_debug_4"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textColor="@color/page_text"
+        android:textSize="16sp"
+        android:maxLines="1" />
 </LinearLayout>

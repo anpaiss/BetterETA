@@ -36,6 +36,8 @@ class BatteryPopupController(
         val condition: Condition?,          // null = no condition row
         val onSet: (pct: Int, condition: Condition?) -> Unit,
         val onSkip: () -> Unit,
+        val reminder: String? = null,          // extra row "<reminder> [FATTO]"; FATTO does not close the popup
+        val onReminderDone: () -> Unit = {},
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -115,6 +117,36 @@ class BatteryPopupController(
             paintConditions()
         }
 
+        val reminderRow = if (req.reminder == null) null else LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val label = TextView(context).apply {
+                text = req.reminder
+                setTextColor(Color.parseColor("#FFB74D"))
+                textSize = 14f
+                maxLines = 3
+            }
+            val btnDone = Button(context).apply {
+                text = context.getString(R.string.popup_done)
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                background = GradientDrawable().apply { cornerRadius = dp(6f); setColor(Color.parseColor("#1565C0")) }
+                setOnClickListener {
+                    isEnabled = false
+                    text = "\u2713"
+                    label.setTextColor(Color.parseColor("#81C784"))
+                    logger.log("POPUP", "${req.title}: ${req.reminder} → FATTO")
+                    req.onReminderDone()
+                }
+            }
+            val lpLabel = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lpLabel.setMargins(dp(4f).toInt(), dp(6f).toInt(), dp(4f).toInt(), 0)
+            val lpBtn = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lpBtn.setMargins(dp(4f).toInt(), dp(6f).toInt(), dp(4f).toInt(), 0)
+            addView(label, lpLabel)
+            addView(btnDone, lpBtn)
+        }
+
         val btnSet = Button(context).apply {
             text = context.getString(R.string.popup_set)
             setTextColor(Color.WHITE)
@@ -158,6 +190,7 @@ class BatteryPopupController(
             addView(title)
             addView(pickerRow)
             conditionRow?.let { addView(it) }
+            reminderRow?.let { addView(it) }
             addView(buttons)
         }
 

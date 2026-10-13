@@ -75,6 +75,17 @@ class RideRecord(
     // Andrea sends and written into the JSON on the PC; null when not available.
     var flowRiderSharePct: Double? = null
     var flowKmByMode: Map<String, Double>? = null
+    // Flow's own arrival prediction (read from the Flow screenshots) and ours at the same km
+    // (taken from the samples CSV), to compare the two on equal terms: see FlowComparison.
+    var flowPredStartPct: Int? = null      // arrival % Flow predicted when the track was loaded
+    var flowPredMidPct: Int? = null        // arrival % Flow predicted mid-ride, when available
+    var ourPredStartPct: Double? = null    // our arrival prediction at km 0
+    var ourPredMidPct: Double? = null      // our arrival prediction at flowShotMidKm
+    // FATTO on the popups: when and where Andrea took the Flow screenshots, so the
+    // Flow prediction and ours are compared at the same km. 0 = not taken.
+    var flowShotStartMs: Long = 0L; var flowShotStartKm: Double = 0.0
+    var flowShotMidMs: Long = 0L;   var flowShotMidKm: Double = 0.0
+    var flowShotEndMs: Long = 0L
     var notes: String = ""
 
     val temperatureC: Double? get() = if (temperatureN > 0) temperatureSum / temperatureN else null
@@ -146,6 +157,13 @@ class RideRecord(
         put("anchor_wh_mech", r1(anchorWhMech))
         put("flow_rider_share_pct", flowRiderSharePct ?: JSONObject.NULL)
         put("flow_km_by_mode", flowKmByMode?.let { m -> JSONObject().apply { m.forEach { (k, v) -> put(k, v) } } } ?: JSONObject.NULL)
+        put("flow_pred_start_pct", flowPredStartPct ?: JSONObject.NULL)
+        put("flow_pred_mid_pct", flowPredMidPct ?: JSONObject.NULL)
+        put("our_pred_start_pct", ourPredStartPct ?: JSONObject.NULL)
+        put("our_pred_mid_pct", ourPredMidPct ?: JSONObject.NULL)
+        put("flow_shot_start_ms", flowShotStartMs); put("flow_shot_start_km", r1(flowShotStartKm))
+        put("flow_shot_mid_ms", flowShotMidMs);     put("flow_shot_mid_km", r1(flowShotMidKm))
+        put("flow_shot_end_ms", flowShotEndMs)
         put("notes", notes)
     }
 
@@ -192,6 +210,13 @@ class RideRecord(
             r.anchorWhMech = o.optDouble("anchor_wh_mech", 0.0)
             r.flowRiderSharePct = if (o.isNull("flow_rider_share_pct")) null else o.getDouble("flow_rider_share_pct")
             r.flowKmByMode = o.optJSONObject("flow_km_by_mode")?.let { m -> m.keys().asSequence().associateWith { m.getDouble(it) } }
+            r.flowPredStartPct = if (o.isNull("flow_pred_start_pct")) null else o.getInt("flow_pred_start_pct")
+            r.flowPredMidPct = if (o.isNull("flow_pred_mid_pct")) null else o.getInt("flow_pred_mid_pct")
+            r.ourPredStartPct = if (o.isNull("our_pred_start_pct")) null else o.getDouble("our_pred_start_pct")
+            r.ourPredMidPct = if (o.isNull("our_pred_mid_pct")) null else o.getDouble("our_pred_mid_pct")
+            r.flowShotStartMs = o.optLong("flow_shot_start_ms", 0L); r.flowShotStartKm = o.optDouble("flow_shot_start_km", 0.0)
+            r.flowShotMidMs = o.optLong("flow_shot_mid_ms", 0L);     r.flowShotMidKm = o.optDouble("flow_shot_mid_km", 0.0)
+            r.flowShotEndMs = o.optLong("flow_shot_end_ms", 0L)
             r.notes = o.optString("notes", "")
             return r
         }

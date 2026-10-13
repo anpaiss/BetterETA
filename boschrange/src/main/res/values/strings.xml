@@ -11,6 +11,11 @@
     <string name="condition_dry">DRY</string>
     <string name="condition_wet">WET</string>
     <string name="condition_mud">MUD</string>
+    <string name="popup_done">FATTO</string>
+    <string name="reminder_flow_start">Screenshot previsione Flow al via</string>
+    <string name="reminder_flow_mid">Screenshot previsione Flow a metà (facoltativo)</string>
+    <string name="reminder_flow_end">Screenshot riepilogo Flow</string>
+    <string name="reminder_missing">Mancano: %s</string>
 
     <string name="debug_field_name">boschRange Debug</string>
     <string name="debug_field_desc">Test rides only: estimated battery now, Wh spent since the start, s in use, surface classification state</string>
