@@ -86,6 +86,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     @Volatile private var hasRoute = false
     @Volatile private var routeUnclassifiedPct = -1.0
     @Volatile private var surfaceComplete: Boolean? = null
+    @Volatile private var routeSurfaceKm: List<Double>? = null    // per Surface.ordinal, from the classified segments
+    @Volatile private var historyCounts = Triple(0, 0, 0)          // rides, valid, comparable with Flow
     private var lastRoutePolyline = ""
     // Stops seen from the speed stream, independent of the Karoo auto-pause
     @Volatile private var stoppedSinceMs = 0L
@@ -296,6 +298,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private fun writeFlowReport() {
         runCatching {
             val rides = history.load()
+            historyCounts = Triple(rides.size, rides.count { it.validForRegression }, FlowComparison.comparable(rides).size)
             val text = FlowComparison.report(rides)
             val file = java.io.File(history.historyFile.parentFile, "flow_comparison_report.txt")
             if (text == null) {
@@ -383,6 +386,11 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
                 logger.log("SURF ", "Fondo NON classificabile (niente mappe, niente rete, niente cache): tutta la route UNKNOWN, Crr 0,012")
             }
             routeUnclassifiedPct = unclassified
+            routeSurfaceKm = pipeline.remainingSegmentsFrom(0.0).let { segs ->
+                val km = DoubleArray(Surface.entries.size)
+                segs.forEach { km[it.surface.ordinal] += it.distanceM / 1000.0 }
+                km.toList()
+            }
             synchronized(lock) { ride?.let { it.routeUnclassifiedPct = unclassified; it.surfaceComplete = surfaceComplete } }
             publishDebug()
         }
@@ -444,11 +452,20 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     /** The debug field reads this; cheap enough to call on every tick and event. */
     private fun publishDebug() {
         val r = synchronized(lock) { ride }
-        debugState.value = if (r == null) DebugState(sUsed = prefs.sCoefficient, hasRoute = hasRoute,
-            routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete, enabled = prefs.enabled)
-        else DebugState(true, r.startPct, r.startAssumed, r.estimatedPct(), r.whMech, r.whEstimated, r.sUsed,
-            hasRoute, r.routeUnclassifiedPct, r.surfaceComplete, r.manualUpdates.size,
-            r.flowShotStartMs != 0L, r.flowShotMidMs != 0L, r.flowShotEndMs != 0L, prefs.enabled)
+        val (nRides, nValid, nComparable) = historyCounts
+        val base = DebugState(enabled = prefs.enabled, sUsed = prefs.sCoefficient, capacityWh = prefs.capacityWh,
+            hasRoute = hasRoute, routeKm = routeTotalDistM / 1000.0, routeAscentM = routeAscentM,
+            karooDistToDestKm = if (karooDistToDestM >= 0) karooDistToDestM / 1000.0 else -1.0, karooAscentRemM = karooAscentRemM,
+            routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete, routeSurfaceKm = routeSurfaceKm,
+            historyRides = nRides, historyValid = nValid, historyComparable = nComparable)
+        debugState.value = if (r == null) base else base.copy(
+            rideOpen = true, startPct = r.startPct, startAssumed = r.startAssumed, condition = r.condition,
+            estimatedPct = r.estimatedPct(), whMech = r.whMech, whEstimated = r.whEstimated, sUsed = r.sUsed, capacityWh = r.capacityWh,
+            manualUpdates = r.manualUpdates.size,
+            lastUpdateKm = r.manualUpdates.lastOrNull()?.distanceKm ?: -1.0, lastUpdatePct = r.manualUpdates.lastOrNull()?.enteredPct ?: -1,
+            distanceKm = r.distanceKm, ascentKarooM = r.ascentM, movingS = r.movingS, temperatureC = r.temperatureC,
+            routeUnclassifiedPct = r.routeUnclassifiedPct, surfaceComplete = r.surfaceComplete,
+            flowShotStart = r.flowShotStartMs != 0L, flowShotMid = r.flowShotMidMs != 0L, flowShotEnd = r.flowShotEndMs != 0L)
     }
 
     /** Snapshot for the app screen. */
