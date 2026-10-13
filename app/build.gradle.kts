@@ -100,6 +100,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":eta-core"))     // ride models shared with boschRange
     implementation(libs.hammerhead.karoo.ext)
     implementation(libs.mapsforge.map.reader)   // fondo dalle mappe offline del Karoo (file Mapsforge)
     implementation(libs.androidx.core.ktx)

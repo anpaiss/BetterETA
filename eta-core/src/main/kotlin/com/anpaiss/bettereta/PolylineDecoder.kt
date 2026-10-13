@@ -92,7 +92,7 @@ object PolylineDecoder {
  * @param samples  Campioni (distanza dall'inizio, quota) in ordine di distanza.
  * @return         Array di elevazioni interpolate, una per ogni punto di [coords].
  */
-internal fun interpolateElevations(
+fun interpolateElevations(
     coords: List<Pair<Double, Double>>,
     samples: List<Pair<Double, Double>>,
 ): DoubleArray {

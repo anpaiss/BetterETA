@@ -1,6 +1,7 @@
 /.gradle
 /build
 /app/build
+/eta-core/build
 /captures
 local.properties
 *.jks

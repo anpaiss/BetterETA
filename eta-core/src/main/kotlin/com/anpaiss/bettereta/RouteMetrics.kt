@@ -16,7 +16,7 @@ import io.hammerhead.karooext.models.OnNavigationState
  * prorated by the fraction of its length that is left. Returns null when the
  * route carries no climb data, which is different from "no ascent left".
  */
-internal fun remainingClimbsAscentM(
+fun remainingClimbsAscentM(
     climbs: List<OnNavigationState.NavigationState.Climb>,
     posM: Double,
 ): Double? {

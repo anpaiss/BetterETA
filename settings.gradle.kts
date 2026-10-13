@@ -26,3 +26,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BetterETA"
 include(":app")
+include(":eta-core")

@@ -44,13 +44,15 @@ jobs:
           gradle-version: "8.13"
 
       - name: Unit tests and debug APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+        run: gradle :eta-core:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug --no-daemon
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
-          path: app/build/test-results/testDebugUnitTest/
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            eta-core/build/test-results/testDebugUnitTest/
 
       - uses: actions/upload-artifact@v4
         with:
