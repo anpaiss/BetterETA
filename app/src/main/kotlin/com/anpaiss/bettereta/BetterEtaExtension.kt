@@ -617,6 +617,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         gpsGate.reset()
                         freeRideSamples = 0
                         liveRideStartMs = System.currentTimeMillis()
+                        snapshotForNewRide(liveRideStartMs)
                         clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
@@ -1302,6 +1303,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             wayMemory.clear()
             closeWayPass()
             runCatching { importedListFile().delete() }
+            lastRide.delete()   // dopo la ricostruzione la foto di prima del giro non vale piu'
             saveModel()
             importRideHistory(auto = false)
         }
@@ -1336,6 +1338,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             var rides = 0; var accepted = 0; var km = 0.0
             val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
             val liveRideStarts = prefs.rideStartsMs
+            val excludedStarts = prefs.excludedRideStartsMs
             for (f in todo) {
                 if (rideState is RideState.Recording) { logger.log("HIST ", "Import storico interrotto: registrazione avviata"); break }
                 val t0 = System.currentTimeMillis()
@@ -1343,6 +1346,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     .onFailure { logger.logError("HIST ", "FIT ${f.name} non leggibile", it) }
                     .getOrNull()
                 val fitStartMs = records?.firstNotNullOfOrNull { it.timeMs }
+                if (RideHistoryImporter.learnedLive(fitStartMs, excludedStarts)) {
+                    // "Ultimo giro: non contarlo": fuori per sempre, anche dopo una ricostruzione
+                    markImported(f.name)
+                    logger.log("HIST ", "${fmt.format(Date(fitStartMs!!))} ${f.name.take(8)}: saltato, giro escluso (non contarlo)")
+                    continue
+                }
                 if (RideHistoryImporter.learnedLive(fitStartMs, liveRideStarts)) {
                     // Giri 06/09, 12/09 e 13/09: appresi in sella e poi di nuovo dal FIT
                     // all'avvio successivo (campioni doppi, passaggi way a fattore 1)
@@ -1450,6 +1459,81 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         passKey   = 0L
         passDistM = 0.0
         passSec   = 0.0
+    }
+
+    // ── "Ultimo giro: non contarlo" ──────────────────────────────────────
+
+    private val lastRide by lazy { LastRideStore(java.io.File(filesDir, "last_ride")) }
+
+    /**
+     * Prima del primo giro del giorno: foto di modello, fisico, memoria tratti,
+     * storico confronti ed elenco FIT importati (LastRideStore). I giri successivi
+     * dello stesso giorno si aggiungono alla stessa foto. Sul disco c'e' lo stato
+     * dell'ultimo salvataggio, uguale a quello in memoria: fra un giro e l'altro
+     * non si impara (l'import storico salva alla fine).
+     */
+    private fun snapshotForNewRide(startMs: Long) {
+        runCatching {
+            val starts = lastRide.starts()
+            if (starts.isNotEmpty() && RideDay.same(starts.last(), startMs)) {
+                lastRide.addStart(startMs)
+                logger.log("RIDE ", "Foto di prima del giro mantenuta: stesso giorno, ${starts.size + 1} registrazioni")
+            } else {
+                lastRide.take(startMs,
+                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).all,
+                    getSharedPreferences(RESULTS_PREFS, Context.MODE_PRIVATE).all,
+                    wayMemory.serialize(), importedListFile())
+                logger.log("RIDE ", "Foto di modello, memoria tratti e storico prima del giro (per \"non contarlo\")")
+            }
+        }.onFailure { logger.logError("RIDE ", "Foto di prima del giro fallita", it) }
+    }
+
+    /** Starts of the rides the app button would undo, oldest first; empty = nothing to undo. */
+    fun lastRideStarts(): List<Long> = lastRide.starts()
+
+    /**
+     * Rimette la foto: modello, fisico, memoria tratti, storico confronti ed
+     * elenco FIT importati tornano a prima del giro; gli orari di partenza
+     * finiscono nella lista di esclusione, cosi' l'import storico (anche dopo
+     * "Rebuild") salta il FIT per sempre. Torna una riga per la schermata.
+     */
+    fun excludeLastRide(): String {
+        if (rideState is RideState.Recording) return "Not now: a ride is being recorded"
+        if (historyImportRunning) return "Not now: the history import is running"
+        val snap = lastRide.read() ?: return "Nothing to undo"
+        if (snap.starts.isEmpty()) return "Nothing to undo"
+        closeWayPass()
+        restorePrefs(PREFS_NAME, snap.model)
+        restorePrefs(RESULTS_PREFS, snap.results)
+        runCatching { wayMemoryFile().writeText(snap.wayMemory) }
+            .onFailure { logger.logError("RIDE ", "Ripristino memoria tratti fallito", it) }
+        loadWayMemory()
+        runCatching {
+            val list = importedListFile()
+            val imported = snap.importedFits
+            if (imported != null) list.writeText(imported) else list.delete()
+        }.onFailure { logger.logError("RIDE ", "Ripristino elenco FIT fallito", it) }
+        speedModel.reset(); physicsModel.reset()   // loadModel non azzera se la foto era senza modello
+        loadModel()
+        prefs.excludedRideStartsMs = prefs.excludedRideStartsMs + snap.starts
+        lastRide.delete()
+        val fmt = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
+        val when_ = snap.starts.joinToString(", ") { fmt.format(Date(it)) }
+        logger.log("RIDE ", "Giro escluso (non contarlo): $when_ — modello, memoria tratti, storico ed elenco FIT ripristinati a prima del giro")
+        return "Ride of $when_ excluded: model, way memory and history restored"
+    }
+
+    private fun restorePrefs(name: String, values: Map<String, Any>) {
+        getSharedPreferences(name, Context.MODE_PRIVATE).edit().apply {
+            clear()
+            for ((k, v) in values) when (v) {
+                is Int -> putInt(k, v)
+                is Long -> putLong(k, v)
+                is Float -> putFloat(k, v)
+                is Boolean -> putBoolean(k, v)
+                is String -> putString(k, v)
+            }
+        }.commit()
     }
 
     private fun wayMemoryFile() = java.io.File(filesDir, "way_speeds.txt")

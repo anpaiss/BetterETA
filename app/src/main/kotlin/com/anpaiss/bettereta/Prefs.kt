@@ -65,6 +65,11 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putString(KEY_RIDE_STARTS, v.takeLast(RIDE_STARTS_KEPT).joinToString(";")).apply()
 
     /** Mesi di storico FIT da importare; 0 = tutto. */
+    /** Starts (epoch ms) of the rides excluded with "last ride: don't count it": never trimmed, the FIT import skips them for good. */
+    var excludedRideStartsMs: List<Long>
+        get() = sp.getString(KEY_EXCLUDED_STARTS, null).orEmpty().split(';').mapNotNull { it.toLongOrNull() }
+        set(v) = sp.edit().putString(KEY_EXCLUDED_STARTS, v.distinct().joinToString(";")).apply()
+
     var historyMonths: Int
         get() = sp.getInt(KEY_HISTORY_MONTHS, 12)
         set(v) = sp.edit().putInt(KEY_HISTORY_MONTHS, v).apply()
@@ -73,6 +78,7 @@ class Prefs(ctx: Context) {
         private const val NAME = "better_eta_prefs"
         private const val KEY_HISTORY_MONTHS = "history_months"
         private const val KEY_RIDE_STARTS = "ride_starts_ms"
+        private const val KEY_EXCLUDED_STARTS = "excluded_ride_starts_ms"
         private const val RIDE_STARTS_KEPT = 30
         private const val KEY_LAST_FIX_LAT = "last_fix_lat"
         private const val KEY_LAST_FIX_LON = "last_fix_lon"

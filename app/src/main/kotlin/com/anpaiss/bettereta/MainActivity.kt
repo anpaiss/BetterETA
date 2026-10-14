@@ -73,6 +73,21 @@ class MainActivity : AppCompatActivity() {
                 }
                 .show()
         }
+        // "Last ride: don't count it": puts back the photo taken before the first ride of that day
+        findViewById<Button>(R.id.btn_forget_last_ride).setOnClickListener {
+            val ext = BetterEtaExtension.instance ?: return@setOnClickListener
+            val starts = ext.lastRideStarts()
+            if (starts.isEmpty()) return@setOnClickListener
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Don't count the ride of ${lastRideLabel(starts)}?")
+                .setMessage("The speed model, the per-way memory and the comparison history go back to how they were before that ride, and its FIT file will never be imported. This cannot be undone.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Don't count it") { _, _ ->
+                    findViewById<TextView>(R.id.tv_history_status).text = "Ride history: " + ext.excludeLastRide()
+                    renderLastRide()
+                }
+                .show()
+        }
         findViewById<Button>(R.id.btn_import_history).setOnClickListener {
             val ext = BetterEtaExtension.instance
             if (ext == null) {
@@ -214,6 +229,21 @@ class MainActivity : AppCompatActivity() {
             val done = ext.importedFits().size
             "Ride history: $all FIT files in the chosen window, $done examined so far (rides under 10 km are skipped)"
         }
+        renderLastRide()
+    }
+
+    /** "14/10 10:33 + 1 more recording": the rides the button would undo. */
+    private fun lastRideLabel(starts: List<Long>): String {
+        val fmt = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault())
+        return fmt.format(java.util.Date(starts.first())) +
+            if (starts.size > 1) " + ${starts.size - 1} more recording${if (starts.size > 2) "s" else ""}" else ""
+    }
+
+    private fun renderLastRide() {
+        val btn = findViewById<Button>(R.id.btn_forget_last_ride)
+        val starts = BetterEtaExtension.instance?.lastRideStarts().orEmpty()
+        btn.isEnabled = starts.isNotEmpty()
+        btn.text = if (starts.isEmpty()) "Last ride: nothing to undo" else "Last ride ${lastRideLabel(starts)}: don't count it"
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

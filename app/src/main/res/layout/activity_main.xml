@@ -196,6 +196,13 @@
         android:layout_marginTop="4dp"
         android:text="Rebuild model from history (resets learning)" />
 
+    <Button
+        android:id="@+id/btn_forget_last_ride"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Last ride: nothing to undo" />
+
     <!-- Share ride data: the sample CSV stripped of names and dates, for the developer -->
     <TextView
         android:layout_width="match_parent"
