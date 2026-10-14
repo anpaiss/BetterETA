@@ -97,7 +97,6 @@ class MainActivity : AppCompatActivity() {
                 findViewById<TextView>(R.id.tv_history_status).text = "Ride history: import started, see the log (HIST)"
             }
         }
-        findViewById<Button>(R.id.btn_export_share).setOnClickListener { exportShareFile() }
         findViewById<Button>(R.id.btn_grant_storage).setOnClickListener {
             requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE,
                 android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
@@ -107,45 +106,6 @@ class MainActivity : AppCompatActivity() {
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             )
         }
-    }
-
-    /**
-     * Writes better_eta_share.csv next to the sample log: every generation of the
-     * sample CSV (oldest first) through [ShareExport]. Off the main thread, the
-     * files are megabytes. No share intent: the Karoo has no app that can send a
-     * file ("No apps can perform this action", tried 23/09), so the tester copies
-     * it over USB.
-     */
-    private fun shareDir() = getExternalFilesDir(null) ?: filesDir
-
-    private fun exportShareFile() {
-        val status = findViewById<TextView>(R.id.tv_share_status)
-        val dir = shareDir()
-        val sources = listOf("better_eta_samples.old3.csv", "better_eta_samples.old2.csv",
-            "better_eta_samples.old.csv", "better_eta_samples.csv").map { java.io.File(dir, it) }.filter { it.exists() }
-        if (sources.isEmpty()) { status.text = "Share file: no ride data recorded yet"; return }
-        status.text = "Share file: exporting…"
-        Thread {
-            val out = java.io.File(dir, "better_eta_share.csv")
-            val result = runCatching {
-                var rides = 0
-                out.bufferedWriter().use { w ->
-                    val lines = sequence { for (f in sources) f.bufferedReader().useLines { yieldAll(it) } }
-                    var lastRide = ""
-                    for (line in ShareExport.transform(lines)) {
-                        // one ordinal per ride; the Karoo re-emits the route, so markers repeat
-                        if (line.startsWith("# ride")) { val r = line.substringBefore(" name="); if (r != lastRide) { lastRide = r; rides++ } }
-                        w.write(line); w.newLine()
-                    }
-                }
-                rides
-            }
-            runOnUiThread {
-                status.text = result.fold(
-                    { "Share file: $it rides, ${out.length() / 1024} KB\n${out.absolutePath}" },
-                    { "Share file: export failed (${it.message})" })
-            }
-        }.start()
     }
 
     // Stesso pattern del selettore stile di AxsRatio: i campi si ridisegnano
