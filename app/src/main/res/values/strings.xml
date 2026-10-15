@@ -7,7 +7,7 @@
     <string name="eta_master_desc">Full page: arrival time, time to go with its uncertainty, pace vs plan or mandatory arrival time and margin</string>
 
     <string name="eta_absolute_name">ETA (Better)</string>
-    <string name="eta_absolute_desc">Estimated arrival time with elevation-aware correction (Komoot)</string>
+    <string name="eta_absolute_desc">Estimated arrival time from your learned speed per gradient and surface, not a distance / average-speed guess</string>
 
     <string name="eta_remaining_name">Time Remaining (Better)</string>
     <string name="eta_remaining_desc">Estimated time to go, with the uncertainty of the estimate in the label</string>

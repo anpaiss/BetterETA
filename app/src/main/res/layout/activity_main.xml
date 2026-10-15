@@ -24,7 +24,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Elevation-aware ETA for Komoot routes"
+        android:text="ETA that learns how you ride:\ngradient, surface, past rides"
         android:textColor="#888888"
         android:textSize="14sp"
         android:gravity="center"
