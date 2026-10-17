@@ -137,4 +137,41 @@ class EtaEngineTest {
         assertTrue("shadow=${shadow.seconds} before=${before.seconds}", shadow.seconds > before.seconds)
         assertTrue("shadow=${shadow.seconds}", shadow.seconds in 450L..650L)
     }
+
+    @Test
+    fun `memory speed is rescaled with the surface-class factor the pass was saved with`() = runBlocking {
+        // Base matura (non si muove più) su tutti i bucket, asfalto compreso
+        val emas   = listOf(5.75, 5.5, 5.0, 4.0, 3.25, 2.5, 2.1)
+        val counts = List(7) { 50_000 }
+        val model  = AdaptiveSpeedModel().also {
+            it.restore(AdaptiveSpeedModel.Snapshot(5.0, 50_000, emas, counts, pavedEmas = emas, pavedCounts = counts))
+        }
+        // Warm-up del fattore (1 km), poi 400 campioni in piano alla base e 400 al 12 % di
+        // salita al 60 % della base: la classe asfalto media i due, la foglia (asfalto,
+        // 10-16 %) vede solo la salita, quindi i due fattori divergono
+        repeat(650) { model.update(5.0, 0.0, Surface.PAVED) }
+        repeat(400) { model.update(1.5, 12.0, Surface.PAVED) }
+        val fClass = model.dayFactorForSurface(Surface.PAVED)
+        val fLeaf  = model.dayFactorFor(12.0, Surface.PAVED)
+        assertTrue("fClass=$fClass fLeaf=$fLeaf devono differire", kotlin.math.abs(fClass - fLeaf) > 0.02)
+
+        // Un tratto al 12 % (1111 m, +133 m) sulla way 42, in memoria a 3 m/s
+        val pipeline = SegmentPipeline().also {
+            it.setRoute(listOf(RouteWaypoint(45.0000, 9.0, 300.0), RouteWaypoint(45.0100, 9.0, 433.0)))
+            it.applySurfaces(listOf(Surface.PAVED, Surface.PAVED), listOf(42L, 42L))
+        }
+        val memory = WaySpeedMemory().also { it.record(42L, 3.0, 1_000_000L, 1111.0) }
+        val est    = memory.estimate(42L)!!
+        val w      = est.passes / (est.passes + 1.0)
+        val secs   = EtaEngine(model, pipeline, wayMemory = memory).computeRemainingSeconds()
+        val segs   = pipeline.remainingSegments()
+
+        // closeWayPass salva velocità / fattore di classe: in lettura va rimoltiplicata per lo stesso
+        fun expected(f: Double) = segs.sumOf { seg ->
+            seg.distanceM / (w * est.speedMs * f + (1.0 - w) * model.predict(seg.gradePct, seg.surface).speedMs)
+        }
+        assertEquals(expected(fClass), secs.toDouble(), 2.0)
+        assertTrue("col fattore per pendenza sarebbe ${expected(fLeaf)} s, non $secs",
+            kotlin.math.abs(expected(fLeaf) - secs) > 8.0)
+    }
 }

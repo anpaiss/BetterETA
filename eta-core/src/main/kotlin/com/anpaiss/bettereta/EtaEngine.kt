@@ -63,11 +63,14 @@ class EtaEngine(
             var v = phys ?: p.speedMs
             if (phys != null) physicsM += seg.distanceM
             // Memoria per tratto: velocità di base ricordata × fattore di giornata,
-            // fusa col bucket pesando i passaggi (n/(n+1))
+            // fusa col bucket pesando i passaggi (n/(n+1)). Il fattore è quello della
+            // classe di fondo, lo stesso con cui closeWayPass ha normato la velocità
+            // salvata: con quello per pendenza la memoria tornava scalata di
+            // f_foglia/f_classe (17/10, replay: 2,3 % medio per passaggio).
             val mem = if (seg.wayKey != 0L) wayMemory?.estimate(seg.wayKey) else null
             if (mem != null) {
                 val w = mem.passes / (mem.passes + 1.0)
-                v = (w * mem.speedMs * speedModel.dayFactorFor(seg.gradePct, seg.surface) + (1.0 - w) * v).coerceAtLeast(0.5)
+                v = (w * mem.speedMs * speedModel.dayFactorForSurface(seg.surface) + (1.0 - w) * v).coerceAtLeast(0.5)
                 memoryM += seg.distanceM
             }
             totalSec += seg.distanceM / v

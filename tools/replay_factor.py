@@ -21,6 +21,14 @@ Uso:
   python tools/replay_factor.py --logs "logs/better_eta_2026-09-*.log" --from 2026-09-05 \
       logs/better_eta_samples_old_2026-09-05.csv logs/better_eta_samples_2026-09-17.csv
   --trace <nome variante>   stampa f globale / per fondo nel tempo
+  --only <stringhe>         stampa solo le varianti il cui nome le contiene (CSV prima di --only)
+
+17/10: varianti "pl0" (figli senza prior, media cumulativa + shrink: proposta
+"doppio prior" di una revisione esterna, SCARTATA: 8,0 % = installata dallo
+snapshot, 7,7 % contro 6,7 % in sequenza) e colonna "mis" = media per passaggio
+di |ln(f_lettura / f_scrittura)| della memoria tratti, cioè lo scarto tra il
+fattore di foglia con cui EtaEngine rileggeva e quello di classe con cui
+closeWayPass salva (2,3 % medio, fino al 3,6 %): dal 17/10 la lettura usa la classe.
 """
 import sys, re, glob, math, argparse
 from datetime import datetime
@@ -210,6 +218,16 @@ class FactorModel:
             return parent
         return shrink(self.leaf[c][i], parent, self.s)
 
+    def factor_class(self, g, surface):
+        """Fattore con cui closeWayPass salva la memoria (dayFactorForSurface):
+        classe di fondo, fondo ignoto → globale. In lettura EtaEngine usa factor()."""
+        i = bucket_index(g)
+        c = surface_class(surface)
+        gf = self.glob(i).f
+        if self.mode in ('none', 'bucket') or c is None:
+            return gf
+        return shrink(self.cls[(c, self.regime(i))], gf, self.s)
+
     def predict(self, g, surface):
         return max(0.5, self.b.raw(bucket_index(g), surface) * self.factor(g, surface))
 
@@ -332,7 +350,7 @@ def evaluate(factory, samples, ways, step_s=60, min_remaining_s=300, early_s=900
             if win:
                 gm = sum(s[2] for s in win) / len(win)
                 sm = max(set(s[3] for s in win), key=[s[3] for s in win].count)
-                pass_f.append((sm, gm, model.factor(gm, sm)))
+                pass_f.append((sm, gm, model.factor(gm, sm), model.factor_class(gm, sm)))
         if t >= next_eval:
             next_eval = t + step_s * 1000
             remaining = rem_after[k]
@@ -345,7 +363,8 @@ def evaluate(factory, samples, ways, step_s=60, min_remaining_s=300, early_s=900
         model.update(v, g, surf, _dt)
     if not errs:
         return None
-    mem = [abs(math.log(fp / model.factor(gm, sm))) for sm, gm, fp in pass_f if fp > 0]
+    mem = [abs(math.log(fp / model.factor(gm, sm))) for sm, gm, fp, _ in pass_f if fp > 0]
+    mis = [abs(math.log(fp / fc)) for sm, gm, fp, fc in pass_f if fp > 0 and fc > 0]
     return dict(
         mean_abs=sum(abs(e) for e in errs) / len(errs),
         mean_signed=sum(errs) / len(errs),
@@ -354,6 +373,7 @@ def evaluate(factory, samples, ways, step_s=60, min_remaining_s=300, early_s=900
         early_max=max(early) if early else 0.0,
         minutes=len(errs),
         mem=(sum(mem) / len(mem)) if mem else None,
+        mis=(sum(mis) / len(mis)) if mis else None,
         passes=len(mem),
     )
 
@@ -386,6 +406,12 @@ def variants(snap):
         lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, split=3, split_glob=True, name='H+B  w1km split@b3 +glob'),
         lambda: FactorModel(snap, 'hier', 400, 120, 120, warm_m=1000, split=4, split_glob=True, name='H+B  w1km split@b4 +glob'),
         lambda: FactorModel(snap, 'bucket', 400, 120, 120, warm_m=1000, split=3, split_glob=True, name='B    w1km glob split@b3'),
+        # 17/10: figli senza prior (media cumulativa), solo lo shrink verso il padre
+        lambda: FactorModel(snap, 'hier', 400, 0, 120, warm_m=1000, name='H+B  w1km pl0'),
+        lambda: FactorModel(snap, 'hier', 400, 0, 60, warm_m=1000, name='H+B  w1km pl0 S60'),
+        lambda: FactorModel(snap, 'hier', 400, 0, 240, warm_m=1000, name='H+B  w1km pl0 S240'),
+        lambda: FactorModel(snap, 'hier', 400, 30, 120, warm_m=1000, name='H+B  w1km pl30'),
+        lambda: FactorModel(snap, 'bucket', 400, 0, 120, warm_m=1000, name='B    w1km pl0'),
     ]
 
 
@@ -401,6 +427,7 @@ def main():
     ap.add_argument('--start', default='device', choices=['device', 'empty', 'nosurf'],
                     help='--carry: base di partenza = snapshot del dispositivo, vuota, o snapshot senza i bucket per fondo')
     ap.add_argument('--carry', action='store_true', help='in sequenza: parte dal primo snapshot e porta il modello di giro in giro, con finestre di base diverse')
+    ap.add_argument('--only', nargs='*', default=[], help='stampa solo le varianti il cui nome contiene una di queste stringhe')
     args = ap.parse_args()
     global SMOOTH_PRED
     SMOOTH_PRED = args.smooth_pred
@@ -425,19 +452,23 @@ def main():
         snap = picked[1]
         print(f"\n== giorno {ride['day']}  {len(samples)/60:.0f} min in movimento  snapshot {how}: "
               f"{datetime.fromtimestamp(picked[0]/1000):%Y-%m-%d %H:%M} (piano asfalto {snap.get('PAVED', [(0,0)]*3)[2][0]*3.6:.1f} km/h)")
-        print(f"  {'variante':24s} {'|err|':>6s} {'segno':>6s} {'max':>6s} {'15min':>13s} {'mem':>6s}")
+        print(f"  {'variante':24s} {'|err|':>6s} {'segno':>6s} {'max':>6s} {'15min':>13s} {'mem':>6s} {'mis':>6s}")
         for cf in variants(snap):
+            name = cf().name
+            if args.only and not any(o in name for o in args.only):
+                continue
             r = evaluate(cf, samples, ways)
             if not r:
                 continue
-            name = cf().name
             mem = f"{r['mem']*100:5.1f}%" if r['mem'] is not None else '   -  '
+            mis = f"{r['mis']*100:5.1f}%" if r['mis'] is not None else '   -  '
             print(f"  {name:24s} {r['mean_abs']*100:5.1f}% {r['mean_signed']*100:+5.1f}% {r['max_abs']*100:5.1f}% "
-                  f"{r['early_min']*100:+5.1f}..{r['early_max']*100:+5.1f}% {mem} ({r['passes']})")
-            t = totals.setdefault(name, {'abs': [], 'signed': [], 'early': [], 'mem': []})
+                  f"{r['early_min']*100:+5.1f}..{r['early_max']*100:+5.1f}% {mem} {mis} ({r['passes']})")
+            t = totals.setdefault(name, {'abs': [], 'signed': [], 'early': [], 'mem': [], 'mis': []})
             t['abs'].append(r['mean_abs']); t['signed'].append(r['mean_signed'])
             t['early'].append(max(abs(r['early_min']), abs(r['early_max'])))
             if r['mem'] is not None: t['mem'].append(r['mem'])
+            if r['mis'] is not None: t['mis'].append(r['mis'])
         if args.trace:
             for cf in variants(snap):
                 m = cf()
@@ -454,11 +485,12 @@ def main():
                         cu = '/'.join(f"{shrink(m.cls[k2], m.g.get(k2[1], m.g.get('ALL')).f, m.s):.2f}" for k2 in sorted(m.cls) if k2[0] == 'UNPAVED')
                         print(f"    {(k+1)//60:3d}  {gl}   {cp}   {cu}  | {pav} | {unp}")
     print("\n== media sui giorni")
-    print(f"  {'variante':24s} {'|err|':>6s} {'segno':>6s} {'|15min|':>7s} {'mem':>6s}")
+    print(f"  {'variante':24s} {'|err|':>6s} {'segno':>6s} {'|15min|':>7s} {'mem':>6s} {'mis':>6s}")
     for name, t in sorted(totals.items(), key=lambda kv: sum(kv[1]['abs']) / len(kv[1]['abs'])):
         mem = f"{sum(t['mem'])/len(t['mem'])*100:5.1f}%" if t['mem'] else '   -  '
+        mis = f"{sum(t['mis'])/len(t['mis'])*100:5.1f}%" if t['mis'] else '   -  '
         print(f"  {name:24s} {sum(t['abs'])/len(t['abs'])*100:5.1f}% {sum(t['signed'])/len(t['signed'])*100:+5.1f}% "
-              f"{sum(t['early'])/len(t['early'])*100:6.1f}% {mem}")
+              f"{sum(t['early'])/len(t['early'])*100:6.1f}% {mem} {mis}")
 
 
 def carry(args, snaps, ways):
@@ -505,9 +537,16 @@ def carry(args, snaps, ways):
         ('H+B  w1km split@b3 +glob', dict(mode='hier', pg=400, base_window=21600, warm_m=1000, split=3, split_glob=True)),
         ('H+B  w1km split@b4 +glob', dict(mode='hier', pg=400, base_window=21600, warm_m=1000, split=4, split_glob=True)),
         ('B    w1km glob split@b3', dict(mode='bucket', pg=400, base_window=21600, warm_m=1000, split=3, split_glob=True)),
+        ('H+B  w1km pl0',      dict(mode='hier', pg=400, pl=0, base_window=21600, warm_m=1000)),
+        ('H+B  w1km pl0 S60',  dict(mode='hier', pg=400, pl=0, s=60, base_window=21600, warm_m=1000)),
+        ('H+B  w1km pl0 S240', dict(mode='hier', pg=400, pl=0, s=240, base_window=21600, warm_m=1000)),
+        ('H+B  w1km pl30',     dict(mode='hier', pg=400, pl=30, base_window=21600, warm_m=1000)),
+        ('B    w1km pl0',      dict(mode='bucket', pg=400, pl=0, base_window=21600, warm_m=1000)),
     ]
     print(f"  {'variante':20s} " + ' '.join(f"{d[5:]:>12s}" for d, _ in rides) + "   media |err|  segno")
     for name, kw in configs:
+        if args.only and not any(o in name for o in args.only):
+            continue
         m = FactorModel(first[1], name=name, **kw)
         cells, abs_, sg = [], [], []
         for day, samples in rides:

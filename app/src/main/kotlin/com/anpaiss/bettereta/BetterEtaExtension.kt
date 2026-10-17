@@ -1,6 +1,7 @@
 package com.anpaiss.bettereta
 
 import android.content.Context
+import androidx.core.content.pm.PackageInfoCompat
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.ActiveRidePage
@@ -306,7 +307,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // Versione installata: correla il log al build effettivamente sul dispositivo
         runCatching {
             val pi = packageManager.getPackageInfo(packageName, 0)
-            logger.log("SYS  ", "Versione: ${pi.versionName} (${pi.longVersionCode})")
+            // PackageInfoCompat: longVersionCode esiste da API 28, sul Karoo 2 (API 27) lanciava
+            logger.log("SYS  ", "Versione: ${pi.versionName} (${PackageInfoCompat.getLongVersionCode(pi)})")
         }
 
         // Un crash non gestito finora non lasciava traccia nel file: registralo
@@ -617,6 +619,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         gpsGate.reset()
                         freeRideSamples = 0
                         liveRideStartMs = System.currentTimeMillis()
+                        // Subito nelle prefs, non al primo salvataggio: se il Karoo riavvia
+                        // l'estensione nei primi minuti, il FIT di questo giro non va reimportato
+                        prefs.rideStartsMs = prefs.rideStartsMs + liveRideStartMs
                         snapshotForNewRide(liveRideStartMs)
                         clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
