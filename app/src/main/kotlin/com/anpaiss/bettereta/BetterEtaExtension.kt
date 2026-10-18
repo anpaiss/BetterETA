@@ -2,6 +2,8 @@ package com.anpaiss.bettereta
 
 import android.content.Context
 import androidx.core.content.pm.PackageInfoCompat
+import com.anpaiss.karooswitches.Switches
+import com.anpaiss.karooswitches.SwitchesDataType
 import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.extension.KarooExtension
 import io.hammerhead.karooext.models.ActiveRidePage
@@ -27,6 +29,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 class BetterEtaExtension : KarooExtension("better-eta", "1") {
@@ -70,7 +74,6 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val gradePctFlow = MutableStateFlow(0.0)
     private val locationFlow = MutableStateFlow<Pair<Double, Double>?>(null)
     @Volatile private var rideState: RideState = RideState.Idle
-    @Volatile private var pausedSinceMs = 0L   // inizio dell'ultima pausa (Recording → non Recording)
 
     // Polyline dell'ultimo percorso caricato: se il Karoo riemette lo stesso percorso
     // (es. dopo GPS recovery) non resettiamo la posizione sulla pipeline.
@@ -238,7 +241,6 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // Sosta almeno così lunga → alla ripresa il popup ripropone l'MTA attuale
         // (giro 12/09: soste di 8 e 9,5 min, arrivo cambiato, nessuna domanda).
         // Le auto-pause ai semafori (secondi) non contano.
-        private const val MTA_REASK_PAUSE_MS  = 5 * 60_000L
         // Attese del default (90 + 120 s) + popup a schermo (45 s) + margine
         private const val MTA_ASK_PENDING_MAX_MS = 5 * 60_000L
         // Su una stima "~" l'avviso scatta solo con un ritardo che la stima grossolana non spiega
@@ -283,6 +285,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
             EtaMarginDataType(extension, etaState, visibleDataTypeIds),
             EtaPaceDataType(extension, etaState, visibleDataTypeIds),
+            SwitchesDataType(extension),
         )
     }
 
@@ -376,6 +379,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     return@addConsumer
                 }
 
+                // Deviazione verso un POI (popup PoiAhead, giro 18/10): il Karoo passa a
+                // NavigatingToDestination e rimanda la route pianificata RICAMPIONATA
+                // (875 wp invece di 687, stessi estremi, stessa lunghezza) prima e dopo
+                // lo stub verso il pin. Presa per una route nuova azzerava la posizione
+                // (ETA 1h17 a 3,5 km dall'arrivo, "Margine perso" falso) e, cambiato il
+                // source, lo stub da 9 wp non era più riconosciuto: 69 campioni persi.
+                if (source == "NavigatingToDestination" && lastRouteSource == "NavigatingRoute" &&
+                    lastRoutePolyline.isNotBlank() &&
+                    polyline != lastRoutePolyline && sameRoute(polyline, lastRoutePolyline)) {
+                    logger.log("ROUTE", "[$source] stessa route ricampionata (%.0fm) — route, posizione e stato preservati".format(routeStubM(polyline)))
+                    return@addConsumer
+                }
+
                 // Stub di rientro: durante un giro con route il Karoo emette
                 // NavigatingToDestination con polyline di pochi waypoint (l'istruzione
                 // per tornare sulla route dopo una deviazione). Non è una route: presa
@@ -443,8 +459,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 // deviazione lo azzeravano e lo richiedevano da zero). Ripristinato
                 // se salvato per questa polyline (restart a metà giro); portato sulla
                 // nuova polyline se la meta è la stessa; se la meta cambia resta
-                // com'è e il popup lo RIPROPONE con l'orario attuale già impostato.
-                // Si azzera solo all'inizio di un giro nuovo.
+                // com'è e non viene più richiesto (fino al 18/10 il popup lo
+                // riproponeva: ora si cambia dalla pagina Switches). Il popup parte
+                // solo per la prima route del giro. Si azzera a inizio giro nuovo.
                 val askedRecently = System.currentTimeMillis() - prefs.mtaAskedAtMs < ArrivalMargin.STALE_AFTER_MS
                 when {
                     prefs.mtaRouteHash == routeHash && askedRecently -> restoreMta(routeHash)
@@ -452,11 +469,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         mtaAskedRouteHash = routeHash
                         prefs.mtaRouteHash = routeHash
                     }
-                    else -> {
-                        mtaAskedRouteHash = 0   // meta diversa: riproponi, senza toccare l'MTA
-                        if (mtaEpochMs > 0L) logger.log("MTA  ", "Meta cambiata: MTA mantenuto (%s), verrà riproposto".format(
+                    mtaAskedRouteHash != 0 || mtaEpochMs > 0L -> {
+                        mtaAskedRouteHash = routeHash
+                        prefs.mtaRouteHash = routeHash
+                        if (mtaEpochMs > 0L) logger.log("MTA  ", "Meta cambiata: MTA mantenuto (%s), si cambia dalla pagina Switches".format(
                             SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs))))
                     }
+                    else -> mtaAskedRouteHash = 0   // prima route del giro: il popup parte
                 }
 
                 if (endDist <= SAME_DEST_THRESHOLD_M) {
@@ -627,22 +646,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
                         logger.log("RIDE ", "Ripresa — model e posizione preservati")
-                        // Sosta lunga con un MTA impostato: l'arrivo è cambiato, il
-                        // popup lo ripropone con l'orario attuale sulle rotelle
-                        // (SET cambia, DISMISS o timeout lasciano com'è)
-                        val pauseMs = if (pausedSinceMs > 0L) System.currentTimeMillis() - pausedSinceMs else 0L
-                        if (pauseMs >= MTA_REASK_PAUSE_MS && mtaEpochMs > 0L && navActive) {
-                            logger.log("MTA  ", "Sosta di ${pauseMs / 60_000} min — MTA riproposto")
-                            mtaAskedRouteHash = 0
-                        }
+                        // Niente riproposta dell'MTA dopo una sosta lunga (fino al 18/10):
+                        // si cambia dalla pagina Switches, vedi adjustMta()
                     }
-                    pausedSinceMs = 0L
                     rideState = state
                     maybeAskMta()
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
                     logger.log("RIDE ", "Sospesa — model salvato")
-                    pausedSinceMs = System.currentTimeMillis()
                     closeWayPass()
                     saveModel()
                 }
@@ -1136,6 +1147,18 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         var d = 0.0
         for (i in 1 until pts.size) d += haversineM(pts[i - 1].first, pts[i - 1].second, pts[i].first, pts[i].second)
         return d
+    }
+
+    /** Stessa route ricampionata dal Karoo: stessi estremi (entro SAME_DEST_THRESHOLD_M) e lunghezza entro il 2 %. */
+    private fun sameRoute(a: String, b: String): Boolean {
+        val pa = PolylineDecoder.decodeLatLng(a)
+        val pb = PolylineDecoder.decodeLatLng(b)
+        if (pa.size < 2 || pb.size < 2) return false
+        val la = routeStubM(a)
+        val lb = routeStubM(b)
+        return haversineM(pa.first().first, pa.first().second, pb.first().first, pb.first().second) <= SAME_DEST_THRESHOLD_M &&
+            haversineM(pa.last().first, pa.last().second, pb.last().first, pb.last().second) <= SAME_DEST_THRESHOLD_M &&
+            abs(la - lb) <= 0.02 * max(la, lb)
     }
 
     /** Posizione lungo la route secondo il Karoo (routeDistance − DISTANCE_TO_DESTINATION), se pubblicata e dentro la route. */
@@ -1691,6 +1714,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      */
     private fun maybeAskMta() {
         if (rideState !is RideState.Recording || !navActive) return
+        if (!prefs.mtaEnabled) {
+            // Spento dalla pagina Switches: il giro va senza MTA (si può sempre
+            // riaccendere e impostare dal popup Switches)
+            val routeHash = lastRoutePolyline.hashCode()
+            if (routeHash != 0 && mtaAskedRouteHash != routeHash) {
+                mtaAskedRouteHash = routeHash
+                logger.log("MTA  ", "Popup non mostrato: MTA spento (pagina Switches)")
+            }
+            return
+        }
         extensionScope.launch {
             if (!pipeline.hasRoute()) return@launch
             val routeHash = lastRoutePolyline.hashCode()
@@ -1750,6 +1783,50 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         marginGate.reset()
         logger.log("MTA  ", "Impostato %02d:%02d (%s)".format(hour, minute,
             SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(mtaEpochMs))))
+        Switches.notifyChanged()   // il campo Switches mostra l'MTA
+    }
+
+    /** MTA per la pagina Switches: "HH:mm", null se non impostato. */
+    fun mtaText(): String? =
+        if (mtaEpochMs > 0L) SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(mtaEpochMs)) else null
+
+    /**
+     * Interruttore MTA della pagina Switches (persistente). OFF azzera l'MTA: niente
+     * margine, niente alert, niente popup al via dei giri successivi. ON a riposo:
+     * il prossimo giro richiede col popup; ON a giro avviato: nessun popup, l'MTA
+     * resta vuoto finché non lo si imposta con −15/−5/+5/+15 (che parte dall'ETA).
+     */
+    fun setMtaEnabled(on: Boolean) {
+        prefs.mtaEnabled = on
+        if (on) {
+            val routeHash = lastRoutePolyline.hashCode()
+            if (rideState is RideState.Recording && routeHash != 0) mtaAskedRouteHash = routeHash
+            logger.log("MTA  ", "Acceso dalla pagina Switches" + if (rideState is RideState.Recording) " a giro avviato: nessun popup, si imposta coi tasti" else "")
+        } else {
+            logger.log("MTA  ", "Spento dalla pagina Switches" + if (mtaEpochMs > 0L) ": MTA azzerato" else "")
+            mtaEpochMs       = 0L
+            prefs.mtaEpochMs = 0L
+            marginGate.reset()
+        }
+        Switches.notifyChanged()
+    }
+
+    /** Dalla pagina Switches: sposta l'MTA di [deltaMin]; senza MTA parte dall'ETA attuale (o adesso + 1 h). */
+    fun adjustMta(deltaMin: Int) {
+        if (!prefs.mtaEnabled) return   // tasti nascosti da OFF; un popup vecchio può ancora mandarli
+        val now  = System.currentTimeMillis()
+        val base = if (mtaEpochMs > 0L) mtaEpochMs
+                   else now + (etaState.value.remainingSeconds.takeIf { it > 0 } ?: 3600L) * 1000L
+        val cal  = java.util.Calendar.getInstance().apply { timeInMillis = base + deltaMin * 60_000L }
+        logger.log("MTA  ", "Pagina Switches: ${if (deltaMin > 0) "+" else ""}$deltaMin min")
+        setMta(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+        // Impostato da qui: il popup di partenza non serve più per questa route
+        val routeHash = lastRoutePolyline.hashCode()
+        if (routeHash != 0) {
+            mtaAskedRouteHash  = routeHash
+            prefs.mtaRouteHash = routeHash
+            prefs.mtaAskedAtMs = now
+        }
     }
 
     /** Popup già mostrato oggi per la polyline [routeHash] (restart a metà giro): non richiedere, ripristina la risposta. */

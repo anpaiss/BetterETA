@@ -53,4 +53,12 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <!-- Switches (KarooSwitches): the MTA with −15/−5/+5/+15 and the switches of the other extensions -->
+    <DataType
+        typeId="switches"
+        displayName="@string/switches_name"
+        description="@string/switches_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
 </ExtensionInfo>

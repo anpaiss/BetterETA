@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.anpaiss.bettereta"
-        minSdk        = 23
+        minSdk        = 26   // KarooSwitches (TYPE_APPLICATION_OVERLAY); il Karoo 2 è API 26
         // 28 (storage legacy): unica via per leggere le mappe offline del Karoo in
         // /sdcard/offline/maps su Android 12; karoo-routegraph, nella libreria
         // ufficiale Hammerhead, fa lo stesso.
@@ -49,6 +49,14 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
+        debug {
+            // Firmata con la chiave di release quando l'ambiente la fornisce (stesse
+            // variabili della release): il permesso a firma di KarooSwitches è già
+            // dichiarato da PoiAhead e AutoLoop e Android rifiuta un secondo dichiarante
+            // con firma diversa (INSTALL_FAILED_DUPLICATE_PERMISSION, 18/10). Resta
+            // debuggable: run-as per salvare e ripristinare modello e memoria tratti.
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
@@ -108,6 +116,7 @@ kotlin {
 dependencies {
     implementation(project(":eta-core"))     // ride models shared with boschRange
     implementation(libs.hammerhead.karoo.ext)
+    implementation("com.github.anpaiss:KarooSwitches:0.2.0")   // campo Switches + MTA regolabile dal popup
     implementation(libs.mapsforge.map.reader)   // fondo dalle mappe offline del Karoo (file Mapsforge)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

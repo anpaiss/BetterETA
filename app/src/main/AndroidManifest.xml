@@ -49,5 +49,22 @@
                 android:resource="@xml/extension_info" />
         </service>
 
+        <!-- MTA sulla pagina Switches (libreria KarooSwitches): orario con −15/−5/+5/+15,
+             esportato, protetto dal permesso a firma, così solo le nostre estensioni lo vedono -->
+        <receiver
+            android:name=".MtaSwitch"
+            android:exported="true"
+            android:permission="com.anpaiss.karooswitches.CONTROL">
+            <intent-filter>
+                <action android:name="com.anpaiss.karooswitches.SWITCH" />
+            </intent-filter>
+            <meta-data
+                android:name="com.anpaiss.karooswitches.label"
+                android:value="MTA" />
+            <meta-data
+                android:name="com.anpaiss.karooswitches.kind"
+                android:value="time" />
+        </receiver>
+
     </application>
 </manifest>

@@ -46,6 +46,14 @@ class Prefs(ctx: Context) {
         get() = sp.getInt(KEY_MTA_ROUTE_HASH, 0)
         set(v) = sp.edit().putInt(KEY_MTA_ROUTE_HASH, v).apply()
 
+    /**
+     * Interruttore MTA (pagina Switches, 18/10): spento = niente popup al via,
+     * niente MTA, niente margine. Persistente, non vale solo per il giro.
+     */
+    var mtaEnabled: Boolean
+        get() = sp.getBoolean(KEY_MTA_ENABLED, true)
+        set(v) = sp.edit().putBoolean(KEY_MTA_ENABLED, v).apply()
+
     /** Quando il popup è stato mostrato per mtaRouteHash: la stessa route un altro giorno richiede. */
     var mtaAskedAtMs: Long
         get() = sp.getLong(KEY_MTA_ASKED_AT_MS, 0L)
@@ -86,5 +94,6 @@ class Prefs(ctx: Context) {
         private const val KEY_MTA_EPOCH_MS   = "mta_epoch_ms"
         private const val KEY_MTA_ROUTE_HASH = "mta_route_hash"
         private const val KEY_MTA_ASKED_AT_MS = "mta_asked_at_ms"
+        private const val KEY_MTA_ENABLED    = "mta_enabled"
     }
 }
