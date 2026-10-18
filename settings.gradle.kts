@@ -14,7 +14,15 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        mavenLocal()   // KarooSwitches (com.github.anpaiss) finché il repo non è pubblico
+        maven {
+            // KarooSwitches: GitHub Packages del repo privato anpaiss/KarooSwitches, stesse credenziali
+            url = uri("https://maven.pkg.github.com/anpaiss/KarooSwitches")
+            content { includeGroup("com.github.anpaiss") }   // asked only for our library: a 401 here must not break karoo-ext
+            credentials {
+                username = providers.gradleProperty("gpr.user").getOrElse(System.getenv("USERNAME") ?: "")
+                password = providers.gradleProperty("gpr.key").getOrElse(System.getenv("TOKEN") ?: "")
+            }
+        }
         maven {
             url = uri("https://maven.pkg.github.com/hammerheadnav/karoo-ext")
             credentials {

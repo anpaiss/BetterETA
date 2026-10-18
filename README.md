@@ -4,9 +4,18 @@ A [Hammerhead Karoo 3](https://www.hammerhead.io/karoo) extension that computes 
 
 ---
 
+## What's new (October 2026)
+
+- **MTA on the Switches page.** The mandatory arrival time is now a row of the shared Switches popup: an ON/OFF switch and, while ON, the time with −15 / −5 / +5 / +15 buttons. The popup at ride start stays; every later change is one tap there, and the re-asks after a long stop or on a destination change are gone. See [MTA on the Switches page](#mta-on-the-switches-page).
+- **Switches data field** (shared KarooSwitches library 0.2.0): the same popup also carries the switches of the other extensions by the same author (Auto Loop, PoiAhead's water alerts).
+- **Fix — detour to a point of interest.** Accepting a PoiAhead fountain made the Karoo re-send the planned route resampled; BetterETA took it for a new route, lost its position (1h17 to go with 3.5 km left), fired a false *Arrival margin lost* alert and dropped the ETA comparison of the ride. Same ends and same length now mean the same route.
+- **boschRange** (separate extension in this repository): a start popup closed by timeout counts as a confirmed 100 %; the debug field shows the real capacity and history right after a restart.
+
+---
+
 ## Data Fields
 
-The extension registers five data fields you can add to any ride profile:
+The extension registers six data fields you can add to any ride profile:
 
 | Field | Content |
 |---|---|
@@ -16,10 +25,34 @@ The extension registers five data fields you can add to any ride profile:
 | **Distance to Farthest Point** | Distance left to the point geographically farthest from the start (the turnaround of an out-and-back) |
 | **Arrival Margin (MTA)** | The mandatory arrival time set at ride start and the minutes of slack against it (`+12m` on green with AHEAD, `-5m` on red with LATE; `--:--` / `--` when none is set) |
 | **Pace vs Plan** | Riding time against the first estimate of the ride (`+4m` = arriving later than planned, red; `-4m` green) |
+| **Switches** | Shows the MTA (`18:30`, `--:--` when none is set, `OFF` when the switch is off); a tap opens the shared Switches popup, see below |
 
 The dashboard is drawn like the BigFields extension: a fixed-size label on top of each row and the number drawn as an image fitted to the real outline of its digits, in the condensed Barlow font, so both numbers fill their half of the page with the same digit height. Pace vs plan is no longer on the dashboard: it stays in the logs and in its own field. The Karoo draws its turn-by-turn "next cue" ticket over the bottom of the screen without notifying extensions, so while a route is loaded the bottom band of the page is left empty. The single-value fields keep their label on the left and value on the right, sized to the cell the Karoo gives them.
 
 The `±` next to the time to go is how far the estimate may be off: a share of the time left (17 %), narrowed by the part of the route covered by per-way memory (down to 11 %), widened by the part on the physics fallback (up to +10 %) and by a rough `~` estimate (+10 %), never under one minute. Calibrated on the production ETA error of the logged rides (06/09/2026: 68th percentile 12 % with memory on 60–90 % of the route); provisional until more rides are logged.
+
+---
+
+## MTA on the Switches page
+
+The Switches popup is shared by all the extensions of the same author through the [KarooSwitches](https://github.com/anpaiss/KarooSwitches) library: any of their **Switches** fields opens it over the ride screen, whatever page you are on. BetterETA's row is the mandatory arrival time:
+
+<table>
+  <tr>
+    <td><img width="240" alt="Switches popup, MTA switch ON: the time and the −15 −5 +5 +15 buttons" src="docs/switches_mta_on.png" /></td>
+    <td><img width="240" alt="Switches popup, MTA switch OFF: only the label and the button" src="docs/switches_mta_off.png" /></td>
+    <td><img width="240" alt="Switches popup, MTA set to 21:29" src="docs/switches_mta_set.png" /></td>
+  </tr>
+  <tr>
+    <td>MTA <b>ON</b>, not set yet</td>
+    <td>MTA <b>OFF</b>: the row shrinks to the label</td>
+    <td>MTA set with one tap on +5</td>
+  </tr>
+</table>
+
+- **ON / OFF** is a persistent switch. OFF clears the MTA, empties the margin field, silences the alert and skips the popup at the start of the next rides. Switch it back ON before a ride and the popup returns at the first route; switch it ON mid-ride and nothing pops up, the time stays `--:--` until you set it.
+- **−15 −5 +5 +15** move the MTA by that many minutes. With no MTA set, the first tap starts from the current ETA (or from now + 1 h without an estimate), so `+5` right after a long stop means "the arrival I had, plus five".
+- The popup closes with CLOSE or after 20 s; touches outside it reach the ride screen. It needs the overlay permission, the same one the MTA popup already uses.
 
 ---
 
@@ -180,5 +213,10 @@ Every quantity the extension computes sits next to the Karoo's own answer for th
     <td><img width="240" alt="BetterETA dashboard" src="docs/dashboard.png" /></td>
     <td><img width="240" alt="App page — learned speed model" src="docs/app-info-1.png" /></td>
     <td><img width="240" alt="App page — ETA vs Karoo history" src="docs/app-info-2.png" /></td>
+  </tr>
+  <tr>
+    <td><img width="240" alt="Switches popup with the MTA switch ON" src="docs/switches_mta_on.png" /></td>
+    <td><img width="240" alt="Switches popup with the MTA switch OFF" src="docs/switches_mta_off.png" /></td>
+    <td></td>
   </tr>
 </table>

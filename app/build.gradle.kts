@@ -116,7 +116,7 @@ kotlin {
 dependencies {
     implementation(project(":eta-core"))     // ride models shared with boschRange
     implementation(libs.hammerhead.karoo.ext)
-    implementation("com.github.anpaiss:KarooSwitches:0.2.0")   // campo Switches + MTA regolabile dal popup
+    implementation("com.github.anpaiss:karooswitches:0.2.0")   // campo Switches + MTA regolabile dal popup
     implementation(libs.mapsforge.map.reader)   // fondo dalle mappe offline del Karoo (file Mapsforge)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
