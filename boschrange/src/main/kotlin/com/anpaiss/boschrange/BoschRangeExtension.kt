@@ -40,9 +40,10 @@ import kotlinx.coroutines.launch
  *    route. No GPS snap of our own.
  *  - Each tick integrates the mechanical energy (EnergyModel) and the ride
  *    statistics into the open RideRecord, saved every minute.
- *  - Popups: start (100 % by default), after a stop of 5 min or more (prefilled
- *    with the estimate), end (arrival %). SKIP or timeout at the end leaves
- *    arrival null: the ride stays in the history but out of the regression.
+ *  - Popups: start (100 % by default: the timeout confirms it, only SKIP or a
+ *    different value change that, ride 18/10), after a stop of 5 min or more
+ *    (prefilled with the estimate), end (arrival %). SKIP or timeout at the end
+ *    leaves arrival null: the ride stays in the history but out of the regression.
  */
 class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NAME) {
 
@@ -145,6 +146,10 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
 
         writeFlowReport()   // the JSON may have been filled in on the PC and pushed back since the last start
+        // The debug field starts from DebugState() defaults (1000 Wh, empty history) and
+        // nothing published it before the first ride/route event: after a restart it
+        // showed "1.25 / 1000 Wh" and "history 0 / 0" for 750 Wh and one ride (18/10)
+        publishDebug()
 
         karooSystem = KarooSystemService(applicationContext)
         karooSystem.connect { _ ->
@@ -215,7 +220,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         r.routeName = routeName; r.routeDistanceM = routeTotalDistM; r.routeAscentM = routeAscentM
         r.karooAscentRemainingAtStartM = karooAscentRemM
         r.routeUnclassifiedPct = routeUnclassifiedPct; r.surfaceComplete = surfaceComplete
-        r.setStart(100, assumed = true)   // stays "assumed" until SET on the popup
+        r.setStart(100, assumed = true)   // stays "assumed" until SET or timeout on the popup
         sampleLog.ride(r)
         saveCurrent()
         publishDebug()
@@ -226,7 +231,13 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             if (rideState !is RideState.Recording) return@launch
             askBattery(getString(R.string.popup_title_start), 100, withCondition = true,
                 reminder = getString(R.string.reminder_flow_start),
-                onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } }) { pct, cond ->
+                onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } },
+                onTimeout = {
+                    logger.log("RIDE ", "Partenza 100 % confermata per timeout")
+                    synchronized(lock) { ride?.setStart(100, assumed = false) }
+                    saveCurrent()
+                    publishDebug()
+                }) { pct, cond ->
                 synchronized(lock) { ride?.let { it.setStart(pct, assumed = false); if (cond != null) it.condition = cond } }
                 saveCurrent()
                 publishDebug()
@@ -330,7 +341,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     }
 
     private fun askBattery(title: String, initial: Int, withCondition: Boolean, reminder: String? = null, onReminderDone: () -> Unit = {},
-                           onSkip: () -> Unit = {}, onSet: (Int, Condition?) -> Unit) {
+                           onSkip: () -> Unit = {}, onTimeout: (() -> Unit)? = null, onSet: (Int, Condition?) -> Unit) {
         if (!popup.canShow()) {
             logger.log("POPUP", "Permesso overlay assente: '$title' non chiesto")
             if (!overlayAlertShown) {
@@ -343,7 +354,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
         val cond = if (withCondition) (synchronized(lock) { ride?.condition } ?: Condition.DRY) else null
         playPopupSound()
-        popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, reminder, onReminderDone))
+        popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, onTimeout ?: onSkip, reminder, onReminderDone))
     }
 
     /**

@@ -84,7 +84,7 @@ class MainActivity : AppCompatActivity() {
                 val popup = BatteryPopupController(applicationContext, BoschRangeLogger(applicationContext, announce = false))
                 window.decorView.postDelayed({
                     BoschRangeExtension.instance?.playPopupSound()
-                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, getString(R.string.reminder_flow_start)))
+                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, reminder = getString(R.string.reminder_flow_start)))
                 }, 3_000L)
             }
         })
@@ -122,7 +122,7 @@ class MainActivity : AppCompatActivity() {
                     (r.condition?.let { "  ${it.name.lowercase()}" } ?: "") +
                     (if (r.routeUnclassifiedPct > 0.0) "  unk ${r.routeUnclassifiedPct.toInt()}%" else "") +
                     (if (r.validForRegression) "" else "  [excluded]")
-            } + "\n${rides.size} rides, ${rides.count { it.validForRegression }} valid for the regression (start SET and arrival entered)\n${history.historyFile.absolutePath}"
+            } + "\n${rides.size} rides, ${rides.count { it.validForRegression }} valid for the regression (start confirmed and arrival entered)\n${history.historyFile.absolutePath}"
     }
 
     private fun label(text: String) = TextView(this).apply { this.text = text; textSize = 14f; setPadding(0, 8, 0, 8) }

@@ -23,8 +23,8 @@ import android.widget.TextView
  * Overlay popup "Battery at start? / now? / at arrival?": one wheel 0..100 in
  * steps of 1 %, an optional DRY / WET / MUD row (the condition, recorded only)
  * and SET / SKIP. Same mechanism as the MTA popup of BetterETA: upper band of
- * the screen, NOT_FOCUSABLE so touches outside go to the ride app, auto-skip
- * after AUTO_DISMISS_MS.
+ * the screen, NOT_FOCUSABLE so touches outside go to the ride app; after
+ * AUTO_DISMISS_MS the request's onTimeout runs (= onSkip unless given).
  */
 class BatteryPopupController(
     private val context: Context,
@@ -36,6 +36,7 @@ class BatteryPopupController(
         val condition: Condition?,          // null = no condition row
         val onSet: (pct: Int, condition: Condition?) -> Unit,
         val onSkip: () -> Unit,
+        val onTimeout: () -> Unit = onSkip,   // the start popup takes the timeout as a confirmation
         val reminder: String? = null,          // extra row "<reminder> [FATTO]"; FATTO does not close the popup
         val onReminderDone: () -> Unit = {},
     )
@@ -215,7 +216,7 @@ class BatteryPopupController(
                     if (currentView === root) {
                         removeCurrent()
                         logger.log("POPUP", "${req.title} → chiuso per timeout")
-                        req.onSkip()
+                        req.onTimeout()
                     }
                 }, AUTO_DISMISS_MS)
             }
