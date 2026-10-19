@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds: the fields of src/main plus the provisional debug page.
+     Keep the DataType list in sync with src/main/res/xml/extension_info.xml. -->
+<ExtensionInfo
+    displayName="@string/extension_name"
+    icon="@drawable/ic_launcher"
+    id="bosch-range"
+    scansDevices="false">
+
+    <DataType
+        typeId="compact"
+        displayName="@string/field_compact_name"
+        description="@string/field_compact_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="margin"
+        displayName="@string/field_margin_name"
+        description="@string/field_margin_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="extra_climb"
+        displayName="@string/field_extra_climb_name"
+        description="@string/field_extra_climb_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="page"
+        displayName="@string/field_page_name"
+        description="@string/field_page_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="debug"
+        displayName="@string/debug_field_name"
+        description="@string/debug_field_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+</ExtensionInfo>

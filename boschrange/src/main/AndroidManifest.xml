@@ -31,6 +31,11 @@
             </intent-filter>
         </activity>
 
+        <!-- Tap on a boschRange field or page: opens "Battery now?" (PendingIntent from our own RemoteViews) -->
+        <receiver
+            android:name=".BatteryTapReceiver"
+            android:exported="false" />
+
         <service
             android:name=".BoschRangeExtension"
             android:exported="true"

@@ -7,8 +7,9 @@ import java.util.Locale
 
 /**
  * One CSV row per tick while recording: what the model saw and believed, next
- * to the Karoo's own position and remaining ascent, for the validation
- * script (prediction error at km 0 / 25 / 50 / 75 %). Rotates at 4 MB.
+ * to the Karoo's own position and remaining ascent, and the arrival forecast
+ * of that moment, for the validation script (prediction error at km 0 / 25 /
+ * 50 / 75 %). Rotates at 4 MB.
  *   adb pull /sdcard/Android/data/com.anpaiss.boschrange/files/bosch_range_samples.csv
  */
 class SampleLog(context: Context) {
@@ -18,22 +19,26 @@ class SampleLog(context: Context) {
 
     companion object {
         private const val MAX_SIZE_BYTES = 4 * 1024 * 1024L
-        const val HEADER = "t_ms,speed_ms,grade_pct,surface,dist_m,dist_to_dest_m,asc_rem_karoo_m,temp_c,wh_mech,est_pct,anchor_pct"
+        /** `arrival_pct` added on 19/10 (step 3): a file begun before carries a "# header" line from the next ride on. */
+        const val HEADER = "t_ms,speed_ms,grade_pct,surface,dist_m,dist_to_dest_m,asc_rem_karoo_m,temp_c,wh_mech,est_pct,anchor_pct,arrival_pct"
     }
 
     @Synchronized
     fun ride(r: RideRecord) {
         ensureHeader()
+        val first = runCatching { file.bufferedReader().use { it.readLine() } }.getOrNull()
+        if (first != null && first != HEADER) file.appendText("# header $HEADER\n")
         file.appendText("# ride ${r.startMs} name=${r.routeName} capacity=${r.capacityWh} s=${r.sUsed}\n")
     }
 
     @Synchronized
     fun record(tMs: Long, speedMs: Double, gradePct: Double, surface: Surface, distM: Double,
-               distToDestM: Double, ascRemM: Double, tempC: Double?, r: RideRecord) {
+               distToDestM: Double, ascRemM: Double, tempC: Double?, r: RideRecord, arrivalPct: Double?) {
         ensureHeader()
-        file.appendText(String.format(Locale.ROOT, "%d,%.2f,%.2f,%s,%.0f,%.0f,%.0f,%s,%.2f,%.2f,%.0f\n",
+        file.appendText(String.format(Locale.ROOT, "%d,%.2f,%.2f,%s,%.0f,%.0f,%.0f,%s,%.2f,%.2f,%.0f,%s\n",
             tMs, speedMs, gradePct, surface.name, distM, distToDestM, ascRemM,
-            tempC?.let { String.format(Locale.ROOT, "%.1f", it) } ?: "", r.whMech, r.estimatedPct(), r.anchorPct))
+            tempC?.let { String.format(Locale.ROOT, "%.1f", it) } ?: "", r.whMech, r.estimatedPct(), r.anchorPct,
+            arrivalPct?.let { String.format(Locale.ROOT, "%.1f", it) } ?: ""))
     }
 
     private fun ensureHeader() {

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Provisional debug field: one big number and 13 label/value rows, one item
-     per row over the whole page. Text sizes are set from code (full vs half page). -->
+<!-- Full-page text field (debug page and boschRange page): header, one big line
+     and 13 label/value rows. Text sizes are set from code (full vs half page). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/page_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -11,9 +12,10 @@
     android:paddingTop="2dp">
 
     <TextView
+        android:id="@+id/tv_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="BOSCHRANGE DEBUG"
+        android:text="BOSCHRANGE"
         android:textColor="@color/page_muted"
         android:textSize="12sp"
         android:letterSpacing="0.1" />

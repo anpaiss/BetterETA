@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Step 2: only the provisional debug field. The compact field and the full
-     page come with step 3. -->
+<!-- Step 3 (19/10/2026): three single-cell fields and the page. The provisional
+     debug page is declared only in debug builds (src/debug/res/xml/extension_info.xml,
+     keep the two lists in sync). -->
 <ExtensionInfo
     displayName="@string/extension_name"
     icon="@drawable/ic_launcher"
@@ -8,9 +9,30 @@
     scansDevices="false">
 
     <DataType
-        typeId="debug"
-        displayName="@string/debug_field_name"
-        description="@string/debug_field_desc"
+        typeId="compact"
+        displayName="@string/field_compact_name"
+        description="@string/field_compact_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="margin"
+        displayName="@string/field_margin_name"
+        description="@string/field_margin_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="extra_climb"
+        displayName="@string/field_extra_climb_name"
+        description="@string/field_extra_climb_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="page"
+        displayName="@string/field_page_name"
+        description="@string/field_page_desc"
         graphical="true"
         icon="@drawable/ic_launcher" />
 

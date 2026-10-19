@@ -12,14 +12,25 @@
     <string name="condition_wet">WET</string>
     <string name="condition_mud">MUD</string>
     <string name="popup_done">FATTO</string>
-    <string name="reminder_flow_start">Screenshot previsione Flow al via</string>
-    <string name="reminder_flow_mid">Screenshot previsione Flow a metà (facoltativo)</string>
+    <string name="reminder_flow_start">Screenshot pagina navigazione Flow al via (Ricarica all\'arrivo)</string>
+    <string name="reminder_flow_mid">Screenshot pagina navigazione Flow a metà (facoltativo)</string>
     <string name="reminder_flow_end">Screenshot riepilogo Flow</string>
     <string name="reminder_missing">Mancano: %s</string>
+
+    <string name="field_compact_name">Battery now → arrival</string>
+    <string name="field_compact_desc">Estimated battery % now and predicted at arrival on the loaded route, with the error band. Tap to enter the real %</string>
+    <string name="field_margin_name">Battery margin</string>
+    <string name="field_margin_desc">Predicted battery at arrival minus the alert threshold: green when the route fits, red when it does not. Tap to enter the real %</string>
+    <string name="field_extra_climb_name">Climb still possible</string>
+    <string name="field_extra_climb_desc">Extra ascent the battery margin would still pay for, from the cost per metre climbed on this ride. Tap to enter the real %</string>
+    <string name="field_page_name">boschRange</string>
+    <string name="field_page_desc">Full page: battery now and at arrival, range, margin, climb left, Wh spent, route to go, last entry, calibration. Tap to enter the real %</string>
 
     <string name="debug_field_name">boschRange Debug</string>
     <string name="debug_field_desc">Test rides only: estimated battery now, Wh spent since the start, s in use, surface classification state</string>
 
     <string name="alert_overlay_title">boschRange</string>
     <string name="alert_overlay_text">Grant the overlay permission in the app to enter the battery %</string>
+    <string name="alert_low_title">Battery at arrival %1$d %%</string>
+    <string name="alert_low_text">Below the %1$d %% threshold on the current route</string>
 </resources>

@@ -93,6 +93,13 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     // Stops seen from the speed stream, independent of the Karoo auto-pause
     @Volatile private var stoppedSinceMs = 0L
     @Volatile private var lastStopPopupMs = 0L
+    // Forecast (step 3, 19/10): recomputed every tick, with or without a ride
+    @Volatile private var forecast: RangeForecast.Result? = null
+    @Volatile private var historyRelError = RangeForecast.UNCALIBRATED_REL_ERROR
+    /** Start % the forecast plans from before the ride; a tap on a field sets it, a new ride within an hour starts from it. */
+    @Volatile private var planningPct = 100
+    @Volatile private var planningSetMs = 0L
+    @Volatile private var lowAlertShown = false
 
     companion object {
         private const val TICK_MS              = 5_000L
@@ -106,10 +113,18 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         private const val STOP_POPUP_DEDUP_MS  = 2 * 60_000L
         private const val SAVE_EVERY_MS        = 60_000L
         private const val RESUME_OPEN_RIDE_MS  = 6 * 3_600_000L   // an open ride older than this is a leftover
+        private const val PLANNING_VALID_MS    = 3_600_000L       // a planned start % older than this is forgotten
+        private const val LOW_ALERT_MIN_KM     = 0.5              // no "below threshold" alert before the ride has settled
         @Volatile var instance: BoschRangeExtension? = null
     }
 
-    override val types: List<DataTypeImpl> by lazy { listOf(DebugFieldDataType(extension, debugState, visibleDataTypeIds)) }
+    override val types: List<DataTypeImpl> by lazy { listOf(
+        RangeFieldDataType(extension, "compact", RangeFieldDataType.Kind.COMPACT, debugState, visibleDataTypeIds),
+        RangeFieldDataType(extension, "margin", RangeFieldDataType.Kind.MARGIN, debugState, visibleDataTypeIds),
+        RangeFieldDataType(extension, "extra_climb", RangeFieldDataType.Kind.EXTRA_CLIMB, debugState, visibleDataTypeIds),
+        RangePageDataType(extension, debugState, visibleDataTypeIds),
+        DebugFieldDataType(extension, state = debugState, visibleDataTypeIds = visibleDataTypeIds),
+    ) }
 
     override fun onCreate() {
         super.onCreate()
@@ -220,21 +235,25 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         r.routeName = routeName; r.routeDistanceM = routeTotalDistM; r.routeAscentM = routeAscentM
         r.karooAscentRemainingAtStartM = karooAscentRemM
         r.routeUnclassifiedPct = routeUnclassifiedPct; r.surfaceComplete = surfaceComplete
-        r.setStart(100, assumed = true)   // stays "assumed" until SET or timeout on the popup
+        // 100 %, or the start % tapped in before the ride: stays "assumed" until SET or timeout on the popup
+        val plannedStart = if (planningSetMs > 0L && now - planningSetMs < PLANNING_VALID_MS) planningPct else 100
+        planningSetMs = 0L
+        lowAlertShown = false
+        r.setStart(plannedStart, assumed = true)
         sampleLog.ride(r)
         saveCurrent()
         publishDebug()
-        logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, route '${routeName}' D+ ${routeAscentM.toInt()} m")
+        logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %, route '${routeName}' D+ ${routeAscentM.toInt()} m")
         startPopupJob?.cancel()
         startPopupJob = scope.launch {
             delay(START_POPUP_DELAY_MS)
             if (rideState !is RideState.Recording) return@launch
-            askBattery(getString(R.string.popup_title_start), 100, withCondition = true,
+            askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = true,
                 reminder = getString(R.string.reminder_flow_start),
                 onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } },
                 onTimeout = {
-                    logger.log("RIDE ", "Partenza 100 % confermata per timeout")
-                    synchronized(lock) { ride?.setStart(100, assumed = false) }
+                    logger.log("RIDE ", "Partenza $plannedStart % confermata per timeout")
+                    synchronized(lock) { ride?.setStart(plannedStart, assumed = false) }
                     saveCurrent()
                     publishDebug()
                 }) { pct, cond ->
@@ -268,7 +287,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             if (rideState !is RideState.Recording || synchronized(lock) { ride } !== r) return@launch
             askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false,
             reminder = getString(R.string.reminder_flow_mid),
-            onReminderDone = { flowShot(r) { it.flowShotMidMs = System.currentTimeMillis(); it.flowShotMidKm = it.distanceKm } }) { pct, _ ->
+            onReminderDone = { flowShot(r) { it.flowShotMidMs = System.currentTimeMillis(); it.flowShotMidKm = it.distanceKm
+                it.ourPredMidPct = forecast?.arrivalPct } }) { pct, _ ->
                 manualUpdate(pct)
             }
         }
@@ -319,6 +339,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         runCatching {
             val rides = history.load()
             historyCounts = Triple(rides.size, rides.count { it.validForRegression }, FlowComparison.comparable(rides).size)
+            historyRelError = RangeForecast.relativeError(rides)
             val text = FlowComparison.report(rides)
             val file = java.io.File(history.historyFile.parentFile, "flow_comparison_report.txt")
             if (text == null) {
@@ -338,6 +359,30 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         saveCurrent()
         publishDebug()
         logger.log("RIDE ", "Aggiornamento manuale a ${"%.1f".format(r.distanceKm)} km: inserito $pct %, stima era ${"%.1f".format(before)} %")
+        scope.launch { updateForecast(); publishDebug() }
+    }
+
+    /**
+     * Tap on any boschRange field or on the page ([BatteryTapReceiver]): during
+     * a ride "Battery now?" prefilled with the estimate; before the ride
+     * "Battery at start?" sets the % the forecast plans from (and the start of
+     * a ride begun within the hour).
+     */
+    fun onFieldTap() {
+        val r = synchronized(lock) { ride }
+        if (r != null) {
+            logger.log("POPUP", "Tap sul campo: chiedo la % attuale (stima ${"%.1f".format(r.estimatedPct())} %)")
+            askBattery(getString(R.string.popup_title_now), Math.round(r.estimatedPct()).toInt().coerceIn(0, 100), withCondition = false) { pct, _ ->
+                manualUpdate(pct)
+            }
+        } else {
+            logger.log("POPUP", "Tap sul campo senza giro: chiedo la % di partenza per la previsione (ora $planningPct %)")
+            askBattery(getString(R.string.popup_title_start), planningPct, withCondition = false) { pct, _ ->
+                planningPct = pct; planningSetMs = System.currentTimeMillis()
+                logger.log("RIDE ", "Partenza pianificata: $pct %")
+                scope.launch { updateForecast(); publishDebug() }
+            }
+        }
     }
 
     private fun askBattery(title: String, initial: Int, withCondition: Boolean, reminder: String? = null, onReminderDone: () -> Unit = {},
@@ -396,6 +441,10 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         scope.launch {
             pipeline.setRoute(wps)
             hasRoute = wps.size >= 2
+            // A destination route has no routeDistance: the forecast and the position on the route need the length
+            if (dist < 0) routeTotalDistM = pipeline.remainingSegmentsFrom(0.0).sumOf { it.distanceM }
+            updateForecast()
+            publishDebug()
             val r = surfaceClassifier.classify(wps)
             val unclassified: Double
             if (r != null) {
@@ -416,6 +465,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
                 km.toList()
             }
             synchronized(lock) { ride?.let { it.routeUnclassifiedPct = unclassified; it.surfaceComplete = surfaceComplete } }
+            updateForecast()
             publishDebug()
         }
     }
@@ -440,26 +490,67 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             val now = System.currentTimeMillis()
             val dt = ((now - lastMs) / 1000.0).coerceIn(1.0, 15.0)
             lastMs = now
-            if (rideState !is RideState.Recording) continue
-            val r = synchronized(lock) { ride } ?: continue
-            val v = speedMs; val g = gradePct
-            // Long standstill seen from the speed, for riders with the auto-pause off
-            if (v < RideRecord.MOVING_MS) {
-                if (stoppedSinceMs == 0L) stoppedSinceMs = now
-            } else if (stoppedSinceMs > 0L) {
-                val stopMs = now - stoppedSinceMs
-                stoppedSinceMs = 0L
-                if (stopMs >= LONG_STOP_MS) askAfterStop("fermo ${stopMs / 60_000} min dal GPS")
+            val r = synchronized(lock) { ride }
+            if (rideState is RideState.Recording && r != null) {
+                val v = speedMs; val g = gradePct
+                // Long standstill seen from the speed, for riders with the auto-pause off
+                if (v < RideRecord.MOVING_MS) {
+                    if (stoppedSinceMs == 0L) stoppedSinceMs = now
+                } else if (stoppedSinceMs > 0L) {
+                    val stopMs = now - stoppedSinceMs
+                    stoppedSinceMs = 0L
+                    if (stopMs >= LONG_STOP_MS) askAfterStop("fermo ${stopMs / 60_000} min dal GPS")
+                }
+                val surface = currentSurface()
+                synchronized(lock) {
+                    r.tick(v, g, surface, dt, energy, temperatureC)
+                    captureStreams(r)
+                }
+                updateForecast()
+                val f = forecast
+                if (f != null && r.ourPredStartPct == null && r.distanceKm < 0.5) r.ourPredStartPct = f.arrivalPct
+                maybeLowAlert(r, f)
+                sampleLog.record(now, v, g, surface, distanceM, karooDistToDestM, karooAscentRemM, temperatureC, r, f?.arrivalPct)
+                if (now - lastSaveMs >= SAVE_EVERY_MS) { lastSaveMs = now; saveCurrent() }
+            } else {
+                updateForecast()   // before the ride: the plan from the start %, as the Karoo moves the position on the route
             }
-            val surface = currentSurface()
-            synchronized(lock) {
-                r.tick(v, g, surface, dt, energy, temperatureC)
-                captureStreams(r)
-            }
-            sampleLog.record(now, v, g, surface, distanceM, karooDistToDestM, karooAscentRemM, temperatureC, r)
             publishDebug()
-            if (now - lastSaveMs >= SAVE_EVERY_MS) { lastSaveMs = now; saveCurrent() }
         }
+    }
+
+    /**
+     * Battery at arrival from the rest of the route (RangeForecast): the position
+     * on the route is the Karoo's own (routeDistance − DISTANCE_TO_DESTINATION),
+     * the whole route when it is not navigating yet. Without a route: null.
+     */
+    private suspend fun updateForecast() {
+        if (!hasRoute) { forecast = null; return }
+        val r = synchronized(lock) { ride }
+        val total = routeTotalDistM
+        val pos = if (total > 0.0 && karooDistToDestM >= 0.0) (total - karooDistToDestM).coerceIn(0.0, total) else 0.0
+        val segments = pipeline.remainingSegmentsFrom(pos)
+        val s = r?.sUsed ?: prefs.sCoefficient
+        val capacity = r?.capacityWh ?: prefs.capacityWh
+        val nowPct = r?.estimatedPct() ?: planningPct.toDouble()
+        forecast = RangeForecast.forecast(segments, energy, nowPct, capacity, s, prefs.alertThresholdPct,
+            historyRelError, RangeForecast.whPerClimbM(r, s))
+    }
+
+    /** One in-ride alert per ride when the predicted arrival drops below the threshold of the settings. */
+    private fun maybeLowAlert(r: RideRecord, f: RangeForecast.Result?) {
+        if (f == null || lowAlertShown || r.distanceKm < LOW_ALERT_MIN_KM) return
+        val threshold = prefs.alertThresholdPct
+        if (f.arrivalPct >= threshold) return
+        lowAlertShown = true
+        val pct = Math.round(f.arrivalPct).toInt()
+        logger.log("ALERT", "Arrivo previsto $pct % sotto la soglia $threshold % a ${"%.1f".format(r.distanceKm)} km")
+        runCatching {
+            karooSystem.dispatch(InRideAlert("bosch-range-low", R.drawable.ic_launcher,
+                getString(R.string.alert_low_title, pct), getString(R.string.alert_low_text, threshold), 10_000L,
+                R.color.alert_bg, R.color.alert_text))
+            playPopupSound()
+        }.onFailure { logger.logError("ALERT", "Avviso sotto soglia fallito", it) }
     }
 
     private fun captureStreams(r: RideRecord) {
@@ -477,16 +568,22 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private fun publishDebug() {
         val r = synchronized(lock) { ride }
         val (nRides, nValid, nComparable) = historyCounts
+        val f = forecast
         val base = DebugState(enabled = prefs.enabled, sUsed = prefs.sCoefficient, capacityWh = prefs.capacityWh,
             hasRoute = hasRoute, routeKm = routeTotalDistM / 1000.0, routeAscentM = routeAscentM,
             karooDistToDestKm = if (karooDistToDestM >= 0) karooDistToDestM / 1000.0 else -1.0, karooAscentRemM = karooAscentRemM,
             routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete, routeSurfaceKm = routeSurfaceKm,
+            arrivalPct = f?.arrivalPct, halfBandPct = f?.halfBandPct ?: 0.0, marginPct = f?.marginPct ?: 0.0,
+            extraClimbM = f?.extraClimbM ?: 0.0, remainingKm = f?.remainingKm ?: 0.0, remainingAscentM = f?.remainingAscentM ?: 0.0,
+            thresholdPct = prefs.alertThresholdPct, planningPct = planningPct,
             historyRides = nRides, historyValid = nValid, historyComparable = nComparable)
+        val lastUpdate = r?.manualUpdates?.lastOrNull()
         debugState.value = if (r == null) base else base.copy(
             rideOpen = true, startPct = r.startPct, startAssumed = r.startAssumed, condition = r.condition,
             estimatedPct = r.estimatedPct(), whMech = r.whMech, whEstimated = r.whEstimated, sUsed = r.sUsed, capacityWh = r.capacityWh,
             manualUpdates = r.manualUpdates.size,
-            lastUpdateKm = r.manualUpdates.lastOrNull()?.distanceKm ?: -1.0, lastUpdatePct = r.manualUpdates.lastOrNull()?.enteredPct ?: -1,
+            lastUpdateKm = lastUpdate?.distanceKm ?: -1.0, lastUpdatePct = lastUpdate?.enteredPct ?: -1,
+            lastUpdateAgeMin = lastUpdate?.let { ((System.currentTimeMillis() - it.timeMs) / 60_000L).toInt() } ?: -1,
             distanceKm = r.distanceKm, ascentKarooM = r.ascentM, movingS = r.movingS, temperatureC = r.temperatureC,
             routeUnclassifiedPct = r.routeUnclassifiedPct, surfaceComplete = r.surfaceComplete,
             flowShotStart = r.flowShotStartMs != 0L, flowShotMid = r.flowShotMidMs != 0L, flowShotEnd = r.flowShotEndMs != 0L)
@@ -496,7 +593,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     fun openRideSummary(): String? {
         val r = synchronized(lock) { ride } ?: return null
         return "Open ride: ${"%.1f".format(r.distanceKm)} km, D+ ${r.ascentIntegratedM.toInt()} m, " +
-            "${"%.0f".format(r.whEstimated)} Wh estimated, now ${"%.0f".format(r.estimatedPct())} % (start ${r.startPct} %)"
+            "${"%.0f".format(r.whEstimated)} Wh estimated, now ${"%.0f".format(r.estimatedPct())} % (start ${r.startPct} %)" +
+            (forecast?.let { ", arrival ${"%.0f".format(it.arrivalPct)} ± ${"%.0f".format(it.halfBandPct)} %" } ?: ", no route")
     }
 
     override fun onDestroy() {
