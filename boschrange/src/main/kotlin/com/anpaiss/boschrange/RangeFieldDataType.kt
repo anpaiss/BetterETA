@@ -107,6 +107,9 @@ class RangeFieldDataType(
         emitter.setCancellable { scope.cancel() }
     }
 
+    private fun band(s: DebugState): String = "±%.0f".format(s.halfBandPct) +
+        if (s.historyValid < RangeForecast.CALIBRATION_RIDES) " · CAL ${s.historyValid}/${RangeForecast.CALIBRATION_RIDES}" else ""
+
     private fun render(s: DebugState): Face {
         val caption = when (kind) { Kind.COMPACT -> "NOW → ARRIVAL"; Kind.MARGIN -> "MARGIN"; Kind.EXTRA_CLIMB -> "EXTRA CLIMB POSSIBLE" }
         if (!s.enabled && !s.rideOpen) return Face(caption, "OFF", "boschRange off", Tone.NEUTRAL)
@@ -115,9 +118,9 @@ class RangeFieldDataType(
         return when (kind) {
             Kind.COMPACT -> when {
                 arrival == null -> Face(caption, "%.0f %%".format(now), "no route", Tone.NEUTRAL)
-                else -> Face(caption, "%.0f → %.0f %%".format(now, arrival),
-                    "±%.0f".format(s.halfBandPct) + if (s.historyValid < RangeForecast.CALIBRATION_RIDES)
-                        " · CAL ${s.historyValid}/${RangeForecast.CALIBRATION_RIDES}" else "", Tone.NEUTRAL)
+                // The route costs more than the battery holds: say by how much instead of a negative % (Andrea, 19/10)
+                arrival < -0.5 -> Face("OUT OF RANGE BY", "%.0f %%".format(-arrival), "now %.0f %%  ·  ".format(now) + band(s), Tone.BAD)
+                else -> Face(caption, "%.0f → %.0f %%".format(now, arrival), band(s), Tone.NEUTRAL)
             }
             Kind.MARGIN -> when {
                 arrival == null -> Face(caption, "--", "no route", Tone.NEUTRAL)

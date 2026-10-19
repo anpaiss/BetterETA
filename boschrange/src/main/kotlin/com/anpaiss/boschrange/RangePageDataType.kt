@@ -26,7 +26,8 @@ import kotlinx.coroutines.launch
  * The boschRange page (step 3, 19/10/2026), a grid in the style of the
  * BetterETA dashboard: black cells, grey caption on top, big number.
  *
- *   NOW → ARRIVAL        "100 → 58"             caption carries the band and the calibration state
+ *   NOW → ARRIVAL        "100 → 58"             caption carries the band and the calibration state;
+ *                        red "OUT OF RANGE BY 29 %" when the route costs more than the battery holds
  *   MARGIN TO 10 % LIMIT | EXTRA CLIMB POSSIBLE  "+43 %" | "+762 m"  green when the route fits, red when it does not
  *   TO GO  | SPENT       "21.5 km" | "123 Wh"   (START "100 %" planned, before the ride)
  *   footer               last entry, s, rides, surface state
@@ -127,8 +128,12 @@ class RangePageDataType(
         val now = if (s.rideOpen) s.estimatedPct else s.planningPct.toDouble()
         val arrival = s.arrivalPct
         val cal = if (s.historyValid < RangeForecast.CALIBRATION_RIDES) "CAL ${s.historyValid}/${RangeForecast.CALIBRATION_RIDES}" else "calibrated"
-        val a = if (arrival == null) Cell("BATTERY NOW  ·  no route", "%.0f %%".format(now))
-            else Cell("NOW → ARRIVAL %%  ·  ±%.0f  ·  %s".format(s.halfBandPct, cal), "%.0f → %.0f".format(now, arrival))
+        val a = when {
+            arrival == null -> Cell("BATTERY NOW  ·  no route", "%.0f %%".format(now))
+            // The route costs more than the battery holds: say by how much instead of a negative % (Andrea, 19/10)
+            arrival < -0.5 -> Cell("NOW %.0f %%  ·  OUT OF RANGE BY  ·  ±%.0f  ·  %s".format(now, s.halfBandPct, cal), "%.0f %%".format(-arrival), Tone.BAD)
+            else -> Cell("NOW → ARRIVAL %%  ·  ±%.0f  ·  %s".format(s.halfBandPct, cal), "%.0f → %.0f".format(now, arrival))
+        }
         val b1 = if (arrival == null) Cell("MARGIN", "--")
             else Cell("MARGIN TO ${s.thresholdPct} % LIMIT", "%+d %%".format(Math.round(s.marginPct)), if (s.marginPct >= 0.0) Tone.OK else Tone.BAD)
         val b2 = if (arrival == null) Cell("EXTRA CLIMB POSSIBLE", "--")
