@@ -430,6 +430,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
         if (poly.isBlank() || poly == lastRoutePolyline) return
         lastRoutePolyline = poly
+        // A new route: the Karoo's distance/ascent to destination still belong to the previous one
+        // (19/10: 'Sopra Susà' loaded after 'Forestali' kept its 21.4 km, forecast from km 9). Whole route until it emits again.
+        karooDistToDestM = -1.0; karooAscentRemM = -1.0
         val coords  = PolylineDecoder.decodeLatLng(poly)
         val samples = PolylineDecoder.decodeDistanceElevation(elev)
         val elevs   = interpolateElevations(coords, samples)
