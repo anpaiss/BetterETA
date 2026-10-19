@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The boschRange page (19/10/2026), in the style of the BetterETA dashboard
+     and BigFields: black cells with a grey caption on top and a big number,
+     margin and climb cells in the state colour. Rows: NOW → ARRIVAL full width,
+     MARGIN | CLIMB LEFT, TO GO | SPENT (START before the ride), a footer line.
+     Text sizes are set from code; only RemoteViews-friendly classes. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/page_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@android:color/transparent"
+    android:paddingStart="2dp"
+    android:paddingEnd="2dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="14dp">
+
+    <LinearLayout
+        android:id="@+id/cell_a"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1.25"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#000000">
+        <TextView android:id="@+id/lbl_a" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textStyle="bold" android:textColor="#9E9E9E" android:maxLines="1" android:includeFontPadding="false" />
+        <TextView android:id="@+id/val_a" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal">
+        <LinearLayout
+            android:id="@+id/cell_b1"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#000000">
+            <TextView android:id="@+id/lbl_b1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#9E9E9E" android:maxLines="1" android:includeFontPadding="false" />
+            <TextView android:id="@+id/val_b1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" android:includeFontPadding="false" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/cell_b2"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent"
+            android:layout_marginStart="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#000000">
+            <TextView android:id="@+id/lbl_b2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#9E9E9E" android:maxLines="1" android:includeFontPadding="false" />
+            <TextView android:id="@+id/val_b2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal">
+        <LinearLayout
+            android:id="@+id/cell_c1"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#000000">
+            <TextView android:id="@+id/lbl_c1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#9E9E9E" android:maxLines="1" android:includeFontPadding="false" />
+            <TextView android:id="@+id/val_c1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" android:includeFontPadding="false" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/cell_c2"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="match_parent"
+            android:layout_marginStart="2dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#000000">
+            <TextView android:id="@+id/lbl_c2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#9E9E9E" android:maxLines="1" android:includeFontPadding="false" />
+            <TextView android:id="@+id/val_c2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_footer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:gravity="center"
+        android:textColor="@color/page_muted"
+        android:maxLines="2"
+        android:includeFontPadding="false" />
+</LinearLayout>

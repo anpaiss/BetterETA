@@ -82,8 +82,7 @@ data class PageContent(val big: String, val rows: List<Pair<String, String>>)
  * from the slot (a full page gets the large set). This class is the provisional
  * debug page of the test rides (13/10): estimated battery now, Wh spent, s,
  * ride and route figures, surface classification and composition, the Flow
- * screenshot checklist and the history counts. [RangePageDataType] draws the
- * ride page of step 3 on the same layout. A tap opens "Battery now?".
+ * screenshot checklist and the history counts. A tap opens "Battery now?".
  */
 open class DebugFieldDataType(
     extension: String,
