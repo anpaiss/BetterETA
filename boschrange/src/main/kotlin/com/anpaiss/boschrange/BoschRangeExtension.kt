@@ -358,7 +358,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         r.anchor(pct, System.currentTimeMillis())
         saveCurrent()
         publishDebug()
-        logger.log("RIDE ", "Aggiornamento manuale a ${"%.1f".format(r.distanceKm)} km: inserito $pct %, stima era ${"%.1f".format(before)} %")
+        logger.log("RIDE ", "Aggiornamento manuale a ${"%.1f".format(r.distanceKm)} km: inserito $pct %, stima era ${"%.1f".format(before)} %" +
+            (r.sToday()?.let { "; s di oggi ${"%.2f".format(it)} (peso ${"%.0f".format(r.sTodayWeight() * 100)} %), s per il resto ${"%.2f".format(r.sForecast())}" }
+                ?: "; s di oggi non misurabile (partenza non confermata)"))
         scope.launch { updateForecast(); publishDebug() }
     }
 
@@ -533,7 +535,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val total = routeTotalDistM
         val pos = if (total > 0.0 && karooDistToDestM >= 0.0) (total - karooDistToDestM).coerceIn(0.0, total) else 0.0
         val segments = pipeline.remainingSegmentsFrom(pos)
-        val s = r?.sUsed ?: prefs.sCoefficient
+        val s = r?.sForecast() ?: prefs.sCoefficient
         val capacity = r?.capacityWh ?: prefs.capacityWh
         val nowPct = r?.estimatedPct() ?: planningPct.toDouble()
         forecast = RangeForecast.forecast(segments, energy, nowPct, capacity, s, prefs.alertThresholdPct,
@@ -583,7 +585,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val lastUpdate = r?.manualUpdates?.lastOrNull()
         debugState.value = if (r == null) base else base.copy(
             rideOpen = true, startPct = r.startPct, startAssumed = r.startAssumed, condition = r.condition,
-            estimatedPct = r.estimatedPct(), whMech = r.whMech, whEstimated = r.whEstimated, sUsed = r.sUsed, capacityWh = r.capacityWh,
+            estimatedPct = r.estimatedPct(), whMech = r.whMech, whEstimated = r.whEstimated, sUsed = r.sForecast(), capacityWh = r.capacityWh,
+            sToday = r.sToday(), sTodayWeight = r.sTodayWeight(),
             manualUpdates = r.manualUpdates.size,
             lastUpdateKm = lastUpdate?.distanceKm ?: -1.0, lastUpdatePct = lastUpdate?.enteredPct ?: -1,
             lastUpdateAgeMin = lastUpdate?.let { ((System.currentTimeMillis() - it.timeMs) / 60_000L).toInt() } ?: -1,

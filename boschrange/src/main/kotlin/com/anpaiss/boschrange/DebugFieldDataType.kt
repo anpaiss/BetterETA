@@ -34,7 +34,9 @@ data class DebugState(
     val estimatedPct: Double = 100.0,
     val whMech: Double = 0.0,
     val whEstimated: Double = 0.0,
-    val sUsed: Double = Prefs.S_INITIAL,
+    val sUsed: Double = Prefs.S_INITIAL,          // in a ride: the s the forecast uses (RideRecord.sForecast)
+    val sToday: Double? = null,                   // s measured from the last manual entry, null before it
+    val sTodayWeight: Double = 0.0,
     val capacityWh: Double = 1000.0,
     val manualUpdates: Int = 0,
     val lastUpdateKm: Double = -1.0,
@@ -168,6 +170,7 @@ open class DebugFieldDataType(
             rows += "start" to "%d%% %s%s".format(s.startPct, if (s.startAssumed) "? unconfirmed" else "✓", s.condition?.let { " $it" } ?: "")
             rows += "spent" to "%.0f Wh (%.0f mech)".format(s.whEstimated, s.whMech)
             rows += "s / cap" to "%.2f / %.0f Wh".format(s.sUsed, s.capacityWh)
+            s.sToday?.let { rows += "s today" to "%.2f measured, weight %.0f %%".format(it, s.sTodayWeight * 100) }
             rows += "last upd" to if (s.manualUpdates > 0) "%d%% @ %.1f km".format(s.lastUpdatePct, s.lastUpdateKm) else "-"
             rows += "ride" to "%.1f km D+%s %s".format(s.distanceKm, m(s.ascentKarooM), hm(s.movingS))
         } else {

@@ -26,6 +26,11 @@ class ManualUpdate(val timeMs: Long, val distanceKm: Double, val estimatePct: Do
  * surface class, mechanical Wh) and what the model used (capacity, s). The
  * fields "to fill by hand from the Flow app" start null.
  *
+ * Every % the rider enters also measures the s of the day ([sToday]): the
+ * estimate and the forecast of the rest of the ride use it, blended with the
+ * prior [sUsed] by the points consumed ([sForecast]). The mode of the day, the
+ * wet and the cold enter the forecast this way, measured, not asked (Andrea, 19/10).
+ *
  * Mutable while the ride is open; serialized to JSON on every save.
  */
 class RideRecord(
@@ -89,15 +94,37 @@ class RideRecord(
     var notes: String = ""
 
     val temperatureC: Double? get() = if (temperatureN > 0) temperatureSum / temperatureN else null
-    val whEstimated: Double get() = whMech * sUsed
+    val whEstimated: Double get() = whMech * sForecast()
     /** Battery actually spent, only when both ends were entered by the rider. */
     val whReal: Double? get() = if (startAssumed) null else arrivalPct?.let { (startPct - it) / 100.0 * capacityWh }
     /** Start confirmed with SET and arrival entered: the only rides the regression of s may use. */
     val validForRegression: Boolean get() = !startAssumed && arrivalPct != null
     val distanceKm: Double get() = distanceM / 1000.0
 
-    /** Battery % the model believes now: anchor minus what was spent since the anchor. */
-    fun estimatedPct(): Double = anchorPct - (whMech - anchorWhMech) * sUsed / capacityWh * 100.0
+    /** Battery % the model believes now: anchor minus what was spent since the anchor, at the s of the day. */
+    fun estimatedPct(): Double = anchorPct - (whMech - anchorWhMech) * sForecast() / capacityWh * 100.0
+
+    /**
+     * s measured on this ride, from the start to the last manual entry: the points
+     * the display lost over the mechanical Wh integrated until then. Null before
+     * the first entry or when the start was not confirmed.
+     */
+    fun sToday(): Double? {
+        if (startAssumed || anchorWhMech < 1.0) return null
+        val points = startPct - anchorPct
+        if (points < 1.0) return null
+        return (points / 100.0 * capacityWh / anchorWhMech).coerceIn(S_TODAY_MIN, S_TODAY_MAX)
+    }
+
+    /** Weight of [sToday] against the prior: the points consumed at the entry over [S_TODAY_FULL_PCT], full beyond. */
+    fun sTodayWeight(): Double = if (sToday() == null) 0.0 else ((startPct - anchorPct) / S_TODAY_FULL_PCT).coerceIn(0.0, 1.0)
+
+    /** The s the estimate and the forecast use: the prior until the first entry, then blended with [sToday]. */
+    fun sForecast(): Double {
+        val today = sToday() ?: return sUsed
+        val w = sTodayWeight()
+        return sUsed * (1.0 - w) + today * w
+    }
 
     /** The % read at the start: the anchor goes back to km 0 even when SET comes minutes later. */
     fun setStart(pct: Int, assumed: Boolean) {
@@ -156,6 +183,8 @@ class RideRecord(
         put("wh_real", whReal?.let { r1(it) } ?: JSONObject.NULL)
         put("anchor_pct", r1(anchorPct))
         put("anchor_wh_mech", r1(anchorWhMech))
+        put("s_today", sToday()?.let { r2(it) } ?: JSONObject.NULL)
+        put("s_forecast", r2(sForecast()))
         put("flow_rider_share_pct", flowRiderSharePct ?: JSONObject.NULL)
         put("flow_km_by_mode", flowKmByMode?.let { m -> JSONObject().apply { m.forEach { (k, v) -> put(k, v) } } } ?: JSONObject.NULL)
         put("flow_pred_start_pct", flowPredStartPct ?: JSONObject.NULL)
@@ -173,6 +202,11 @@ class RideRecord(
         /** Bumped whenever the energy model changes: the regression must not mix versions. */
         const val MODEL_VERSION = "2026-10-13 physics-s"
         const val MOVING_MS = 0.5
+        /** Points of battery consumed at the entry that give [sToday] full weight: 20 points of 750 Wh, the display's ±0.5 is then 2.5 %. */
+        const val S_TODAY_FULL_PCT = 20.0
+        /** Bounds of [sToday], against a typo on the wheel. */
+        const val S_TODAY_MIN = 0.8
+        const val S_TODAY_MAX = 2.5
         /** Gradient bands in %, lower edge inclusive. */
         val GRADE_BANDS = listOf("lt-6", "-6..-3", "-3..3", "3..6", "6..10", "10..15", "ge15")
         private val GRADE_EDGES = doubleArrayOf(-6.0, -3.0, 3.0, 6.0, 10.0, 15.0)
@@ -226,3 +260,4 @@ class RideRecord(
 
 private fun r0(v: Double): Double = Math.round(v).toDouble()
 private fun r1(v: Double): Double = Math.round(v * 10.0) / 10.0
+private fun r2(v: Double): Double = Math.round(v * 100.0) / 100.0

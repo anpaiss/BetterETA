@@ -40,6 +40,48 @@ class RideRecordTest {
         assertTrue(r.estimatedPct() < 60.0)
     }
 
+    @Test fun `a manual entry measures the s of the day and the rest of the ride uses it`() {
+        val r = RideRecord(startMs = 1L, capacityWh = 1000.0, sUsed = 1.25)
+        r.setStart(100, assumed = false)
+        assertNull(r.sToday())
+        assertEquals(1.25, r.sForecast(), 0.0)
+        r.whMech = 160.0                      // the model says 80 %
+        assertEquals(80.0, r.estimatedPct(), 1e-9)
+        // the display says 60: 40 points for 160 Wh mechanical, s today 2.5, full weight beyond 20 points
+        r.anchor(60, 2L)
+        assertEquals(2.5, r.sToday()!!, 1e-9)
+        assertEquals(1.0, r.sTodayWeight(), 1e-9)
+        assertEquals(2.5, r.sForecast(), 1e-9)
+        r.whMech = 200.0                      // 40 Wh more cost 10 points at s 2.5, not 5
+        assertEquals(50.0, r.estimatedPct(), 1e-9)
+        assertEquals(500.0, r.whEstimated, 1e-9)
+    }
+
+    @Test fun `the s of the day weighs by the points consumed and needs a confirmed start`() {
+        val r = RideRecord(startMs = 1L, capacityWh = 1000.0, sUsed = 1.25)
+        r.setStart(100, assumed = false)
+        r.whMech = 80.0
+        r.anchor(88, 2L)                      // 12 points for 80 Wh: s today 1.5, weight 12/20
+        assertEquals(1.5, r.sToday()!!, 1e-9)
+        assertEquals(0.6, r.sTodayWeight(), 1e-9)
+        assertEquals(1.25 * 0.4 + 1.5 * 0.6, r.sForecast(), 1e-9)
+        // a second entry later re-measures from the start, not from the previous entry
+        r.whMech = 200.0
+        r.anchor(70, 3L)                      // 30 points for 200 Wh: s today 1.5, full weight
+        assertEquals(1.5, r.sForecast(), 1e-9)
+        // an entry above the start, or a typo, never produces a wild s
+        r.anchor(100, 4L)
+        assertNull(r.sToday())
+        r.anchor(5, 5L)
+        assertEquals(RideRecord.S_TODAY_MAX, r.sToday()!!, 1e-9)
+        // start not confirmed: no measurement, prior kept
+        val a = RideRecord(startMs = 1L, capacityWh = 1000.0, sUsed = 1.25)
+        a.whMech = 160.0
+        a.anchor(60, 2L)
+        assertNull(a.sToday())
+        assertEquals(1.25, a.sForecast(), 0.0)
+    }
+
     @Test fun `gradient bands`() {
         assertEquals(0, RideRecord.gradeBand(-12.0))
         assertEquals(1, RideRecord.gradeBand(-6.0))
