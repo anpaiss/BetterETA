@@ -23,7 +23,7 @@ class Prefs(ctx: Context) {
 
     /** Alert when the predicted battery at arrival drops below this. */
     var alertThresholdPct: Int
-        get() = sp.getInt(KEY_THRESHOLD, 15)
+        get() = sp.getInt(KEY_THRESHOLD, 10)   // 10 %: the Bosch reserve (Andrea, 19/10)
         set(v) = sp.edit().putInt(KEY_THRESHOLD, v).apply()
 
     /**

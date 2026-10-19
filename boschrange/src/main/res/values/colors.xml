@@ -6,7 +6,7 @@
     <!-- Data field text: the Karoo draws fields on its own background (day white / night black) -->
     <color name="page_text">#000000</color>
     <color name="page_muted">#666666</color>
-    <!-- Margin and climb left: route fits / does not fit -->
+    <!-- Margin and extra climb: route fits / does not fit -->
     <color name="field_ok">#1B5E20</color>
     <color name="field_bad">#B71C1C</color>
 </resources>

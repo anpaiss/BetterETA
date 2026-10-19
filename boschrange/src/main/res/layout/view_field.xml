@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Single-cell fields (compact, margin, climb left): caption, value, sub-caption.
+<!-- Single-cell fields (compact, margin, extra climb): caption, value, sub-caption.
      Text sizes follow the cell, set from code. A tap anywhere opens "Battery now?". -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/field_root"

@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
  * BetterETA dashboard: black cells, grey caption on top, big number.
  *
  *   NOW → ARRIVAL        "100 → 58"             caption carries the band and the calibration state
- *   MARGIN | CLIMB LEFT  "+43 %" | "+762 m"     green when the route fits, red when it does not
+ *   MARGIN TO 10 % LIMIT | EXTRA CLIMB POSSIBLE  "+43 %" | "+762 m"  green when the route fits, red when it does not
  *   TO GO  | SPENT       "21.5 km" | "123 Wh"   (START "100 %" planned, before the ride)
  *   footer               last entry, s, rides, surface state
  *
@@ -130,9 +130,9 @@ class RangePageDataType(
         val a = if (arrival == null) Cell("BATTERY NOW  ·  no route", "%.0f %%".format(now))
             else Cell("NOW → ARRIVAL %%  ·  ±%.0f  ·  %s".format(s.halfBandPct, cal), "%.0f → %.0f".format(now, arrival))
         val b1 = if (arrival == null) Cell("MARGIN", "--")
-            else Cell("MARGIN over ${s.thresholdPct} %", "%+d %%".format(Math.round(s.marginPct)), if (s.marginPct >= 0.0) Tone.OK else Tone.BAD)
-        val b2 = if (arrival == null) Cell("CLIMB LEFT", "--")
-            else Cell("CLIMB LEFT", "%+d m".format(Math.round(s.extraClimbM)), if (s.extraClimbM >= 0.0) Tone.OK else Tone.BAD)
+            else Cell("MARGIN TO ${s.thresholdPct} % LIMIT", "%+d %%".format(Math.round(s.marginPct)), if (s.marginPct >= 0.0) Tone.OK else Tone.BAD)
+        val b2 = if (arrival == null) Cell("EXTRA CLIMB POSSIBLE", "--")
+            else Cell("EXTRA CLIMB POSSIBLE", "%+d m".format(Math.round(s.extraClimbM)), if (s.extraClimbM >= 0.0) Tone.OK else Tone.BAD)
         val c1 = if (arrival == null) Cell("TO GO", "--")
             else Cell("TO GO  ·  D+%.0f m".format(s.remainingAscentM), "%.1f km".format(s.remainingKm))
         val c2 = if (s.rideOpen) Cell("SPENT  ·  %.0f %%".format(s.whEstimated / s.capacityWh * 100.0), "%.0f Wh".format(s.whEstimated))

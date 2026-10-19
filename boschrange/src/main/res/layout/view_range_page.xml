@@ -2,7 +2,7 @@
 <!-- The boschRange page (19/10/2026), in the style of the BetterETA dashboard
      and BigFields: black cells with a grey caption on top and a big number,
      margin and climb cells in the state colour. Rows: NOW → ARRIVAL full width,
-     MARGIN | CLIMB LEFT, TO GO | SPENT (START before the ride), a footer line.
+     MARGIN TO 10 % LIMIT | EXTRA CLIMB POSSIBLE, TO GO | SPENT (START before the ride), a footer line.
      Text sizes are set from code; only RemoteViews-friendly classes. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/page_root"

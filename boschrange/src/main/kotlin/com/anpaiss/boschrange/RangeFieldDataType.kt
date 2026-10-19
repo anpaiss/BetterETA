@@ -28,8 +28,8 @@ import kotlinx.coroutines.launch
  * same [DebugState] the extension publishes every tick:
  *
  *  - COMPACT      "62 → 31 %"  battery now and predicted at arrival, the half band below
- *  - MARGIN       "+16 %"      arrival minus the alert threshold, green or red
- *  - EXTRA_CLIMB  "+420 m"     ascent the margin would still pay for, green or red
+ *  - MARGIN       "+16 %"      arrival minus the alert threshold ("to the 10 % limit"), green or red
+ *  - EXTRA_CLIMB  "+420 m"     extra ascent the margin would still pay for, green or red
  *
  * Caption, value and sub-caption scale with the cell. A tap opens "Battery
  * now?" ([BatteryTapReceiver]); not in the profile editor preview.
@@ -108,7 +108,7 @@ class RangeFieldDataType(
     }
 
     private fun render(s: DebugState): Face {
-        val caption = when (kind) { Kind.COMPACT -> "NOW → ARRIVAL"; Kind.MARGIN -> "MARGIN"; Kind.EXTRA_CLIMB -> "CLIMB LEFT" }
+        val caption = when (kind) { Kind.COMPACT -> "NOW → ARRIVAL"; Kind.MARGIN -> "MARGIN"; Kind.EXTRA_CLIMB -> "EXTRA CLIMB POSSIBLE" }
         if (!s.enabled && !s.rideOpen) return Face(caption, "OFF", "boschRange off", Tone.NEUTRAL)
         val now = if (s.rideOpen) s.estimatedPct else s.planningPct.toDouble()
         val arrival = s.arrivalPct
@@ -121,7 +121,7 @@ class RangeFieldDataType(
             }
             Kind.MARGIN -> when {
                 arrival == null -> Face(caption, "--", "no route", Tone.NEUTRAL)
-                else -> Face(caption, "%+d %%".format(Math.round(s.marginPct)), "over ${s.thresholdPct} %",
+                else -> Face(caption, "%+d %%".format(Math.round(s.marginPct)), "to the ${s.thresholdPct} % limit",
                     if (s.marginPct >= 0.0) Tone.OK else Tone.BAD)
             }
             Kind.EXTRA_CLIMB -> when {

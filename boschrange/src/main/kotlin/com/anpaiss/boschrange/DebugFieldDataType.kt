@@ -61,7 +61,7 @@ data class DebugState(
     val extraClimbM: Double = 0.0,
     val remainingKm: Double = 0.0,
     val remainingAscentM: Double = 0.0,
-    val thresholdPct: Int = 15,
+    val thresholdPct: Int = 10,
     /** Start % the forecast plans from before the ride (tap on a field to change it). */
     val planningPct: Int = 100,
     // Flow screenshots (FATTO on the popups)
