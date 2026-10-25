@@ -60,7 +60,18 @@ Seven fields can be added to any ride page from the Karoo profile editor:
 | **Distance to Farthest Point** | Distance left to the point of the route farthest from the start, the turnaround of an out-and-back |
 | **Switches** | The mandatory arrival time; a tap opens the Switches popup, see below |
 
-The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
+<table>
+  <tr>
+    <td><img width="240" alt="The BetterETA Dashboard page with a route loaded and the ride not started: ETA on top, time to go below, the bottom band free for the Karoo's turn banner" src="docs/dashboard-paused.png" /></td>
+    <td><img width="240" alt="The Distance to Farthest Point field above the Karoo's climb graph, ride not started" src="docs/farthest-paused.png" /></td>
+  </tr>
+  <tr>
+    <td>The dashboard, route loaded, ride not started yet</td>
+    <td>Distance to Farthest Point above the Karoo's climb graph</td>
+  </tr>
+</table>
+
+The fields show their numbers only while the Karoo is recording: with a route loaded and the ride not started they say "Paused", as above. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
 
 Five looks are available in the app, from the plain Karoo style to coloured tiles; the app shows a preview of each.
 
