@@ -20,12 +20,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
 
-        <!-- No io.hammerhead.karooext.MANIFEST_URL while the repository is private:
-             the Karoo store fetches that URL every time the extension is opened
-             from its library, gets a 404 and shows RETRY instead of opening the
-             app (seen on PoiAhead, 06/09/2026). Declare it again, pointing to
-             .../releases/latest/download/manifest.json, only once a public
-             release with manifest.json exists. -->
+        <!-- The Karoo library fetches this manifest to offer installs and updates;
+             every release attaches manifest.json next to BetterETA.apk. -->
+        <meta-data
+            android:name="io.hammerhead.karooext.MANIFEST_URL"
+            android:value="https://github.com/anpaiss/BetterETA/releases/latest/download/manifest.json" />
 
         <activity
             android:name=".MainActivity"
