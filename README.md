@@ -5,7 +5,7 @@
 
 # BetterETA
 
-> **Beta** — install the APK from the [latest release](../../releases/latest/download/BetterETA.apk). Tested by one rider on one Karoo 3 for three months; read [Beta status](#beta-status) before trusting it on a ride that matters.
+> **Version 1.0** — install the APK from the [latest release](../../releases/latest/download/BetterETA.apk). Built and ridden by one rider on one Karoo 3 for three months; read [What to expect on a fresh install](#what-to-expect-on-a-fresh-install) and [What has been tested](#what-has-been-tested) before trusting it on a ride that matters.
 
 ![BetterETA: an arrival time that learns how you ride, gradient by gradient](docs/banner.png)
 
@@ -15,14 +15,14 @@ An arrival time for the Hammerhead Karoo that learns how **you** ride. Instead o
 
 The Karoo's own ETA takes the distance to the destination and your average speed so far. On a flat ride that works. On a ride that climbs 1000 m in the first half and descends in the second, the first half makes it far too pessimistic and the second half far too optimistic, and it only settles when the ride is almost over.
 
-Over the eleven routed rides logged between September and October 2026, hilly mountain-bike loops of 20 to 40 km, the two estimates were judged the same way: once a minute, how far the predicted time to go was from the time really needed to the finish, as a share of that time.
+Over the twelve routed rides logged between September and October 2026, hilly mountain-bike rides of 17 to 40 km, the two estimates were judged the same way: once a minute, how far the predicted time to go was from the time really needed to the finish, as a share of that time. Averaged over the rides:
 
-| | Average error | Worst ride |
-|---|---|---|
-| Karoo native ETA | 44 % | 57 % |
-| BetterETA | 10 % | 18 % |
+| | Average error |
+|---|---|
+| Karoo native ETA | 42 % |
+| BetterETA | 10 % |
 
-BetterETA was closer on every one of those rides. On a route ridden before, the error sat between 3 and 7 %.
+BetterETA was closer on every one of those rides. On a route ridden before, the error sat between 3 and 7 %. The last of the twelve was ridden on a fresh install, learning from past rides alone: see [What to expect on a fresh install](#what-to-expect-on-a-fresh-install).
 
 ## How it works
 
@@ -98,6 +98,16 @@ To move the time during the ride, say after a long stop, tap the **Switches** fi
 
 It is not on the Hammerhead app store. New versions install over the old one with the same command; the learned table, the memory and the settings are kept. The import of past rides runs only while the Karoo is not recording: if you install on the trailhead, it waits for the end of the ride.
 
+## What to expect on a fresh install
+
+The first ride is the hardest one for BetterETA, so it was tested exactly that way: on 25 October 2026 the extension was wiped from the Karoo, installed again and taken out with no live learning at all.
+
+- **The import.** Granting the storage permission restarted the extension; twenty seconds later it scanned the 136 recordings on the Karoo, kept the 39 rides of 10 km or more from the last twelve months, 1064 km in all, and built the speed table from them in 75 seconds. The app page showed the count as it went.
+- **The first quarter of an hour.** At the start of a 17.6 km ride with 390 m of climbing, BetterETA said 1 h 13 min; the ride took one hour. The table built from past rides was slower than the rider on the day, as it often will be: the recorded rides include the slow ones with family and friends. The day factor noticed within fifteen minutes and the estimate followed; from the fourth kilometre the error stayed within a few minutes.
+- **The result.** Over the ride, BetterETA's error averaged 9 %, the Karoo's 19 %. Replaying the same ride through the table that three months of live learning had built gave 8 %: the past rides alone get you most of the way.
+
+So expect a first ride that starts cautious and settles within a quarter of an hour, a handful of rides to bring the table to your own pace, and the biggest gains, the 3 to 7 % above, on routes you ride again, where the memory of places takes over.
+
 ## The app page
 
 Besides the field style and the permissions, the app page has:
@@ -109,9 +119,9 @@ Besides the field style and the permissions, the app page has:
 
 ![The learned speed table in the app](docs/app-model.png)
 
-## Beta status
+## What has been tested
 
-What BetterETA has been tested on, honestly:
+Honestly, this:
 
 - One rider, one Karoo 3, one e-mountain bike, three months of rides in the Italian Alps, 20 to 40 km with 500 to 1500 m of climbing. Nothing is specific to e-bikes except the guesses used for a gradient band before any ride fills it, and after the first import every band is filled from your own rides.
 - The Karoo 2 is supported by the SDK but untested. The screen is the same size; the maps are read the same way.
