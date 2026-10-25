@@ -69,7 +69,7 @@ class EtaFarthestDataType(
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
-            combine(etaState, prefs.styleFlow()) { state, style ->
+            combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style ->
                 formatDistance(state) to style.colorsFor(null)
             }
                 .distinctUntilChanged()

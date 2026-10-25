@@ -63,7 +63,7 @@ class EtaPaceDataType(
         val prefs = Prefs(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            combine(etaState, prefs.styleFlow()) { state, style -> render(state, style) }
+            combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style -> render(state, style) }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)

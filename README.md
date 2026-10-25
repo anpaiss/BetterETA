@@ -62,16 +62,16 @@ Seven fields can be added to any ride page from the Karoo profile editor:
 
 <table>
   <tr>
-    <td><img width="240" alt="The BetterETA Dashboard page with a route loaded and the ride not started: ETA on top, time to go below, the bottom band free for the Karoo's turn banner" src="docs/dashboard-paused.png" /></td>
-    <td><img width="240" alt="The Distance to Farthest Point field above the Karoo's climb graph, ride not started" src="docs/farthest-paused.png" /></td>
+    <td><img width="240" alt="The BetterETA Dashboard page: mandatory arrival time and margin on top of the arrival time, time to go with its uncertainty below, the bottom band free for the Karoo's turn banner" src="docs/dashboard.png" /></td>
+    <td><img width="240" alt="The Distance to Farthest Point field above the Karoo's climb graph" src="docs/farthest.png" /></td>
   </tr>
   <tr>
-    <td>The dashboard, route loaded, ride not started yet</td>
+    <td>The dashboard with a mandatory arrival time set, 12 minutes ahead of it</td>
     <td>Distance to Farthest Point above the Karoo's climb graph</td>
   </tr>
 </table>
 
-The fields show their numbers only while the Karoo is recording: with a route loaded and the ride not started they say "Paused", as above. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
+Both pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. The fields compute only while the Karoo is recording: with a route loaded and the ride not started they say "Paused". The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
 
 Five looks are available in the app, from the plain Karoo style to coloured tiles; the app shows a preview of each.
 

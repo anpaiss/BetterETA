@@ -69,7 +69,7 @@ class EtaAbsoluteDataType(
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
             // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente (es. cambio minuto)
-            combine(etaState, prefs.styleFlow()) { state, style ->
+            combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style ->
                 formatEta(context, state) to style.colorsFor(null)
             }
                 .distinctUntilChanged()

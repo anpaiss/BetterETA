@@ -67,7 +67,7 @@ class EtaRemainingDataType(
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
             // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente
-            combine(etaState, prefs.styleFlow()) { state, style ->
+            combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style ->
                 Triple(formatRemaining(state), formatLabel(state), style.colorsFor(null))
             }
                 .distinctUntilChanged()
