@@ -87,14 +87,14 @@ val generateManifest by tasks.registering {
     outputs.file(out)
     doLast {
         fun q(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
-        val screenshots = listOf("dashboard.png", "app-info-1.png", "app-info-2.png")
+        val screenshots = listOf("app-home.png", "app-model.png", "switches_mta_set.png")
             .joinToString(", ") { q("https://raw.githubusercontent.com/anpaiss/BetterETA/v$version/docs/$it") }
         out.asFile.writeText(
             """
             {
               "label": "BetterETA",
               "packageName": "com.anpaiss.bettereta",
-              "latestApkUrl": ${q("$repo/releases/download/v$version/app-release.apk")},
+              "latestApkUrl": ${q("$repo/releases/latest/download/BetterETA.apk")},
               "latestVersion": ${q(version)},
               "latestVersionCode": $code,
               "developer": "Andrea Paissan",
