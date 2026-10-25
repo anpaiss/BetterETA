@@ -34,6 +34,9 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         // Promotion criterion for the shadow physics fallback, fixed before any
         // data was looked at. Mirrored in the README.
+        /** Fresh install: the automatic import finds no storage permission and the app has to say what to do. */
+        const val HISTORY_NO_STORAGE = "Ride history: your past rides can't be imported, the storage permission is missing. " +
+            "Tap ALLOW READING OFFLINE MAPS above, then IMPORT RIDE HISTORY NOW (the import also retries by itself at the next start)."
         const val PROMOTE_MIN_RIDES   = 5
         const val PROMOTE_MIN_GAIN_PP = 2.0
         const val PROMOTE_MAX_LOSS_PP = 3
@@ -92,6 +95,8 @@ class MainActivity : AppCompatActivity() {
             val ext = BetterEtaExtension.instance
             if (ext == null) {
                 findViewById<TextView>(R.id.tv_history_status).text = "Ride history: extension not running"
+            } else if (!storageGranted()) {
+                findViewById<TextView>(R.id.tv_history_status).text = HISTORY_NO_STORAGE
             } else {
                 ext.requestHistoryImport()
                 findViewById<TextView>(R.id.tv_history_status).text = "Ride history: import started, see the log (HIST)"
@@ -184,13 +189,19 @@ class MainActivity : AppCompatActivity() {
     private fun renderHistoryStatus() {
         val ext = BetterEtaExtension.instance
         val tv = findViewById<TextView>(R.id.tv_history_status)
-        tv.text = if (ext == null) "Ride history: extension not running" else {
+        tv.text = if (ext == null) "Ride history: extension not running" else if (!storageGranted()) HISTORY_NO_STORAGE else {
             val all = ext.fitFiles().size
             val done = ext.importedFits().size
             "Ride history: $all FIT files in the chosen window, $done examined so far (rides under 10 km are skipped)"
         }
         renderLastRide()
     }
+
+    private fun storageGranted(): Boolean =
+        checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
 
     /** "14/10 10:33 + 1 more recording": the rides the button would undo. */
     private fun lastRideLabel(starts: List<Long>): String {
@@ -209,6 +220,7 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         renderStorageStatus()
+        renderHistoryStatus()
     }
 
     /**

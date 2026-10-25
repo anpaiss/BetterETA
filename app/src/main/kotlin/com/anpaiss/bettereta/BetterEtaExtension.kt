@@ -1351,7 +1351,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             android.content.pm.PackageManager.PERMISSION_GRANTED &&
             applicationContext.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (!storage) { if (!auto) logger.log("HIST ", "Import storico: permesso storage assente"); return }
+        // Logged for the automatic run too: on a fresh install the permission is
+        // never there yet (25/10/2026), and the app says how to start the import.
+        if (!storage) { logger.log("HIST ", "Import storico: permesso storage assente${if (auto) " (automatico, riprova al prossimo avvio o dal pulsante)" else ""}"); return }
         val done = importedFits()
         val todo = fitFiles().filter { it.name !in done }
         if (todo.isEmpty()) { if (!auto) logger.log("HIST ", "Import storico: nessun FIT nuovo (${done.size} già importati)"); return }
