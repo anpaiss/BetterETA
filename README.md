@@ -126,7 +126,7 @@ So expect a first ride that starts cautious and settles within a quarter of an h
 Besides the field style and the permissions, the app page has:
 
 - **Ride history**: the window of past rides to learn from (3, 6, 12 or 24 months, or all), a button to import rides recorded since the last import, and one to rebuild the whole table from history alone, which forgets everything learned live.
-- **Last ride: don't count it**: undoes the learning of the last recording, for the day the Karoo was left recording in the car or a ride that is not representative. It restores the table, the memory and the comparison history to the state before that ride.
+- **Last ride: don't count it**: undoes the learning of the last recording. The table, the segment memory and the comparison history go back to the state before that ride; the recording itself stays on the Karoo. Use it for the day the Karoo was left recording in the car, or for a ride at a pace that is not yours: a ride with a child or a slower friend is lovely, but if it stayed in the table it would nudge the estimate of your solo rides.
 - **Learned speed by grade**: the table itself, km/h per gradient band and surface, with the amount of riding behind each value.
 - **ETA vs Karoo**: for the last twenty routed rides, how far each estimate was from the truth, judged at the end of the ride as described above.
 
