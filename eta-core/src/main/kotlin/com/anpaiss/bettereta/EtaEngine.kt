@@ -49,7 +49,11 @@ class EtaEngine(
     fun computeFromSegments(segments: List<RouteSegment>): Long =
         computeBreakdown(segments).seconds
 
-    fun computeBreakdown(segments: List<RouteSegment>): Breakdown {
+    /**
+     * @param baseOnly no day factor anywhere, neither on the buckets nor on the
+     *   way memory: the planning estimate of a route opened before the ride.
+     */
+    fun computeBreakdown(segments: List<RouteSegment>, baseOnly: Boolean = false): Breakdown {
         if (segments.isEmpty()) return Breakdown(-1L, 0.0)
         var totalSec = 0.0
         var totalM = 0.0
@@ -58,7 +62,8 @@ class EtaEngine(
         var physicsM = 0.0
         for (seg in segments) {
             // predict guarantees >= 0.5 m/s (coerceAtLeast in AdaptiveSpeedModel)
-            val p = speedModel.predict(seg.gradePct, seg.surface, fallback)
+            val p = if (baseOnly) speedModel.predictBase(seg.gradePct, seg.surface, fallback)
+                    else speedModel.predict(seg.gradePct, seg.surface, fallback)
             val phys = physicsFirst?.predictSpeedMs(seg.gradePct, seg.surface)?.coerceAtLeast(0.5)
             var v = phys ?: p.speedMs
             if (phys != null) physicsM += seg.distanceM
@@ -70,7 +75,8 @@ class EtaEngine(
             val mem = if (seg.wayKey != 0L) wayMemory?.estimate(seg.wayKey) else null
             if (mem != null) {
                 val w = mem.passes / (mem.passes + 1.0)
-                v = (w * mem.speedMs * speedModel.dayFactorForSurface(seg.surface) + (1.0 - w) * v).coerceAtLeast(0.5)
+                val f = if (baseOnly) 1.0 else speedModel.dayFactorForSurface(seg.surface)
+                v = (w * mem.speedMs * f + (1.0 - w) * v).coerceAtLeast(0.5)
                 memoryM += seg.distanceM
             }
             totalSec += seg.distanceM / v

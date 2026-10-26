@@ -50,6 +50,27 @@ class EtaEngineTest {
     }
 
     @Test
+    fun `baseOnly ignores the day factor left by the last ride`() = runBlocking {
+        val waypoints = listOf(
+            RouteWaypoint(45.0000, 9.0, 300.0),
+            RouteWaypoint(45.0100, 9.0, 300.0),
+        )
+        val (eng, model, pipeline) = engine(waypoints)
+        repeat(200) { model.update(speedMs = 5.0, gradePct = 0.0) }   // base a 5 m/s
+        model.newRide()
+        val base = eng.computeBreakdown(pipeline.remainingSegments()).seconds
+        repeat(200) { model.update(speedMs = 8.0, gradePct = 0.0) }   // giornata veloce: fattore > 1
+        assertTrue("factor ${model.currentDayFactor}", model.currentDayFactor > 1.02)
+
+        val live = eng.computeBreakdown(pipeline.remainingSegments()).seconds
+        val plan = eng.computeBreakdown(pipeline.remainingSegments(), baseOnly = true).seconds
+        // Col fattore la stima scende; il piano lo ignora e resta sulla base, che
+        // intanto si è mossa solo un poco verso gli 8 m/s (EMA lunga)
+        assertTrue("live=$live deve essere < plan=$plan", live < plan)
+        assertTrue("plan=$plan deve essere <= base=$base", plan <= base)
+    }
+
+    @Test
     fun `after advancing half route eta is halved approximately`() = runBlocking {
         val waypoints = listOf(
             RouteWaypoint(45.0000, 9.0, 300.0),

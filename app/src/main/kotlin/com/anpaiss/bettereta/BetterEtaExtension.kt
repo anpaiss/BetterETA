@@ -502,6 +502,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 }
                 progressGate.reset()
                 closeWayPass()
+                planLoggedSec = -1L
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
                     val segCount = pipeline.remainingSegments().size
@@ -691,6 +692,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     if (rideState !is RideState.Recording) {
+                        if (rideState is RideState.Idle && initialRemainingSec < 0) {
+                            // Route aperta, giro mai partito: stima a tavolino dell'intera route
+                            publishPlan()
+                            continue
+                        }
                         // Preserva gli ultimi valori calcolati (ETA, distanza, dislivello):
                         // il Karoo va in auto-pausa a ogni fermata e azzerarli fa comparire
                         // i segnaposto "--" per tutta la sosta.
@@ -1862,6 +1868,46 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * dopo il margine vero era +8 min; giro 19/09, un'ora fuori route, margine a
      * −23 min alle 17:20 e avviso solo alle 17:34 al primo ETA agganciato.
      */
+    // Ultima stima a tavolino scritta nel log (-1 = nessuna per questa route)
+    @Volatile private var planLoggedSec = -1L
+
+    /**
+     * Stima a tavolino: route aperta sul Karoo, giro non avviato (26/10, chiesta su
+     * Reddit: "quanto ci metto su questa route?"). Intera route dalla sola base,
+     * senza fattore di giornata, con la memoria dei tratti; nei campi "PLAN ~h:mm".
+     * Senza MTA: quello eventualmente in memoria è del giro precedente.
+     */
+    private suspend fun publishPlan() {
+        val segs = pipeline.remainingSegmentsFrom(0.0)
+        if (segs.isEmpty()) {
+            etaState.value = EtaState(hasRoute = true, status = "Plan")
+            return
+        }
+        val bd    = etaEngine.computeBreakdown(segs, baseOnly = true)
+        val sec   = bd.seconds
+        val distM = segs.sumOf { it.distanceM }
+        val elevM = if (hasElevationData) segs.filter { it.gradePct > 0.0 }.sumOf { it.distanceM * it.gradePct / 100.0 } else -1.0
+        etaState.value = EtaState(
+            remainingSeconds       = sec,
+            hasRoute               = true,
+            status                 = "Plan",
+            remainingDistanceM     = distM,
+            remainingElevationM    = elevM,
+            farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
+            estimateApprox         = true,
+            uncertaintySeconds     = EtaUncertainty.seconds(sec, bd.memoryDistanceShare, bd.fallbackDistanceShare, approx = true),
+        )
+        // Una riga quando la stima appare e quando si sposta di più di un minuto
+        // (tipicamente all'arrivo del fondo dalle mappe)
+        val delta = sec - planLoggedSec
+        if (planLoggedSec < 0 || delta > 60 || delta < -60) {
+            planLoggedSec = sec
+            logger.log("PLAN ", "'%s': %.1f km, %.0f m D+ → %d:%02d (fondo %s, memoria %.0f%%, fallback %.0f%%)".format(
+                routeName, distM / 1000.0, elevM, sec / 3600, sec % 3600 / 60,
+                if (surfacesApplied) "applicato" else "in attesa", bd.memoryDistanceShare * 100, bd.fallbackDistanceShare * 100))
+        }
+    }
+
     private fun marginFor(remainingSec: Long, approx: Boolean): Long? {
         val mta = mtaEpochMs
         if (mta <= 0L || remainingSec < 0) return null

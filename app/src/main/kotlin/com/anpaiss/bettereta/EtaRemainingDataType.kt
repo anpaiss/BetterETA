@@ -91,9 +91,12 @@ class EtaRemainingDataType(
     }
 
     /** Con una stima valida la seconda riga della didascalia porta il "±" (EtaUncertainty). */
-    private fun formatLabel(state: EtaState): String =
-        if (state.hasRoute && state.remainingSeconds >= 0 && state.uncertaintySeconds >= 0)
-            "TIME LEFT\n±${(state.uncertaintySeconds + 30) / 60}m" else "TIME\nLEFT"
+    private fun formatLabel(state: EtaState): String {
+        val plan = state.status == "Plan"   // route aperta e giro non partito: stima dell'intera route
+        return if (state.hasRoute && state.remainingSeconds >= 0 && state.uncertaintySeconds >= 0)
+            "${if (plan) "PLAN" else "TIME LEFT"}\n±${(state.uncertaintySeconds + 30) / 60}m"
+        else if (plan) "PLAN" else "TIME\nLEFT"
+    }
 
     private fun formatRemaining(state: EtaState): String {
         if (!state.hasRoute || state.remainingSeconds < 0) return state.status

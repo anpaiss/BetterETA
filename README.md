@@ -71,7 +71,7 @@ Seven fields can be added to any ride page from the Karoo profile editor:
   </tr>
 </table>
 
-Both pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. The fields compute only while the Karoo is recording: with a route loaded and the ride not started they say "Paused". The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
+Both pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. With a route loaded and the ride not started, the fields show the plan: the time for the whole route from your speed table, labelled "PLAN" and marked "~", with no day factor because the day has not started. Open a route on the Karoo, read the time, go back without starting: that is how long it should take you. Once the ride is recording the fields switch to the live estimate from where you are. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
 
 Five looks are available in the app, from the plain Karoo style to coloured tiles; the app shows a preview of each.
 

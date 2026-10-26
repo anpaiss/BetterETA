@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.flowOf
  *
  * @param remainingSeconds  secondi al traguardo; -1 = dati non disponibili
  * @param hasRoute          true se un percorso con quota è stato caricato
- * @param status            messaggio descrittivo dello stato (es. "Looking for route", "No Route")
+ * @param status            messaggio descrittivo dello stato (es. "Looking for route", "No Route");
+ *                          "Plan" = route aperta e giro non partito, remainingSeconds è la
+ *                          stima dell'intera route dalla base (i campi scrivono "PLAN")
  * @param deltaSeconds      scarto del tempo di percorrenza (solo tempo in movimento)
  *                          rispetto alla prima stima valida del giro (positivo = in
  *                          ritardo sulla media); null finché non c'è baseline

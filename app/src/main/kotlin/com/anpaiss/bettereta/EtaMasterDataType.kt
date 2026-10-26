@@ -151,8 +151,10 @@ class EtaMasterDataType(
             eta       = (if (state.estimateApprox) "~" else "") +
                 timeFmt.format(Calendar.getInstance().apply { timeInMillis = arrivalMs }.time)
             togo      = formatRemaining(state.remainingSeconds)
+            // "PLAN": route aperta e giro non partito, stima dell'intera route
+            val what  = if (state.status == "Plan") "PLAN" else "TO GO"
             togoLabel = if (state.uncertaintySeconds >= 0)
-                "TO GO  ±${(state.uncertaintySeconds + 30) / 60}m" else "TO GO"
+                "$what  ±${(state.uncertaintySeconds + 30) / 60}m" else what
         } else {
             eta       = "--:--"
             togo      = state.status

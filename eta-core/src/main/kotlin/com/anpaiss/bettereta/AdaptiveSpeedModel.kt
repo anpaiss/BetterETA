@@ -254,6 +254,22 @@ class AdaptiveSpeedModel {
         return Prediction((raw.speedMs * effectiveFactor(idx, surface)).coerceAtLeast(0.5), raw.fromFallback)
     }
 
+    /**
+     * Come [predict] ma dalla sola base, senza fattore di giornata: la stima a
+     * tavolino di una route aperta e non ancora partita (26/10). Il fattore resta
+     * quello dell'ultimo giro fino al prossimo [newRide] e non dice nulla sul
+     * giro che verrà.
+     */
+    @Synchronized
+    fun predictBase(
+        gradePct: Double,
+        surface: Surface = Surface.UNKNOWN,
+        fallback: FallbackSpeedProvider = GradientFactorFallback,
+    ): Prediction {
+        val raw = rawPredict(bucketIndex(gradePct), surface, fallback, gradePct)
+        return Prediction(raw.speedMs.coerceAtLeast(0.5), raw.fromFallback)
+    }
+
     /** Base senza fattore di giornata: bucket (pendenza, fondo), bucket globale, o fallback. */
     private fun rawPredict(
         idx: Int,
