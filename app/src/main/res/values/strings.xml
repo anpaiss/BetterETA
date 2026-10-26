@@ -25,6 +25,8 @@
     <string name="mta_popup_set">SET</string>
     <string name="mta_popup_dismiss">DISMISS</string>
     <string name="mta_alert_title">Arrival margin lost</string>
+    <!-- Titolo del popup: il Karoo lo scrive maiuscolo e tronca oltre ~16 caratteri -->
+    <string name="plan_alert_title">BetterETA</string>
     <string name="switches_name">Switches</string>
     <string name="switches_desc">Tap the field to move the mandatory arrival time and to switch the other extensions on or off during the ride</string>
 </resources>

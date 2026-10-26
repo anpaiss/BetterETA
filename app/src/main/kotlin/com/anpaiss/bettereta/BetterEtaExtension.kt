@@ -238,6 +238,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         private const val MTA_ANY_ETA_WAIT_MS = 120_000L
         // Nessun avviso "margine perso" subito dopo aver impostato l'MTA
         private const val MTA_ALERT_GRACE_MS  = 60_000L
+        // Popup della stima a tavolino: aspetta il fondo dalle mappe fino a tanto così,
+        // poi esce con i soli bucket (mappe offline assenti, Overpass senza rete)
+        private const val PLAN_ALERT_WAIT_MS  = 10_000L
+        private const val PLAN_ALERT_SHOW_MS  = 20_000L
         // Sosta almeno così lunga → alla ripresa il popup ripropone l'MTA attuale
         // (giro 12/09: soste di 8 e 9,5 min, arrivo cambiato, nessuna domanda).
         // Le auto-pause ai semafori (secondi) non contano.
@@ -503,6 +507,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 progressGate.reset()
                 closeWayPass()
                 planLoggedSec = -1L
+                planAlerted   = false
+                routeLoadedMs = System.currentTimeMillis()
+                // Subito, non nella coroutine: il ticker passa prima e col flag della
+                // route precedente il popup del piano usciva senza aspettare il fondo
+                surfacesApplied = false
                 extensionScope.launch {
                     pipeline.setRoute(waypoints)
                     val segCount = pipeline.remainingSegments().size
@@ -1868,8 +1877,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * dopo il margine vero era +8 min; giro 19/09, un'ora fuori route, margine a
      * −23 min alle 17:20 e avviso solo alle 17:34 al primo ETA agganciato.
      */
-    // Ultima stima a tavolino scritta nel log (-1 = nessuna per questa route)
+    // Ultima stima a tavolino scritta nel log (-1 = nessuna per questa route),
+    // popup già mostrato per questa route, orario di caricamento della route
     @Volatile private var planLoggedSec = -1L
+    @Volatile private var planAlerted   = false
+    @Volatile private var routeLoadedMs = 0L
 
     /**
      * Stima a tavolino: route aperta sul Karoo, giro non avviato (26/10, chiesta su
@@ -1887,6 +1899,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         val sec   = bd.seconds
         val distM = segs.sumOf { it.distanceM }
         val elevM = if (hasElevationData) segs.filter { it.gradePct > 0.0 }.sumOf { it.distanceM * it.gradePct / 100.0 } else -1.0
+        val uncSec = EtaUncertainty.seconds(sec, bd.memoryDistanceShare, bd.fallbackDistanceShare, approx = true)
         etaState.value = EtaState(
             remainingSeconds       = sec,
             hasRoute               = true,
@@ -1895,8 +1908,29 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             remainingElevationM    = elevM,
             farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
             estimateApprox         = true,
-            uncertaintySeconds     = EtaUncertainty.seconds(sec, bd.memoryDistanceShare, bd.fallbackDistanceShare, approx = true),
+            uncertaintySeconds     = uncSec,
         )
+        // Popup una volta per route: la route si apre sulla mappa e il campo PLAN
+        // può stare su un'altra pagina (Andrea, 26/10). Col fondo applicato, o
+        // dopo PLAN_ALERT_WAIT_MS con i soli bucket.
+        if (!planAlerted && sec > 0 && (surfacesApplied || System.currentTimeMillis() - routeLoadedMs > PLAN_ALERT_WAIT_MS)) {
+            planAlerted = true
+            val time   = "%d:%02d".format(sec / 3600, sec % 3600 / 60)
+            val detail = "Plan: %.1f km, %s±%d min".format(distM / 1000.0,
+                if (elevM >= 0) "%.0f m D+, ".format(elevM) else "", (uncSec + 30) / 60)
+            karooSystem.dispatch(
+                InRideAlert(
+                    id              = "better-eta-plan-${routeLoadedMs}",
+                    icon            = R.drawable.ic_launcher_foreground,
+                    title           = "${getString(R.string.plan_alert_title)} ~$time",
+                    detail          = detail,
+                    autoDismissMs   = PLAN_ALERT_SHOW_MS,
+                    backgroundColor = R.color.plan_alert_bg,
+                    textColor       = R.color.alert_text,
+                )
+            )
+            logger.log("PLAN ", "Popup: ~$time, $detail (fondo ${if (surfacesApplied) "applicato" else "in attesa"})")
+        }
         // Una riga quando la stima appare e quando si sposta di più di un minuto
         // (tipicamente all'arrivo del fondo dalle mappe)
         val delta = sec - planLoggedSec

@@ -6,4 +6,6 @@
     <!-- InRideAlert "margin lost": bianco su rosso scuro (5.0:1) -->
     <color name="alert_bg">#D32F2F</color>
     <color name="alert_text">#FFFFFF</color>
+    <!-- Popup della stima a tavolino (route aperta): informativo, non un allarme -->
+    <color name="plan_alert_bg">#1565C0</color>
 </resources>
