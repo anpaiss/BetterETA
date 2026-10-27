@@ -71,9 +71,11 @@ Seven fields can be added to any ride page from the Karoo profile editor:
   </tr>
 </table>
 
-Both pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. Open a route on the Karoo and, a few seconds later, a popup says how long the whole route should take you: "BetterETA ~1:03", with distance, climbing and the uncertainty (below, yesterday's route, which took 1:03).
+Both pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. Open a route on the Karoo and, a few seconds later, a popup says how long the whole route should take you, with distance, climbing and the uncertainty; DISMISS closes it, or it goes away by itself after a minute and a half.
 
-![The plan popup on the Karoo](docs/plan-popup.png) It is the time from your speed table alone, with no day factor because the day has not started. Read it, keep the route or go back and try another. Until the ride starts the fields show the same number, labelled "PLAN"; once the ride is recording they switch to the live estimate from where you are. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
+<img width="240" alt="The plan popup on the Karoo: BetterETA plan, Gravel Montagna Granda, 2:02, 33.5 km, 1235 m D+, ± 29 min, DISMISS" src="docs/plan-popup.png" />
+
+It is the time from your speed table alone, with no day factor because the day has not started. Read it, keep the route or go back and try another: every time a route is opened before the ride starts the popup comes back, even if the recording was started first and is waiting at the start. Until the ride starts the fields show the same number, labelled "PLAN"; once you are moving they switch to the live estimate from where you are, and the popup closes. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
 
 Five looks are available in the app, from the plain Karoo style to coloured tiles; the app shows a preview of each.
 

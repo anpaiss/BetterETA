@@ -41,6 +41,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private lateinit var surfaceClassifier: SurfaceClassifier
     private lateinit var prefs: Prefs
     private lateinit var mtaPopup: MtaPopupController
+    private lateinit var planPopup: PlanPopupController
 
     internal val etaState = MutableStateFlow(EtaState())
 
@@ -241,7 +242,6 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // Popup della stima a tavolino: aspetta il fondo dalle mappe fino a tanto così,
         // poi esce con i soli bucket (mappe offline assenti, Overpass senza rete)
         private const val PLAN_ALERT_WAIT_MS  = 10_000L
-        private const val PLAN_ALERT_SHOW_MS  = 20_000L
         // Sosta almeno così lunga → alla ripresa il popup ripropone l'MTA attuale
         // (giro 12/09: soste di 8 e 9,5 min, arrivo cambiato, nessuna domanda).
         // Le auto-pause ai semafori (secondi) non contano.
@@ -310,6 +310,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 mtaAskPendingSinceMs = 0L
                 logger.log("MTA  ", if (mtaEpochMs > 0L) "Popup chiuso: MTA invariato" else "Nessun MTA impostato")
             })
+        planPopup = PlanPopupController(applicationContext, logger)
 
         // Versione installata: correla il log al build effettivamente sul dispositivo
         runCatching {
@@ -413,6 +414,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
                 if (polyline == lastRoutePolyline) {
                     logger.log("ROUTE", "[$source] stesso percorso — posizione preservata")
+                    // Giro non ancora partito: la route riaperta è una nuova scelta,
+                    // il popup del piano esce di nuovo (27/10: la stessa route del
+                    // giorno prima, stesso processo, non lo mostrava più)
+                    if (initialRemainingSec < 0) {
+                        planAlerted   = false
+                        planLoggedSec = -1L
+                        routeLoadedMs = System.currentTimeMillis()
+                    }
                     // Classificazione fondo fallita in precedenza (es. offline al
                     // caricamento): la ri-emissione della route è l'occasione per ritentare
                     if (!surfacesApplied) {
@@ -509,6 +518,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 planLoggedSec = -1L
                 planAlerted   = false
                 routeLoadedMs = System.currentTimeMillis()
+                planPopup.hide()
                 // Subito, non nella coroutine: il ticker passa prima e col flag della
                 // route precedente il popup del piano usciva senza aspettare il fondo
                 surfacesApplied = false
@@ -701,8 +711,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
 
                     if (rideState !is RideState.Recording) {
-                        if (rideState is RideState.Idle && initialRemainingSec < 0) {
-                            // Route aperta, giro mai partito: stima a tavolino dell'intera route
+                        if (initialRemainingSec < 0) {
+                            // Route aperta, giro mai partito (anche in pausa prima della
+                            // partenza): stima a tavolino dell'intera route
                             publishPlan()
                             continue
                         }
@@ -714,6 +725,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             mtaEpochMs = mtaEpochMs, marginSeconds = marginFor(prev.remainingSeconds, prev.estimateApprox))
                         continue
                     }
+
+                    // Registrazione avviata ma giro non partito (nessuna baseline):
+                    // il popup del piano esce lo stesso (27/10: play premuto prima della route)
+                    if (initialRemainingSec < 0 && !planAlerted) planNumbers()?.let { maybePlanPopup(it) }
 
                     // 0. Fuori route secondo il Karoo: transizioni e riaggancio al rientro
                     val karooPosM = karooAlongRouteM()
@@ -979,6 +994,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             sampleTickCounter   = 0
                             synchronized(etaSamples) { etaSamples.clear() }
                             logger.log("ETA  ", "Baseline pace catturata: ${remainingSec}s previsti")
+                            planPopup.hide()
                         } else if (initialRemainingSec >= 0 && moving) {
                             movingElapsedExact += tickSec
                         }
@@ -1062,6 +1078,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         logger.log("SYS  ", "=== BetterETA fermato ===")
         instance = null
         mtaPopup.hide()
+        planPopup.hide()
         closeWayPass()
         saveModel()
         sampleLog.close()
@@ -1889,57 +1906,63 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * senza fattore di giornata, con la memoria dei tratti; nei campi "PLAN ~h:mm".
      * Senza MTA: quello eventualmente in memoria è del giro precedente.
      */
-    private suspend fun publishPlan() {
+    private data class Plan(val sec: Long, val distM: Double, val elevM: Double, val uncSec: Long,
+                            val memoryShare: Double, val fallbackShare: Double)
+
+    /** Stima a tavolino dell'intera route, base pura (senza fattore di giornata); null senza segmenti. */
+    private suspend fun planNumbers(): Plan? {
         val segs = pipeline.remainingSegmentsFrom(0.0)
-        if (segs.isEmpty()) {
+        if (segs.isEmpty()) return null
+        val bd    = etaEngine.computeBreakdown(segs, baseOnly = true)
+        val distM = segs.sumOf { it.distanceM }
+        val elevM = if (hasElevationData) segs.filter { it.gradePct > 0.0 }.sumOf { it.distanceM * it.gradePct / 100.0 } else -1.0
+        val uncSec = EtaUncertainty.seconds(bd.seconds, bd.memoryDistanceShare, bd.fallbackDistanceShare, approx = true)
+        return Plan(bd.seconds, distM, elevM, uncSec, bd.memoryDistanceShare, bd.fallbackDistanceShare)
+    }
+
+    private suspend fun publishPlan() {
+        val p = planNumbers()
+        if (p == null) {
             etaState.value = EtaState(hasRoute = true, status = "Plan")
             return
         }
-        val bd    = etaEngine.computeBreakdown(segs, baseOnly = true)
-        val sec   = bd.seconds
-        val distM = segs.sumOf { it.distanceM }
-        val elevM = if (hasElevationData) segs.filter { it.gradePct > 0.0 }.sumOf { it.distanceM * it.gradePct / 100.0 } else -1.0
-        val uncSec = EtaUncertainty.seconds(sec, bd.memoryDistanceShare, bd.fallbackDistanceShare, approx = true)
         etaState.value = EtaState(
-            remainingSeconds       = sec,
+            remainingSeconds       = p.sec,
             hasRoute               = true,
             status                 = "Plan",
-            remainingDistanceM     = distM,
-            remainingElevationM    = elevM,
+            remainingDistanceM     = p.distM,
+            remainingElevationM    = p.elevM,
             farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
             estimateApprox         = true,
-            uncertaintySeconds     = uncSec,
+            uncertaintySeconds     = p.uncSec,
         )
-        // Popup una volta per route: la route si apre sulla mappa e il campo PLAN
-        // può stare su un'altra pagina (Andrea, 26/10). Col fondo applicato, o
-        // dopo PLAN_ALERT_WAIT_MS con i soli bucket.
-        if (!planAlerted && sec > 0 && (surfacesApplied || System.currentTimeMillis() - routeLoadedMs > PLAN_ALERT_WAIT_MS)) {
-            planAlerted = true
-            val time   = "%d:%02d".format(sec / 3600, sec % 3600 / 60)
-            val detail = "Plan: %.1f km, %s±%d min".format(distM / 1000.0,
-                if (elevM >= 0) "%.0f m D+, ".format(elevM) else "", (uncSec + 30) / 60)
-            karooSystem.dispatch(
-                InRideAlert(
-                    id              = "better-eta-plan-${routeLoadedMs}",
-                    icon            = R.drawable.ic_launcher_foreground,
-                    title           = "${getString(R.string.plan_alert_title)} ~$time",
-                    detail          = detail,
-                    autoDismissMs   = PLAN_ALERT_SHOW_MS,
-                    backgroundColor = R.color.plan_alert_bg,
-                    textColor       = R.color.alert_text,
-                )
-            )
-            logger.log("PLAN ", "Popup: ~$time, $detail (fondo ${if (surfacesApplied) "applicato" else "in attesa"})")
-        }
+        maybePlanPopup(p)
         // Una riga quando la stima appare e quando si sposta di più di un minuto
         // (tipicamente all'arrivo del fondo dalle mappe)
-        val delta = sec - planLoggedSec
+        val delta = p.sec - planLoggedSec
         if (planLoggedSec < 0 || delta > 60 || delta < -60) {
-            planLoggedSec = sec
+            planLoggedSec = p.sec
             logger.log("PLAN ", "'%s': %.1f km, %.0f m D+ → %d:%02d (fondo %s, memoria %.0f%%, fallback %.0f%%)".format(
-                routeName, distM / 1000.0, elevM, sec / 3600, sec % 3600 / 60,
-                if (surfacesApplied) "applicato" else "in attesa", bd.memoryDistanceShare * 100, bd.fallbackDistanceShare * 100))
+                routeName, p.distM / 1000.0, p.elevM, p.sec / 3600, p.sec % 3600 / 60,
+                if (surfacesApplied) "applicato" else "in attesa", p.memoryShare * 100, p.fallbackShare * 100))
         }
+    }
+
+    // Popup una volta per apertura della route: la route si apre sulla mappa e il
+    // campo PLAN può stare su un'altra pagina (Andrea, 26/10). Col fondo applicato,
+    // o dopo PLAN_ALERT_WAIT_MS con i soli bucket.
+    private fun maybePlanPopup(p: Plan) {
+        if (planAlerted || p.sec <= 0) return
+        if (!surfacesApplied && System.currentTimeMillis() - routeLoadedMs <= PLAN_ALERT_WAIT_MS) return
+        planAlerted = true
+        val time  = "%d:%02d".format(p.sec / 3600, p.sec % 3600 / 60)
+        val lines = listOfNotNull(
+            "%.1f km".format(p.distM / 1000.0),
+            if (p.elevM >= 0) "%.0f m D+".format(p.elevM) else null,
+            "± %d min".format((p.uncSec + 30) / 60),
+        )
+        planPopup.show(time, routeName, lines)
+        logger.log("PLAN ", "Popup: ~$time, ${lines.joinToString(", ")} (fondo ${if (surfacesApplied) "applicato" else "in attesa"})")
     }
 
     private fun marginFor(remainingSec: Long, approx: Boolean): Long? {
