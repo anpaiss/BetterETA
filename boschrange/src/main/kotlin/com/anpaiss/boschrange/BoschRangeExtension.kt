@@ -44,11 +44,13 @@ import kotlinx.coroutines.launch
  *    different value change that, ride 18/10), after a stop of 5 min or more
  *    (prefilled with the estimate), end (arrival %). SKIP or timeout at the end
  *    leaves arrival null: the ride stays in the history but out of the regression.
- *  - Bike link (30/10, LdiLink): the % the bike shows arrives over Bluetooth
- *    at every change. Before the ride it is the planned start, at the start the
- *    measured one (no popup), during the ride every change re-anchors the
- *    estimate (no popup after a stop), at the end it is the arrival (no popup).
- *    The popups stay for a ride without the bike (not paired, bike off).
+ *  - Bike link (30/10): the % the bike shows arrives from the BoschData
+ *    extension (its `bike_battery` stream, fed over Bluetooth by the Bosch
+ *    Live Data Interface) at every change. Before the ride it is the planned
+ *    start, at the start the measured one (no popup), during the ride every
+ *    change re-anchors the estimate (no popup after a stop), at the end it is
+ *    the arrival (no popup). The popups stay for a ride without the bike
+ *    (BoschData not installed, bike not paired, bike off).
  */
 class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NAME) {
 
@@ -60,7 +62,6 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private lateinit var popup: BatteryPopupController
     private lateinit var surfaceClassifier: SurfaceClassifier
     private lateinit var energy: EnergyModel
-    private var ldi: LdiLink? = null
     private val pipeline = SegmentPipeline()
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -69,7 +70,6 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private var startPopupJob: Job? = null
 
     private val debugState = MutableStateFlow(DebugState())
-    private val bikeState = MutableStateFlow(BikeState())
     private val visibleDataTypeIds = MutableStateFlow<Set<String>?>(null)
     private val lock = Any()
     private var ride: RideRecord? = null              // guarded by lock
@@ -107,7 +107,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     @Volatile private var planningPct = 100
     @Volatile private var planningSetMs = 0L
     @Volatile private var lowAlertShown = false
-    // Bike link: last % received over the Live Data Interface and when
+    // Bike link: last % received from BoschData and when
     @Volatile private var liveSoc = -1
     @Volatile private var liveSocMs = 0L
     @Volatile private var bikeConnected = false
@@ -129,7 +129,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         private const val LIVE_FRESH_MS        = 10 * 60_000L     // a bike % older than this is not the current one (bike off)
         private const val LIVE_START_MAX_WH    = 5.0              // a first bike % with less mechanical Wh than this is still the start
         @Volatile var instance: BoschRangeExtension? = null
-        val BLUETOOTH_PERMISSIONS = arrayOf("android.permission.BLUETOOTH_CONNECT", "android.permission.BLUETOOTH_ADVERTISE")
+        const val BOSCH_DATA_PACKAGE = "com.anpaiss.boschdata"
+        /** The battery stream of the BoschData extension: Streaming = bike on and talking, NotAvailable = bike off. */
+        val BIKE_BATTERY_STREAM = DataType.dataTypeId("bosch-data", "bike_battery")
     }
 
     override val types: List<DataTypeImpl> by lazy { listOf(
@@ -138,12 +140,6 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         RangeFieldDataType(extension, "extra_climb", RangeFieldDataType.Kind.EXTRA_CLIMB, debugState, visibleDataTypeIds),
         RangePageDataType(extension, debugState, visibleDataTypeIds),
         DebugFieldDataType(extension, state = debugState, visibleDataTypeIds = visibleDataTypeIds),
-        BikeFieldDataType(extension, "bike_battery", BikeFieldDataType.Kind.BATTERY, bikeState, visibleDataTypeIds),
-        BikeFieldDataType(extension, "bike_power", BikeFieldDataType.Kind.POWER, bikeState, visibleDataTypeIds),
-        BikeFieldDataType(extension, "bike_speed", BikeFieldDataType.Kind.SPEED, bikeState, visibleDataTypeIds),
-        BikeFieldDataType(extension, "bike_cadence", BikeFieldDataType.Kind.CADENCE, bikeState, visibleDataTypeIds),
-        BikeFieldDataType(extension, "bike_odometer", BikeFieldDataType.Kind.ODOMETER, bikeState, visibleDataTypeIds),
-        BikeFieldDataType(extension, "bike_light", BikeFieldDataType.Kind.LIGHT, bikeState, visibleDataTypeIds),
     ) }
 
     override fun onCreate() {
@@ -186,9 +182,6 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         // showed "1.25 / 1000 Wh" and "history 0 / 0" for 750 Wh and one ride (18/10)
         publishDebug()
 
-        ldi = LdiLink(applicationContext, logger, prefs, ldiListener)
-        if (prefs.enabled) startBikeLink()
-
         karooSystem = KarooSystemService(applicationContext)
         karooSystem.connect { _ ->
             consumerIds += karooSystem.addConsumer(RideState.Params, { _ -> }, {}) { state: RideState -> onRideState(state) }
@@ -209,6 +202,19 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             stream(DataType.Type.TEMPERATURE, DataType.Field.TEMPERATURE) { temperatureC = it }
             stream(DataType.Type.DISTANCE_TO_DESTINATION, DataType.Field.DISTANCE_TO_DESTINATION) { karooDistToDestM = it }
             stream(DataType.Type.ELEVATION_REMAINING, DataType.Field.ASCENT_REMAINING) { karooAscentRemM = it }
+            consumerIds += karooSystem.addConsumer(OnStreamState.StartStreaming(BIKE_BATTERY_STREAM), { _ -> }, {}) { ev: OnStreamState ->
+                when (val st = ev.state) {
+                    is StreamState.Streaming -> {
+                        if (!bikeConnected) { bikeConnected = true; logger.log("LDI  ", "BoschData: bici collegata") }
+                        st.dataPoint.singleValue?.let { onLiveSoc(Math.round(it).toInt()) }
+                    }
+                    else -> if (bikeConnected) {
+                        bikeConnected = false
+                        logger.log("LDI  ", "BoschData: bici scollegata (${st::class.simpleName})")
+                        publishDebug()
+                    }
+                }
+            }
 
             tickerJob = scope.launch { ticker() }
             logger.log("SYS  ", "Consumer registrati, ticker ${TICK_MS / 1000} s")
@@ -221,19 +227,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
     }
 
-    // ── Bike link (Bosch Live Data Interface) ─────────────────────────────
-
-    private val ldiListener = object : LdiLink.Listener {
-        override fun onLiveData(data: LiveData) {
-            bikeState.value = bikeState.value.merge(data)
-            data.socPct?.let { onLiveSoc(it) }
-        }
-        override fun onLinkChanged(connected: Boolean) {
-            bikeConnected = connected
-            bikeState.value = bikeState.value.copy(connected = connected)
-            publishDebug()
-        }
-    }
+    // ── Bike link (the bike_battery stream of BoschData) ──────────────────
 
     private fun liveFresh(): Boolean = liveSoc >= 0 && System.currentTimeMillis() - liveSocMs < LIVE_FRESH_MS
 
@@ -269,33 +263,12 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         scope.launch { updateForecast(); publishDebug() }
     }
 
-    /**
-     * Android 12 wants the runtime BLUETOOTH_CONNECT/ADVERTISE even from an app
-     * targeting 28 (the GATT server threw a SecurityException and the service
-     * crash-looped, 30/10): the app asks for them, the link starts only when granted.
-     */
-    private fun bluetoothGranted(): Boolean = android.os.Build.VERSION.SDK_INT < 31 ||
-        BLUETOOTH_PERMISSIONS.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
-
-    private fun startBikeLink() {
-        if (!bluetoothGranted()) { logger.log("LDI  ", "Permessi Bluetooth assenti: collegamento alla bici non avviato (concederli nell'app)"); return }
-        runCatching { ldi?.start() }.onFailure { logger.logError("LDI  ", "Avvio del collegamento alla bici fallito", it) }
-    }
-
-    /** The ON/OFF switch of the app and the Bluetooth permissions: the bike link follows them. */
-    fun onEnabledChanged(on: Boolean) {
-        if (on) startBikeLink() else ldi?.stop()
-        publishDebug()
-    }
-
     /** For the app screen. */
     fun bikeSummary(): String = when {
-        !prefs.enabled -> "off with boschRange"
-        !bluetoothGranted() -> "Bluetooth permission MISSING: grant it below"
-        bikeConnected -> "connected" + (if (liveSoc >= 0) ", battery $liveSoc %" else "")
-        liveSoc >= 0 -> "not connected, last $liveSoc % ${(System.currentTimeMillis() - liveSocMs) / 60_000} min ago"
-        prefs.bikeAddress != null -> "not connected (bike ${prefs.bikeAddress}): switch the bike on"
-        else -> "not paired: Flow → Add component → Accessories → Karoo"
+        runCatching { packageManager.getPackageInfo(BOSCH_DATA_PACKAGE, 0) }.isFailure -> "BoschData not installed: the popups ask the battery %"
+        bikeConnected -> "connected via BoschData" + (if (liveSoc >= 0) ", battery $liveSoc %" else "")
+        liveSoc >= 0 -> "bike off, last $liveSoc % ${(System.currentTimeMillis() - liveSocMs) / 60_000} min ago"
+        else -> "bike off or not paired (see the BoschData app)"
     }
 
     // ── Ride state ────────────────────────────────────────────────────────
@@ -721,7 +694,6 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         tickerJob?.cancel()
         consumerIds.forEach { karooSystem.removeConsumer(it) }
         popup.hide()
-        ldi?.stop()
         saveCurrent()
         scope.cancel()
         karooSystem.disconnect()

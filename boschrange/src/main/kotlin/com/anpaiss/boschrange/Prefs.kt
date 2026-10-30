@@ -40,14 +40,8 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat(KEY_RIDER_KG, 84f).toDouble()
         set(v) = sp.edit().putFloat(KEY_RIDER_KG, v.toFloat()).apply()
 
-    /** Bluetooth address of the Bosch bike that exposed the Live Data Service (LdiLink); null until the first connection. */
-    var bikeAddress: String?
-        get() = sp.getString(KEY_BIKE_ADDRESS, null)
-        set(v) = sp.edit().putString(KEY_BIKE_ADDRESS, v).apply()
-
     companion object {
         private const val NAME = "bosch_range_prefs"
-        private const val KEY_BIKE_ADDRESS = "bike_address"
         private const val KEY_ENABLED    = "enabled"
         private const val KEY_POWER_MORE = "power_more"
         private const val KEY_THRESHOLD  = "alert_threshold_pct"
