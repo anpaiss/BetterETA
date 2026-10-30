@@ -25,6 +25,7 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
+    private lateinit var tvBike: TextView
     private lateinit var tvOverlay: TextView
     private lateinit var tvStorage: TextView
     private lateinit var tvRide: TextView
@@ -41,13 +42,20 @@ class MainActivity : AppCompatActivity() {
             text = "boschRange ${BuildConfig.VERSION_NAME}"
             textSize = 22f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.parseColor("#FF5823"))
         })
-        root.addView(label("Bosch battery at arrival, predicted from the route profile. Data collection phase: " +
-            "the popups ask the battery % at start, after long stops and at arrival; every ride goes into the history."))
+        root.addView(label("Bosch battery at arrival, predicted from the route profile. The battery % comes from the bike " +
+            "over Bluetooth (Bosch Live Data Interface: pair the Karoo once from Flow → Add component → Accessories); " +
+            "without the bike the popups ask it at start, after long stops and at arrival. Every ride goes into the history."))
 
         root.addView(CheckBox(this).apply {
-            text = "boschRange ON: popups and ride recording (off = nothing happens during the ride)"
+            text = "boschRange ON: bike link, popups and ride recording (off = nothing happens during the ride)"
             isChecked = prefs.enabled
-            setOnCheckedChangeListener { _, on -> prefs.enabled = on }
+            setOnCheckedChangeListener { _, on -> prefs.enabled = on; BoschRangeExtension.instance?.onEnabledChanged(on); refresh() }
+        })
+        tvBike = label("")
+        root.addView(tvBike)
+        if (android.os.Build.VERSION.SDK_INT >= 31) root.addView(Button(this).apply {
+            text = "GRANT BLUETOOTH (bike link)"
+            setOnClickListener { requestPermissions(BoschRangeExtension.BLUETOOTH_PERMISSIONS, 2) }
         })
         root.addView(CheckBox(this).apply {
             text = "PowerMore 250 Wh mounted (1000 Wh instead of 750)"
@@ -101,7 +109,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() { super.onResume(); refresh() }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 2) BoschRangeExtension.instance?.onEnabledChanged(prefs.enabled)
+        refresh()
+    }
+
     private fun refresh() {
+        tvBike.text = "Bike (LDI): " + (BoschRangeExtension.instance?.bikeSummary() ?: "extension not running")
         tvOverlay.text = "Overlay permission: " + if (Settings.canDrawOverlays(this)) "granted ✓" else "MISSING — the popups cannot appear"
         val storage = checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         tvStorage.text = "Storage permission: " + if (storage) "granted ✓ (surface from the offline maps)" else "missing — surface via Overpass only"

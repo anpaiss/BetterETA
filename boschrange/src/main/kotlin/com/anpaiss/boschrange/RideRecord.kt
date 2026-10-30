@@ -9,13 +9,17 @@ import kotlin.math.sin
 /** Road condition entered by the rider. Recorded only, never an input of the model ("condizione", not "fondo"). */
 enum class Condition { DRY, WET, MUD }
 
-/** A battery percentage the rider typed during the ride, with what the model thought at that moment. */
-class ManualUpdate(val timeMs: Long, val distanceKm: Double, val estimatePct: Double, val enteredPct: Int) {
+/**
+ * A battery percentage entered during the ride, with what the model thought at
+ * that moment: typed by the rider on a popup, or ([live]) received from the bike
+ * over the Live Data Interface at every change of the displayed %.
+ */
+class ManualUpdate(val timeMs: Long, val distanceKm: Double, val estimatePct: Double, val enteredPct: Int, val live: Boolean = false) {
     fun toJson(): JSONObject = JSONObject()
-        .put("time_ms", timeMs).put("km", r1(distanceKm)).put("estimate_pct", r1(estimatePct)).put("entered_pct", enteredPct)
+        .put("time_ms", timeMs).put("km", r1(distanceKm)).put("estimate_pct", r1(estimatePct)).put("entered_pct", enteredPct).put("live", live)
 
     companion object {
-        fun fromJson(o: JSONObject) = ManualUpdate(o.getLong("time_ms"), o.getDouble("km"), o.getDouble("estimate_pct"), o.getInt("entered_pct"))
+        fun fromJson(o: JSONObject) = ManualUpdate(o.getLong("time_ms"), o.getDouble("km"), o.getDouble("estimate_pct"), o.getInt("entered_pct"), o.optBoolean("live", false))
     }
 }
 
@@ -132,8 +136,8 @@ class RideRecord(
         anchorPct = pct.toDouble(); anchorWhMech = 0.0
     }
 
-    fun anchor(pct: Int, nowMs: Long) {
-        manualUpdates += ManualUpdate(nowMs, distanceKm, estimatedPct(), pct)
+    fun anchor(pct: Int, nowMs: Long, live: Boolean = false) {
+        manualUpdates += ManualUpdate(nowMs, distanceKm, estimatedPct(), pct, live)
         anchorPct = pct.toDouble(); anchorWhMech = whMech
     }
 

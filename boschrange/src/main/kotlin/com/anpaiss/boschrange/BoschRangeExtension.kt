@@ -44,6 +44,11 @@ import kotlinx.coroutines.launch
  *    different value change that, ride 18/10), after a stop of 5 min or more
  *    (prefilled with the estimate), end (arrival %). SKIP or timeout at the end
  *    leaves arrival null: the ride stays in the history but out of the regression.
+ *  - Bike link (30/10, LdiLink): the % the bike shows arrives over Bluetooth
+ *    at every change. Before the ride it is the planned start, at the start the
+ *    measured one (no popup), during the ride every change re-anchors the
+ *    estimate (no popup after a stop), at the end it is the arrival (no popup).
+ *    The popups stay for a ride without the bike (not paired, bike off).
  */
 class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NAME) {
 
@@ -55,6 +60,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private lateinit var popup: BatteryPopupController
     private lateinit var surfaceClassifier: SurfaceClassifier
     private lateinit var energy: EnergyModel
+    private var ldi: LdiLink? = null
     private val pipeline = SegmentPipeline()
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -100,6 +106,10 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     @Volatile private var planningPct = 100
     @Volatile private var planningSetMs = 0L
     @Volatile private var lowAlertShown = false
+    // Bike link: last % received over the Live Data Interface and when
+    @Volatile private var liveSoc = -1
+    @Volatile private var liveSocMs = 0L
+    @Volatile private var bikeConnected = false
 
     companion object {
         private const val TICK_MS              = 5_000L
@@ -115,7 +125,10 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         private const val RESUME_OPEN_RIDE_MS  = 6 * 3_600_000L   // an open ride older than this is a leftover
         private const val PLANNING_VALID_MS    = 3_600_000L       // a planned start % older than this is forgotten
         private const val LOW_ALERT_MIN_KM     = 0.5              // no "below threshold" alert before the ride has settled
+        private const val LIVE_FRESH_MS        = 10 * 60_000L     // a bike % older than this is not the current one (bike off)
+        private const val LIVE_START_MAX_WH    = 5.0              // a first bike % with less mechanical Wh than this is still the start
         @Volatile var instance: BoschRangeExtension? = null
+        val BLUETOOTH_PERMISSIONS = arrayOf("android.permission.BLUETOOTH_CONNECT", "android.permission.BLUETOOTH_ADVERTISE")
     }
 
     override val types: List<DataTypeImpl> by lazy { listOf(
@@ -166,6 +179,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         // showed "1.25 / 1000 Wh" and "history 0 / 0" for 750 Wh and one ride (18/10)
         publishDebug()
 
+        ldi = LdiLink(applicationContext, logger, prefs, ldiListener)
+        if (prefs.enabled) startBikeLink()
+
         karooSystem = KarooSystemService(applicationContext)
         karooSystem.connect { _ ->
             consumerIds += karooSystem.addConsumer(RideState.Params, { _ -> }, {}) { state: RideState -> onRideState(state) }
@@ -196,6 +212,76 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         consumerIds += karooSystem.addConsumer(OnStreamState.StartStreaming(type), { _ -> }, {}) { ev: OnStreamState ->
             (ev.state as? StreamState.Streaming)?.dataPoint?.values?.get(field)?.let(onValue)
         }
+    }
+
+    // ── Bike link (Bosch Live Data Interface) ─────────────────────────────
+
+    private val ldiListener = object : LdiLink.Listener {
+        override fun onLiveData(data: LiveData) { data.socPct?.let { onLiveSoc(it) } }
+        override fun onLinkChanged(connected: Boolean) { bikeConnected = connected; publishDebug() }
+    }
+
+    private fun liveFresh(): Boolean = liveSoc >= 0 && System.currentTimeMillis() - liveSocMs < LIVE_FRESH_MS
+
+    /**
+     * The % the bike displays, at every change. Without a ride it is the start the
+     * forecast plans from; in a ride the start as long as nothing was spent yet,
+     * then an anchor like a popup entry (every point measures the s of the day).
+     */
+    private fun onLiveSoc(pct: Int) {
+        val now = System.currentTimeMillis()
+        val changed = pct != liveSoc
+        liveSoc = pct; liveSocMs = now
+        if (!changed) return
+        val r = synchronized(lock) { ride }
+        when {
+            r == null -> {
+                planningPct = pct; planningSetMs = now
+                logger.log("LDI  ", "Batteria dalla bici: $pct % → partenza pianificata")
+            }
+            r.startAssumed && r.whMech < LIVE_START_MAX_WH -> {
+                synchronized(lock) { r.setStart(pct, assumed = false) }
+                startPopupJob?.cancel()
+                logger.log("LDI  ", "Batteria dalla bici: $pct % = partenza misurata a ${"%.1f".format(r.distanceKm)} km, popup di partenza annullato")
+            }
+            else -> {
+                val before = r.estimatedPct()
+                synchronized(lock) { r.anchor(pct, now, live = true) }
+                logger.log("LDI  ", "Batteria dalla bici: $pct % a ${"%.1f".format(r.distanceKm)} km, stima era ${"%.1f".format(before)} %" +
+                    (r.sToday()?.let { "; s di oggi ${"%.2f".format(it)} (peso ${"%.0f".format(r.sTodayWeight() * 100)} %)" } ?: ""))
+            }
+        }
+        saveCurrent()
+        scope.launch { updateForecast(); publishDebug() }
+    }
+
+    /**
+     * Android 12 wants the runtime BLUETOOTH_CONNECT/ADVERTISE even from an app
+     * targeting 28 (the GATT server threw a SecurityException and the service
+     * crash-looped, 30/10): the app asks for them, the link starts only when granted.
+     */
+    private fun bluetoothGranted(): Boolean = android.os.Build.VERSION.SDK_INT < 31 ||
+        BLUETOOTH_PERMISSIONS.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+
+    private fun startBikeLink() {
+        if (!bluetoothGranted()) { logger.log("LDI  ", "Permessi Bluetooth assenti: collegamento alla bici non avviato (concederli nell'app)"); return }
+        runCatching { ldi?.start() }.onFailure { logger.logError("LDI  ", "Avvio del collegamento alla bici fallito", it) }
+    }
+
+    /** The ON/OFF switch of the app and the Bluetooth permissions: the bike link follows them. */
+    fun onEnabledChanged(on: Boolean) {
+        if (on) startBikeLink() else ldi?.stop()
+        publishDebug()
+    }
+
+    /** For the app screen. */
+    fun bikeSummary(): String = when {
+        !prefs.enabled -> "off with boschRange"
+        !bluetoothGranted() -> "Bluetooth permission MISSING: grant it below"
+        bikeConnected -> "connected" + (if (liveSoc >= 0) ", battery $liveSoc %" else "")
+        liveSoc >= 0 -> "not connected, last $liveSoc % ${(System.currentTimeMillis() - liveSocMs) / 60_000} min ago"
+        prefs.bikeAddress != null -> "not connected (bike ${prefs.bikeAddress}): switch the bike on"
+        else -> "not paired: Flow → Add component → Accessories → Karoo"
     }
 
     // ── Ride state ────────────────────────────────────────────────────────
@@ -235,19 +321,24 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         r.routeName = routeName; r.routeDistanceM = routeTotalDistM; r.routeAscentM = routeAscentM
         r.karooAscentRemainingAtStartM = karooAscentRemM
         r.routeUnclassifiedPct = routeUnclassifiedPct; r.surfaceComplete = surfaceComplete
-        // 100 %, or the start % tapped in before the ride: stays "assumed" until SET or timeout on the popup
-        val plannedStart = if (planningSetMs > 0L && now - planningSetMs < PLANNING_VALID_MS) planningPct else 100
+        // The bike's own % when it is talking; else 100 %, or the start % tapped in before the ride,
+        // "assumed" until SET or timeout on the popup
+        val live = liveFresh()
+        val plannedStart = if (live) liveSoc else if (planningSetMs > 0L && now - planningSetMs < PLANNING_VALID_MS) planningPct else 100
         planningSetMs = 0L
         lowAlertShown = false
-        r.setStart(plannedStart, assumed = true)
+        r.setStart(plannedStart, assumed = !live)
         sampleLog.ride(r)
         saveCurrent()
         publishDebug()
-        logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %, route '${routeName}' D+ ${routeAscentM.toInt()} m")
+        logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %${if (live) " dalla bici" else ""}, route '${routeName}' D+ ${routeAscentM.toInt()} m")
         startPopupJob?.cancel()
+        if (live) return
         startPopupJob = scope.launch {
             delay(START_POPUP_DELAY_MS)
-            if (rideState !is RideState.Recording) return@launch
+            // Paused when the delay ran out (standing at the start, 24/10/2026): the popup used to be dropped
+            // and the start stayed unconfirmed for the whole ride. Wait for the ride to move again instead.
+            while (rideState !is RideState.Recording) delay(1_000L)
             askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = true,
                 reminder = getString(R.string.reminder_flow_start),
                 onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } },
@@ -280,6 +371,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val now = System.currentTimeMillis()
         if (now - lastStopPopupMs < STOP_POPUP_DEDUP_MS) return
         val r = synchronized(lock) { ride } ?: return
+        if (startPopupJob?.isActive == true) return   // the start popup is still to come and asks first
+        if (liveFresh()) return                        // the bike says it itself
         lastStopPopupMs = now
         logger.log("RIDE ", "Ripresa ($reason): chiedo la % attuale fra ${STOP_POPUP_DELAY_MS / 1000} s")
         scope.launch {
@@ -303,6 +396,11 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val est = Math.round(r.estimatedPct()).toInt().coerceIn(0, 100)
         logger.log("RIDE ", "Fine giro: ${"%.1f".format(r.distanceKm)} km, D+ Karoo ${r.ascentM.toInt()} m (integrato ${r.ascentIntegratedM.toInt()}), " +
             "Wh meccanici ${"%.0f".format(r.whMech)} → stimati ${"%.0f".format(r.whEstimated)}, stima arrivo $est %")
+        if (liveFresh()) {
+            logger.log("LDI  ", "Arrivo $liveSoc % dalla bici, nessun popup")
+            finish(r, liveSoc)
+            return
+        }
         val missing = listOfNotNull(
             if (r.flowShotStartMs == 0L) getString(R.string.reminder_flow_start) else null,
             if (r.flowShotMidMs == 0L) getString(R.string.reminder_flow_mid) else null)
@@ -581,6 +679,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             arrivalPct = f?.arrivalPct, halfBandPct = f?.halfBandPct ?: 0.0, marginPct = f?.marginPct ?: 0.0,
             extraClimbM = f?.extraClimbM ?: 0.0, remainingKm = f?.remainingKm ?: 0.0, remainingAscentM = f?.remainingAscentM ?: 0.0,
             thresholdPct = prefs.alertThresholdPct, planningPct = planningPct,
+            liveSoc = if (liveFresh()) liveSoc else -1, bikeConnected = bikeConnected,
             historyRides = nRides, historyValid = nValid, historyComparable = nComparable)
         val lastUpdate = r?.manualUpdates?.lastOrNull()
         debugState.value = if (r == null) base else base.copy(
@@ -608,6 +707,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         tickerJob?.cancel()
         consumerIds.forEach { karooSystem.removeConsumer(it) }
         popup.hide()
+        ldi?.stop()
         saveCurrent()
         scope.cancel()
         karooSystem.disconnect()

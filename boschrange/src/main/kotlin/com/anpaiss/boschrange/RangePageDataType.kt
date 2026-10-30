@@ -143,7 +143,9 @@ class RangePageDataType(
         val c2 = if (s.rideOpen) Cell("SPENT  ·  %.0f %%".format(s.whEstimated / s.capacityWh * 100.0), "%.0f Wh".format(s.whEstimated))
             else Cell("START  ·  tap to set", "%d %%".format(s.planningPct))
         val parts = mutableListOf<String>()
+        if (s.bikeConnected) parts += "bike " + if (s.liveSoc >= 0) "${s.liveSoc} %" else "linked"
         if (s.rideOpen) parts += when {
+            s.bikeConnected && s.liveSoc >= 0 -> "live"
             s.manualUpdates > 0 -> "set %d %% @ %.1f km, %d min ago".format(s.lastUpdatePct, s.lastUpdateKm, s.lastUpdateAgeMin.coerceAtLeast(0))
             s.startAssumed -> "start %d %% assumed".format(s.startPct)
             else -> "start %d %% confirmed".format(s.startPct)

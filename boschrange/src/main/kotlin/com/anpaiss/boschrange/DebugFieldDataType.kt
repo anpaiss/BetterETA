@@ -42,6 +42,9 @@ data class DebugState(
     val lastUpdateKm: Double = -1.0,
     val lastUpdatePct: Int = -1,
     val lastUpdateAgeMin: Int = -1,
+    // Bosch Live Data Interface: the bike's own %, -1 when none fresh
+    val liveSoc: Int = -1,
+    val bikeConnected: Boolean = false,
     // ride so far (Karoo streams)
     val distanceKm: Double = 0.0,
     val ascentKarooM: Double = -1.0,
@@ -176,6 +179,11 @@ open class DebugFieldDataType(
         } else {
             big = "no ride"
             rows += "s / cap" to "%.2f / %.0f Wh".format(s.sUsed, s.capacityWh)
+        }
+        rows += "bike" to when {
+            s.bikeConnected -> "LDI %s".format(if (s.liveSoc >= 0) "${s.liveSoc}%" else "connected")
+            s.liveSoc >= 0 -> "LDI ${s.liveSoc}% (off)"
+            else -> "LDI not connected"
         }
         if (s.hasRoute) {
             rows += "route" to "%.1f km D+%s m".format(s.routeKm, m(s.routeAscentM))
