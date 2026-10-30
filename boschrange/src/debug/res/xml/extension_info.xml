@@ -42,4 +42,46 @@
         graphical="true"
         icon="@drawable/ic_launcher" />
 
+    <DataType
+        typeId="bike_battery"
+        displayName="@string/field_bike_battery_name"
+        description="@string/field_bike_battery_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="bike_power"
+        displayName="@string/field_bike_power_name"
+        description="@string/field_bike_power_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="bike_speed"
+        displayName="@string/field_bike_speed_name"
+        description="@string/field_bike_speed_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="bike_cadence"
+        displayName="@string/field_bike_cadence_name"
+        description="@string/field_bike_cadence_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="bike_odometer"
+        displayName="@string/field_bike_odometer_name"
+        description="@string/field_bike_odometer_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
+    <DataType
+        typeId="bike_light"
+        displayName="@string/field_bike_light_name"
+        description="@string/field_bike_light_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher" />
+
 </ExtensionInfo>

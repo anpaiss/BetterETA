@@ -69,6 +69,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private var startPopupJob: Job? = null
 
     private val debugState = MutableStateFlow(DebugState())
+    private val bikeState = MutableStateFlow(BikeState())
     private val visibleDataTypeIds = MutableStateFlow<Set<String>?>(null)
     private val lock = Any()
     private var ride: RideRecord? = null              // guarded by lock
@@ -137,6 +138,12 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         RangeFieldDataType(extension, "extra_climb", RangeFieldDataType.Kind.EXTRA_CLIMB, debugState, visibleDataTypeIds),
         RangePageDataType(extension, debugState, visibleDataTypeIds),
         DebugFieldDataType(extension, state = debugState, visibleDataTypeIds = visibleDataTypeIds),
+        BikeFieldDataType(extension, "bike_battery", BikeFieldDataType.Kind.BATTERY, bikeState, visibleDataTypeIds),
+        BikeFieldDataType(extension, "bike_power", BikeFieldDataType.Kind.POWER, bikeState, visibleDataTypeIds),
+        BikeFieldDataType(extension, "bike_speed", BikeFieldDataType.Kind.SPEED, bikeState, visibleDataTypeIds),
+        BikeFieldDataType(extension, "bike_cadence", BikeFieldDataType.Kind.CADENCE, bikeState, visibleDataTypeIds),
+        BikeFieldDataType(extension, "bike_odometer", BikeFieldDataType.Kind.ODOMETER, bikeState, visibleDataTypeIds),
+        BikeFieldDataType(extension, "bike_light", BikeFieldDataType.Kind.LIGHT, bikeState, visibleDataTypeIds),
     ) }
 
     override fun onCreate() {
@@ -217,8 +224,15 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     // ── Bike link (Bosch Live Data Interface) ─────────────────────────────
 
     private val ldiListener = object : LdiLink.Listener {
-        override fun onLiveData(data: LiveData) { data.socPct?.let { onLiveSoc(it) } }
-        override fun onLinkChanged(connected: Boolean) { bikeConnected = connected; publishDebug() }
+        override fun onLiveData(data: LiveData) {
+            bikeState.value = bikeState.value.merge(data)
+            data.socPct?.let { onLiveSoc(it) }
+        }
+        override fun onLinkChanged(connected: Boolean) {
+            bikeConnected = connected
+            bikeState.value = bikeState.value.copy(connected = connected)
+            publishDebug()
+        }
     }
 
     private fun liveFresh(): Boolean = liveSoc >= 0 && System.currentTimeMillis() - liveSocMs < LIVE_FRESH_MS
