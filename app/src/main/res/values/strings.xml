@@ -15,6 +15,9 @@
     <string name="eta_farthest_name">Distance to Farthest Point</string>
     <string name="eta_farthest_desc">Remaining distance to the point farthest from the start (e.g. the turnaround on an out-and-back)</string>
 
+    <string name="eta_next_poi_name">ETA at Next Point</string>
+    <string name="eta_next_poi_desc">Arrival time at the next POI placed on the route (a meeting point, a hut), with the same model as the finish; moves on to the following POI once passed</string>
+
     <string name="eta_margin_name">Arrival Margin (MTA)</string>
     <string name="eta_margin_desc">Mandatory time of arrival asked at ride start and the minutes of slack against it (green ahead, red late)</string>
 

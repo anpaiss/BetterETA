@@ -58,6 +58,7 @@ Seven fields can be added to any ride page from the Karoo profile editor:
 | **Pace vs Plan** | Riding time against the first estimate of the ride: `+4m` in red means you are arriving four minutes later than planned, `-4m` in green four minutes earlier |
 | **Arrival Margin (MTA)** | The mandatory arrival time and the minutes of slack against it: `+12m` AHEAD in green, `-5m` LATE in red |
 | **Distance to Farthest Point** | Distance left to the point of the route farthest from the start, the turnaround of an out-and-back |
+| **ETA at Next Point** | The arrival time at the next POI you placed on the route when planning it (a meeting point, a hut, a fountain), predicted with the same model as the finish. Once you pass it, the field moves on to the following POI; `no POI` if the route has none ahead |
 | **Switches** | The mandatory arrival time; a tap opens the Switches popup, see below |
 
 <table>

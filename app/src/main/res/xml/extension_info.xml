@@ -37,6 +37,14 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <!-- Arrival time at the next POI placed on the route (meeting point) -->
+    <DataType
+        typeId="eta-next-poi"
+        displayName="@string/eta_next_poi_name"
+        description="@string/eta_next_poi_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
     <!-- Mandatory time of arrival and the margin against it -->
     <DataType
         typeId="eta-margin"

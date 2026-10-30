@@ -25,6 +25,12 @@ import kotlinx.coroutines.flow.flowOf
  * @param marginSeconds     MTA - (adesso + remainingSeconds): secondi di margine,
  *                          negativo = arrivo oltre l'MTA; null senza MTA o senza ETA
  * @param uncertaintySeconds larghezza del "±" della stima (EtaUncertainty); -1 = nessuna
+ * @param nextPoiName       nome del prossimo POI della route davanti a noi (messo sulla
+ *                          route in Komoot o nella dashboard Hammerhead); null se la route
+ *                          non ne ha più davanti
+ * @param nextPoiSeconds    secondi al prossimo POI, con lo stesso modello dell'arrivo
+ *                          (in "Plan" dalla partenza); -1 = non disponibile
+ * @param nextPoiDistanceM  metri al prossimo POI lungo la route; -1 = non disponibile
  */
 data class EtaState(
     val remainingSeconds: Long = -1L,
@@ -41,6 +47,9 @@ data class EtaState(
     /** Fattore di giornata del modello (1.0 = come la base) */
     val dayFactor: Double = 1.0,
     val uncertaintySeconds: Long = -1L,
+    val nextPoiName: String? = null,
+    val nextPoiSeconds: Long = -1L,
+    val nextPoiDistanceM: Double = -1.0,
 ) {
     companion object {
         /**
@@ -62,6 +71,9 @@ data class EtaState(
                 mtaEpochMs = nowMs + (remaining + margin) * 1000L,
                 marginSeconds = margin,
                 uncertaintySeconds = 4 * 60L,
+                nextPoiName = "Meeting point",
+                nextPoiSeconds = 22 * 60L,
+                nextPoiDistanceM = 5_100.0,
             )
         }
     }

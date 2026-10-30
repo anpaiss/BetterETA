@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Campo singolo come view_eta_farthest: a sinistra il nome del prossimo POI
+     della route (fino a due righe, autosize), a destra l'ora prevista. Il nome
+     prende metà cella perché, a differenza di "TO FAR POINT", lo sceglie
+     l'utente e può essere lungo. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_next_poi"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
+    android:background="@android:color/transparent">
+
+    <TextView
+        android:id="@+id/tv_next_poi_label"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.50"
+        android:gravity="center_vertical|start"
+        android:paddingEnd="6dp"
+        android:text="NEXT\nPOINT"
+        android:textStyle="bold"
+        android:textColor="#9E9E9E"
+        android:textAllCaps="true"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="12sp"
+        android:autoSizeMaxTextSize="40sp"
+        android:autoSizeStepGranularity="1sp" />
+
+    <TextView
+        android:id="@+id/tv_next_poi_value"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.50"
+        android:gravity="center_vertical|end"
+        android:text="--:--"
+        android:textStyle="bold"
+        android:textColor="#FF5823"
+        android:maxLines="1"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="16sp"
+        android:autoSizeMaxTextSize="110sp"
+        android:autoSizeStepGranularity="2sp" />
+
+</LinearLayout>

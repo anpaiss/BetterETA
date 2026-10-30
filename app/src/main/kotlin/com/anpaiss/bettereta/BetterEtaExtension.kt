@@ -147,6 +147,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     @Volatile private var routeClimbs: List<OnNavigationState.NavigationState.Climb> = emptyList()
     @Volatile private var rejoinActive = false
     @Volatile private var karooRejoinDistM: Double? = null   // deviazione di rientro proposta dal Karoo
+    @Volatile private var routePois: List<RoutePoi> = emptyList()   // POI sulla route, ordinati per distanza
+    @Volatile private var lastPoiLogged: RoutePoi? = null
 
     // Mandatory time of arrival (epoch ms, 0 = nessuno) e hash della polyline
     // per cui il popup è già stato mostrato (risposto o chiuso): una domanda
@@ -287,6 +289,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaRemainingDataType(extension, etaState, visibleDataTypeIds),
             EtaMasterDataType(extension, etaState, visibleDataTypeIds),
             EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
+            EtaNextPoiDataType(extension, etaState, visibleDataTypeIds),
             EtaMarginDataType(extension, etaState, visibleDataTypeIds),
             EtaPaceDataType(extension, etaState, visibleDataTypeIds),
             SwitchesDataType(extension),
@@ -351,6 +354,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         routeClimbs     = nav.climbs
                         rejoinActive    = nav.rejoinDistance != null || nav.rejoinPolyline != null
                         karooRejoinDistM = nav.rejoinDistance
+                        // The POIs the rider put on the route, one entry per pass,
+                        // with the Karoo's own distance along the route: the
+                        // "ETA at next point" field (Reddit request, 30/10/2026)
+                        // numbered in route order (first pass) when the Karoo
+                        // sends no name, only the coordinates
+                        val pois = nav.pois
+                            .filter { it.distancesAlongRoute.isNotEmpty() }
+                            .sortedBy { it.distancesAlongRoute.min() }
+                            .flatMapIndexed { i, p ->
+                                val name = PoiEta.nameFor(p.name, i + 1)
+                                p.distancesAlongRoute.map { RoutePoi(name, it) }
+                            }.sortedBy { it.alongM }
+                        if (pois != routePois) {
+                            routePois = pois
+                            logger.log("POI  ", "Route con ${pois.size} POI: " +
+                                pois.joinToString { "'${it.name}' a %.1f km".format(it.alongM / 1000.0) })
+                        }
                     }
                     is OnNavigationState.NavigationState.NavigatingToDestination -> {
                         routeName       = nav.destination.name ?: "destination"
@@ -358,6 +378,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         routeClimbs     = nav.climbs
                         rejoinActive    = false
                         karooRejoinDistM = null
+                        routePois       = emptyList()
                     }
                     else -> Unit
                 }
@@ -901,6 +922,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                             val flatMs    = speedModel.predict(0.0).speedMs.coerceAtLeast(0.5)
                             val detourSec = (rejoinM / flatMs).toLong()
                             val totalSec  = detourSec + routeSec
+                            val poi       = nextPoiFrom(segs, karooPosM)
                             etaState.value = EtaState(
                                 remainingSeconds   = totalSec,
                                 hasRoute           = true,
@@ -912,6 +934,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                                 estimateApprox     = true,
                                 dayFactor          = speedModel.currentDayFactor,
                                 uncertaintySeconds = EtaUncertainty.seconds(totalSec, routeBd.memoryDistanceShare, routeBd.fallbackDistanceShare, approx = true),
+                                nextPoiName        = poi?.name,
+                                nextPoiSeconds     = poi?.let { detourSec + it.sec } ?: -1L,
+                                nextPoiDistanceM   = poi?.let { rejoinM + it.distM } ?: -1.0,
                             )
                             logTickCounter++
                             if (logTickCounter >= LOG_INTERVAL_TICKS) {
@@ -1023,6 +1048,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val marginSec = marginFor(remainingSec, approx = !locatedNow)
                     val uncertaintySec = EtaUncertainty.seconds(remainingSec,
                         primary.memoryDistanceShare, primary.fallbackDistanceShare, approx = !locatedNow)
+                    val nextPoi = nextPoiFrom(remainingSegs, pipeline.distanceAlongRouteM())
                     etaState.value = EtaState(
                         remainingSeconds       = remainingSec,
                         hasRoute               = true,
@@ -1039,6 +1065,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         estimateApprox         = !locatedNow,
                         dayFactor              = speedModel.currentDayFactor,
                         uncertaintySeconds     = uncertaintySec,
+                        nextPoiName            = nextPoi?.name,
+                        nextPoiSeconds         = nextPoi?.sec ?: -1L,
+                        nextPoiDistanceM       = nextPoi?.distM ?: -1.0,
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita
@@ -1909,6 +1938,25 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private data class Plan(val sec: Long, val distM: Double, val elevM: Double, val uncSec: Long,
                             val memoryShare: Double, val fallbackShare: Double)
 
+    private data class NextPoi(val name: String, val sec: Long, val distM: Double)
+
+    /**
+     * The next route POI ahead of [traveledM] and the time to reach it over
+     * [segs], which must start at [traveledM] (the remaining route): the same
+     * model as the finish, cut at the POI. Null when no POI is left ahead.
+     */
+    private fun nextPoiFrom(segs: List<RouteSegment>, traveledM: Double, baseOnly: Boolean = false): NextPoi? {
+        val poi   = PoiEta.next(routePois, traveledM) ?: return null
+        val distM = poi.alongM - traveledM
+        val sec   = etaEngine.computeBreakdown(PoiEta.segmentsUpTo(segs, distM), baseOnly).seconds
+        if (poi != lastPoiLogged) {
+            lastPoiLogged = poi
+            logger.log("POI  ", "Prossimo '%s' fra %.1f km: %d:%02d%s".format(
+                poi.name, distM / 1000.0, sec / 3600, (sec % 3600) / 60, if (baseOnly) " (plan)" else ""))
+        }
+        return NextPoi(poi.name, sec, distM)
+    }
+
     /** Stima a tavolino dell'intera route, base pura (senza fattore di giornata); null senza segmenti. */
     private suspend fun planNumbers(): Plan? {
         val segs = pipeline.remainingSegmentsFrom(0.0)
@@ -1926,6 +1974,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             etaState.value = EtaState(hasRoute = true, status = "Plan")
             return
         }
+        val poi = nextPoiFrom(pipeline.remainingSegmentsFrom(0.0), 0.0, baseOnly = true)
         etaState.value = EtaState(
             remainingSeconds       = p.sec,
             hasRoute               = true,
@@ -1935,6 +1984,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             farthestPointDistanceM = pipeline.distanceToFarthestPointM(),
             estimateApprox         = true,
             uncertaintySeconds     = p.uncSec,
+            nextPoiName            = poi?.name,
+            nextPoiSeconds         = poi?.sec ?: -1L,
+            nextPoiDistanceM       = poi?.distM ?: -1.0,
         )
         maybePlanPopup(p)
         // Una riga quando la stima appare e quando si sposta di più di un minuto
