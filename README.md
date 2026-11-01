@@ -48,7 +48,7 @@ BetterETA was closer on every one of those rides. On a route ridden before, the 
 
 ## Data fields
 
-Seven fields can be added to any ride page from the Karoo profile editor:
+Eight fields can be added to any ride page from the Karoo profile editor:
 
 | Field | Shows |
 |---|---|
@@ -59,6 +59,7 @@ Seven fields can be added to any ride page from the Karoo profile editor:
 | **Arrival Margin (MTA)** | The mandatory arrival time and the minutes of slack against it: `+12m` AHEAD in green, `-5m` LATE in red |
 | **Distance to Farthest Point** | Distance left to the point of the route farthest from the start, the turnaround of an out-and-back |
 | **ETA at Next Point** | The arrival time at the next POI you placed on the route when planning it (a meeting point, a hut, a fountain), predicted with the same model as the finish. Once you pass it, the field moves on to the following POI; `no POI` if the route has none ahead |
+| **Way Home** | How much longer you can keep going before the ride back, retraced along your own track, lands after dusk: the minutes left to turn around, with the arrival home if you turned now. Works without a route, see below |
 | **Switches** | The mandatory arrival time; a tap opens the Switches popup, see below |
 
 <table>
@@ -79,6 +80,17 @@ Both pictures are the Karoo profile editor's preview, where the fields show exam
 It is the time from your speed table alone, with no day factor because the day has not started. Read it, keep the route or go back and try another: every time a route is opened before the ride starts the popup comes back, even if the recording was started first and is waiting at the start. Until the ride starts the fields show the same number, labelled "PLAN"; once you are moving they switch to the live estimate from where you are, and the popup closes. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
 
 Five looks are available in the app, from the plain Karoo style to coloured tiles; the app shows a preview of each.
+
+## Way home
+
+For the rides without a plan: out along a valley, up a trail you do not know, with the only certainty that the way back is the way you came. The **Way Home** field keeps the track you have ridden and, every 30 seconds, asks the speed model how long it would take to ride it backwards to the start, with the climbs turned into descents and the surfaces as they are. Against the daylight limit the Karoo publishes (civil dusk by default, sunset if you prefer, minus a margin of your choice, 20 minutes by default), it then says how much longer you can keep going out: every minute of outbound riding costs itself plus the extra way back it adds, and that growth is measured on the last ten minutes rather than assumed, so a slow climb that will be a fast descent is not charged twice.
+
+- Outbound the big number is the minutes of further riding the limit allows; the label gives the arrival home if you turned now and the time by which to turn.
+- Fifteen minutes before the allowance runs out the Karoo shows "Turn back soon" with a beep, and "Turn back now" when it hits zero. If the ride home as estimated already lands after dusk, "Home after dusk" says so. Each alert fires once and comes back only after five minutes of regained slack.
+- Once you ride back over your own track the field switches to BACK with the arrival home and the slack against the limit; a loop that closes on the track, or a return to the start from another direction, shortens the way home accordingly, and leaving the track again extends it from there.
+- Without a route the surface of the way home is unknown and the speed comes from the gradient alone; with a route loaded and the rider on it, surfaces and per-way memory are used as for the finish. Without the sun times the big number is simply the time of the way back.
+
+On the 74 recorded rides that end where they started, the way-home time predicted during the ride is within 11 % of the time the return then took, on average (median 8 %), on the stretches actually ridden back along the same track; the file-based replay that produced this number is in the tests (`ReturnReplayTest`). Two things it does not do yet: compare "finish the loaded route" with "turn back", and survive a restart of the extension mid-ride, after which the track starts again from where you are.
 
 ## Mandatory arrival time
 

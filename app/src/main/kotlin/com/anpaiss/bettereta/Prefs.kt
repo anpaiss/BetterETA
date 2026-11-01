@@ -82,6 +82,16 @@ class Prefs(ctx: Context) {
         get() = sp.getInt(KEY_HISTORY_MONTHS, 12)
         set(v) = sp.edit().putInt(KEY_HISTORY_MONTHS, v).apply()
 
+    /** Way Home: the daylight limit is sunset instead of civil dusk (the default, ~30 min later). */
+    var wayHomeLimitSunset: Boolean
+        get() = sp.getBoolean(KEY_WAY_HOME_SUNSET, false)
+        set(v) = sp.edit().putBoolean(KEY_WAY_HOME_SUNSET, v).apply()
+
+    /** Way Home: minutes to be home before the daylight limit. */
+    var wayHomeMarginMin: Int
+        get() = sp.getInt(KEY_WAY_HOME_MARGIN_MIN, 20)
+        set(v) = sp.edit().putInt(KEY_WAY_HOME_MARGIN_MIN, v).apply()
+
     companion object {
         private const val NAME = "better_eta_prefs"
         private const val KEY_HISTORY_MONTHS = "history_months"
@@ -95,5 +105,7 @@ class Prefs(ctx: Context) {
         private const val KEY_MTA_ROUTE_HASH = "mta_route_hash"
         private const val KEY_MTA_ASKED_AT_MS = "mta_asked_at_ms"
         private const val KEY_MTA_ENABLED    = "mta_enabled"
+        private const val KEY_WAY_HOME_SUNSET = "way_home_sunset"
+        private const val KEY_WAY_HOME_MARGIN_MIN = "way_home_margin_min"
     }
 }

@@ -37,6 +37,14 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <!-- Way home: minutes left to turn around before the retrace lands after dusk -->
+    <DataType
+        typeId="eta-way-home"
+        displayName="@string/eta_way_home_name"
+        description="@string/eta_way_home_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
     <!-- Arrival time at the next POI placed on the route (meeting point) -->
     <DataType
         typeId="eta-next-poi"

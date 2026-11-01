@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
         bindStyleSpinner()
+        bindWayHomeSpinners()
         val monthValues = listOf(3, 6, 12, 24, 0)
         val spMonths = findViewById<Spinner>(R.id.sp_history_months)
         spMonths.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
@@ -115,6 +116,30 @@ class MainActivity : AppCompatActivity() {
 
     // Stesso pattern del selettore stile di AxsRatio: i campi si ridisegnano
     // da soli via Prefs.styleFlow(), qui basta salvare la scelta.
+    private fun bindWayHomeSpinners() {
+        val spLimit = findViewById<Spinner>(R.id.sp_way_home_limit)
+        spLimit.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("limit: civil dusk (still some light)", "limit: sunset"))
+        spLimit.setSelection(if (prefs.wayHomeLimitSunset) 1 else 0, false)
+        spLimit.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.wayHomeLimitSunset = position == 1
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        val marginValues = listOf(0, 10, 20, 30, 45, 60)
+        val spMargin = findViewById<Spinner>(R.id.sp_way_home_margin)
+        spMargin.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+            marginValues.map { if (it == 0) "home right at the limit" else "home $it min before the limit" })
+        spMargin.setSelection(marginValues.indexOf(prefs.wayHomeMarginMin).coerceAtLeast(0), false)
+        spMargin.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.wayHomeMarginMin = marginValues[position]
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
     private fun bindStyleSpinner() {
         val sp = findViewById<Spinner>(R.id.sp_style)
         sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, styleLabels)

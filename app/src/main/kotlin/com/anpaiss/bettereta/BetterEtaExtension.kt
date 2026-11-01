@@ -71,6 +71,16 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private var passSec   = 0.0
     private var passSurface = Surface.UNKNOWN
 
+    // Way Home: the way back along the ridden track and the daylight allowance.
+    // Fed every tick while recording, recomputed every 30 s, with or without a route.
+    private val wayHome = WayHome()
+    internal val wayHomeState = MutableStateFlow(WayHomeState())
+    private val wayHomeAlerts = WayHomeAlertGate(WAY_HOME_ALERT_LEAD_SEC)
+    @Volatile private var civilDuskAtMs = 0L   // epoch ms from the Karoo's time-to-dusk stream, 0 = not published yet
+    @Volatile private var sunsetAtMs = 0L
+    private var wayHomeRecomputes = 0
+    private val sunLogged = HashSet<String>()
+
     private val speedMsFlow  = MutableStateFlow(0.0)
     private val gradePctFlow = MutableStateFlow(0.0)
     private val locationFlow = MutableStateFlow<Pair<Double, Double>?>(null)
@@ -275,6 +285,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // memoria, sono istruzioni di rientro del Karoo, non route
         private const val REJOIN_STUB_MAX_M = 3_000.0
         private const val MAX_SAMPLES                = 600
+        // Way Home: "turn back soon" this long before the allowance runs out
+        private const val WAY_HOME_ALERT_LEAD_SEC    = 15 * 60L
         // Memoria tratti: un passaggio conta solo se lungo/durato almeno tanto
         private const val WAY_PASS_MIN_M             = 50.0
         private const val WAY_PASS_MIN_SEC           = 10.0
@@ -290,6 +302,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaMasterDataType(extension, etaState, visibleDataTypeIds),
             EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
             EtaNextPoiDataType(extension, etaState, visibleDataTypeIds),
+            WayHomeDataType(extension, wayHomeState, visibleDataTypeIds),
             EtaMarginDataType(extension, etaState, visibleDataTypeIds),
             EtaPaceDataType(extension, etaState, visibleDataTypeIds),
             SwitchesDataType(extension),
@@ -621,6 +634,21 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     }
             }
 
+            // ── Sun times for the Way Home limit ──────────────────────────────────
+            // Published as time-to-event. Taken as milliseconds like the other
+            // duration streams (TIME_TO_DESTINATION), as seconds when the raw value
+            // fits in a day: the first raw value is logged so a ride can confirm it.
+            fun sunConsumer(type: String, field: String, label: String, store: (Long) -> Unit) =
+                karooSystem.addConsumer(OnStreamState.StartStreaming(type), { _ -> }, {}) { event: OnStreamState ->
+                    (event.state as? StreamState.Streaming)?.dataPoint?.values?.get(field)?.let { raw ->
+                        val ms = if (raw <= 86_400.0) (raw * 1000).toLong() else raw.toLong()
+                        if (sunLogged.add(label)) logger.log("HOME ", "$label: primo valore raw=$raw → tra ${ms / 60_000} min")
+                        store(System.currentTimeMillis() + ms)
+                    }
+                }
+            consumerIds += sunConsumer(DataType.Type.TIME_TO_CIVIL_DUSK, DataType.Field.TIME_TO_CIVIL_DUSK, "TIME_TO_CIVIL_DUSK") { civilDuskAtMs = it }
+            consumerIds += sunConsumer(DataType.Type.TIME_TO_SUNSET, DataType.Field.TIME_TO_SUNSET, "TIME_TO_SUNSET") { sunsetAtMs = it }
+
             // ── Pagina attiva: gate di visibilità per i redraw ────────────────────
             consumerIds += karooSystem.addConsumer(
                 ActiveRidePage.Params, { _ -> }, {}
@@ -684,6 +712,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         prefs.rideStartsMs = prefs.rideStartsMs + liveRideStartMs
                         snapshotForNewRide(liveRideStartMs)
                         clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
+                        wayHome.reset()
+                        wayHomeState.value = WayHomeState()
                         logger.log("RIDE ", "Avviata (nuovo giro) — base preservata, fattore di giornata a 1.00")
                     } else {
                         logger.log("RIDE ", "Ripresa — model e posizione preservati")
@@ -723,6 +753,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val tickNowMs = System.currentTimeMillis()
                     val tickSec   = ((tickNowMs - lastTickMs) / 1000.0).coerceIn(0.5, 2.0)
                     lastTickMs    = tickNowMs
+
+                    // Way Home runs on every recorded tick, route or not
+                    if (rideState is RideState.Recording) wayHomeTick(tickSec)
 
                     val hasRoute = pipeline.hasRoute()
                     if (!hasRoute || !navActive) {
@@ -2015,6 +2048,70 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         )
         planPopup.show(time, routeName, lines)
         logger.log("PLAN ", "Popup: ~$time, ${lines.joinToString(", ")} (fondo ${if (surfacesApplied) "applicato" else "in attesa"})")
+    }
+
+    // ── Way Home ─────────────────────────────────────────────────────────
+
+    /**
+     * Feed the ridden track and, every 30 s, rebuild the way-home estimate and
+     * the daylight allowance; fire the alerts the gate releases. Surface and way
+     * come from the loaded route when the rider is on it, else unknown.
+     */
+    private suspend fun wayHomeTick(tickSec: Double) {
+        val now = System.currentTimeMillis()
+        val fresh = lastGpsUpdateMs > 0 && now - lastGpsUpdateMs <= GPS_TIMEOUT_MS
+        val fix = if (fresh) locationFlow.value else null
+        val speed = speedMsFlow.value
+        val onRoute = navActive && !offRoute && pipeline.hasRoute() && pipeline.isLocated()
+        val surface = if (onRoute) pipeline.currentSurface() else Surface.UNKNOWN
+        val wayKey = if (onRoute) pipeline.currentWayKey() else 0L
+        if (!wayHome.onTick(fix, speed, gradePctFlow.value, tickSec, speed >= 0.5, surface, wayKey)) return
+
+        val dusk = if (prefs.wayHomeLimitSunset) sunsetAtMs else civilDuskAtMs
+        val limit = if (dusk > 0L) dusk - prefs.wayHomeMarginMin * 60_000L else 0L
+        val s = wayHome.recompute(etaEngine, limit)
+        wayHomeState.value = s
+        for (a in wayHomeAlerts.onState(s, dusk)) fireWayHomeAlert(a, s, dusk)
+        wayHomeRecomputes++
+        if (wayHomeRecomputes % 2 == 0 && s.returnSec >= 0) {
+            val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+            logger.log("HOME ", "Ritorno %.1f km in %d min (%s), a casa %s; limite %s, margine %d min; ancora %s; crescita %.2f".format(
+                s.returnDistM / 1000.0, s.returnSec / 60, if (s.following) "sulla traccia" else "andata",
+                fmt.format(Date(s.arrivalEpochMs)),
+                if (dusk > 0L) fmt.format(Date(dusk)) else "n/d", prefs.wayHomeMarginMin,
+                s.allowanceSec?.let { "${it / 60} min" } ?: "-", s.growth))
+        }
+    }
+
+    private fun fireWayHomeAlert(alert: WayHomeAlertGate.Alert, s: WayHomeState, duskMs: Long) {
+        val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        val home = fmt.format(Date(s.arrivalEpochMs))
+        val light = fmt.format(Date(duskMs))
+        val (title, detail) = when (alert) {
+            WayHomeAlertGate.Alert.TURN_SOON -> getString(R.string.way_home_turn_soon_title) to
+                "Within ${(s.allowanceSec ?: 0L) / 60} min. Way back ${s.returnSec / 60} min, light until $light"
+            WayHomeAlertGate.Alert.TURN_NOW -> getString(R.string.way_home_turn_now_title) to
+                "Way back ${s.returnSec / 60} min, home $home, light until $light"
+            WayHomeAlertGate.Alert.AFTER_DUSK -> getString(R.string.way_home_after_dusk_title) to
+                "Home $home, dusk $light"
+        }
+        logger.log("HOME ", "Avviso: $title: $detail")
+        karooSystem.dispatch(
+            InRideAlert(
+                id              = "better-eta-way-home-${alert.name.lowercase()}-${s.arrivalEpochMs / 60_000}",
+                icon            = R.drawable.ic_launcher_foreground,
+                title           = title,
+                detail          = detail,
+                autoDismissMs   = 30_000L,
+                backgroundColor = R.color.alert_bg,
+                textColor       = R.color.alert_text,
+            )
+        )
+        karooSystem.dispatch(PlayBeepPattern(listOf(
+            PlayBeepPattern.Tone(800, 200), PlayBeepPattern.Tone(null, 100),
+            PlayBeepPattern.Tone(800, 200), PlayBeepPattern.Tone(null, 100),
+            PlayBeepPattern.Tone(if (alert == WayHomeAlertGate.Alert.TURN_SOON) 800 else 1100, 350),
+        )))
     }
 
     private fun marginFor(remainingSec: Long, approx: Boolean): Long? {

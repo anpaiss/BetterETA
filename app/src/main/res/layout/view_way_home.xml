@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Way Home: left, two lines (arrival home if turning now, time to turn by);
+     right, the minutes of further riding the daylight allows. Same shape as
+     view_eta_next_poi. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_way_home"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
+    android:background="@android:color/transparent">
+
+    <TextView
+        android:id="@+id/tv_way_home_label"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.55"
+        android:gravity="center_vertical|start"
+        android:paddingEnd="6dp"
+        android:text="WAY\nHOME"
+        android:textStyle="bold"
+        android:textColor="#9E9E9E"
+        android:textAllCaps="true"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="12sp"
+        android:autoSizeMaxTextSize="40sp"
+        android:autoSizeStepGranularity="1sp" />
+
+    <TextView
+        android:id="@+id/tv_way_home_value"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.45"
+        android:gravity="center_vertical|end"
+        android:text="--"
+        android:textStyle="bold"
+        android:textColor="#FF5823"
+        android:maxLines="1"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="16sp"
+        android:autoSizeMaxTextSize="110sp"
+        android:autoSizeStepGranularity="2sp" />
+
+</LinearLayout>
