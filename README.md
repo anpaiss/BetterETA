@@ -171,6 +171,13 @@ The repository holds two modules: `app`, the BetterETA extension, and `eta-core`
 - CI: every push runs the tests and builds a debug APK. A tag `vX.Y` builds the release APK, signed with the repository secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, and attaches it to a GitHub release as `BetterETA.apk` together with the Karoo extension manifest. `GPR_TOKEN` is the token the workflow uses for GitHub Packages.
 - Diagnostics on the device: `better_eta.log` (human-readable, three rotated generations) and `better_eta_samples.csv` (one row per second while recording, with every quantity next to the Karoo's own) in `Android/data/com.anpaiss.bettereta/files/`. The `tools/` folder has the Python scripts that replay those files through the model, which is how every change to the model is judged before it ships.
 
+## Is it safe?
+
+- The code is all here, open source.
+- `BetterETA.apk` 1.0.1 on [VirusTotal](https://www.virustotal.com/gui/file/56d9bd81087aa47729523c41274eb2b6fc9bbbac835b2df545f6d219cf647672): none of the 66 antivirus engines flag it.
+- Its SHA-256 is `56d9bd81087aa47729523c41274eb2b6fc9bbbac835b2df545f6d219cf647672`; compare it with the file you downloaded (`certutil -hashfile BetterETA.apk SHA256` on Windows, `sha256sum BetterETA.apk` elsewhere).
+- The APK is built by GitHub Actions from the tagged source. From the next release it also carries a signed provenance, and the release notes link its VirusTotal report. Check the provenance with `gh attestation verify BetterETA.apk -R anpaiss/BetterETA`.
+
 ## Support
 
 BetterETA is free and open source, and will stay that way. If it made a ride better, you can [buy me a coffee on Ko-fi](https://ko-fi.com/anpaiss): it pays for the small things, a development board, a 3D-printed case, a few hours of testing on the trails.
