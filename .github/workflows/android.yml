@@ -3,6 +3,10 @@
 # release. The Karoo reads .../releases/latest/download/manifest.json (see
 # MANIFEST_URL in AndroidManifest.xml) to offer installs and updates.
 #
+# A release also gets a signed build provenance (anyone can check that the APK
+# was built here from this tag) and, when the VT_API_KEY secret exists, a
+# VirusTotal scan whose report is linked in the release notes.
+#
 # Secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD for
 # signing; GPR_TOKEN (a PAT with read:packages) only if GITHUB_TOKEN cannot
 # read the hammerheadnav/karoo-ext package.
@@ -17,6 +21,8 @@ on:
 permissions:
   contents: write
   packages: read
+  id-token: write       # build provenance attestation of the release APK
+  attestations: write
 
 jobs:
   build:
@@ -89,9 +95,37 @@ jobs:
         if: github.ref_type == 'tag'
         run: cp app/build/outputs/apk/release/app-release.apk BetterETA.apk
 
+      - name: Build provenance
+        if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: BetterETA.apk
+
+      # Uploads the APK to VirusTotal and links its report; skipped without the VT_API_KEY secret.
+      - name: VirusTotal
+        if: github.ref_type == 'tag'
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        run: |
+          sha=$(sha256sum BetterETA.apk | cut -d' ' -f1)
+          {
+            echo "### Is this APK safe?"
+            echo
+            echo "- SHA-256: \`$sha\`"
+            if [ -n "$VT_API_KEY" ]; then
+              curl -sf --request POST --url https://www.virustotal.com/api/v3/files \
+                --header "x-apikey: $VT_API_KEY" --form file=@BetterETA.apk > /dev/null \
+                && echo "- VirusTotal report: https://www.virustotal.com/gui/file/$sha"
+            fi
+            echo "- Built by GitHub Actions from this tag, with a signed provenance. Check it with:"
+            echo "  \`gh attestation verify BetterETA.apk -R anpaiss/BetterETA\`"
+          } > release-body.md
+          cat release-body.md
+
       - name: GitHub release
         if: github.ref_type == 'tag'
         uses: ncipollo/release-action@v1
         with:
           artifacts: "BetterETA.apk,app/manifest.json"
+          bodyFile: release-body.md
           generateReleaseNotes: true
