@@ -171,6 +171,12 @@ The repository holds two modules: `app`, the BetterETA extension, and `eta-core`
 - CI: every push runs the tests and builds a debug APK. A tag `vX.Y` builds the release APK, signed with the repository secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, and attaches it to a GitHub release as `BetterETA.apk` together with the Karoo extension manifest. `GPR_TOKEN` is the token the workflow uses for GitHub Packages.
 - Diagnostics on the device: `better_eta.log` (human-readable, three rotated generations) and `better_eta_samples.csv` (one row per second while recording, with every quantity next to the Karoo's own) in `Android/data/com.anpaiss.bettereta/files/`. The `tools/` folder has the Python scripts that replay those files through the model, which is how every change to the model is judged before it ships.
 
+<!-- battery:bettereta -->
+## Battery use
+
+**0.2 % of the Karoo's battery use**, measured with Android's battery statistics (provisional, Karoo 3, 4 November 2026). How it was measured, and why the number is provisional: [the battery measurements of the extensions](https://lagorai.bike/blog/karoo-extensions-battery-use/).
+<!-- /battery:bettereta -->
+
 ## Is it safe?
 
 - The code is all here, open source.
