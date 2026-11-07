@@ -5,18 +5,16 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.NumberPicker
+import android.widget.SeekBar
 import android.widget.TextView
 
 /**
@@ -38,7 +36,7 @@ class BatteryPopupController(
         val onSet: (pct: Int, condition: Condition?) -> Unit,
         val onSkip: () -> Unit,
         val onTimeout: () -> Unit = onSkip,   // the start popup takes the timeout as a confirmation
-        val reminder: String? = null,          // extra row "<reminder> [FATTO]"; FATTO does not close the popup
+        val reminder: String? = null,          // extra row "<reminder> [DONE]"; DONE does not close the popup
         val onReminderDone: () -> Unit = {},
         val tyres: List<Pair<String, String>> = emptyList(),   // (pair id, label); empty = no tyre row
         val tyreId: String? = null,
@@ -75,22 +73,44 @@ class BatteryPopupController(
             maxLines = 1
             setShadowLayer(dp(2f), 0f, dp(1f), 0xB3000000.toInt())
         }
-        val pickerCtx = ContextThemeWrapper(context, android.R.style.Theme_Material)
-        val picker = NumberPicker(pickerCtx).apply {
-            minValue = 0
-            maxValue = 100
-            value = req.initialPct.coerceIn(0, 100)
-            wrapSelectorWheel = false
-            setFormatter { "$it %" }
-            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-            if (Build.VERSION.SDK_INT >= 29) setTextColor(Color.WHITE)
+        // A horizontal bar for the rough value, - / + for the exact one: two short rows instead of a tall wheel
+        var pct = req.initialPct.coerceIn(0, 100)
+        val value = TextView(context).apply {
+            setTextColor(Color.WHITE)
+            textSize = 28f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
         }
+        val bar = SeekBar(ContextThemeWrapper(context, android.R.style.Theme_Material)).apply {
+            max = 100
+            progress = pct
+            setPadding(dp(16f).toInt(), dp(12f).toInt(), dp(16f).toInt(), dp(12f).toInt())
+        }
+        fun setPct(p: Int, fromBar: Boolean = false) {
+            pct = p.coerceIn(0, 100)
+            value.text = "$pct %"
+            if (!fromBar) bar.progress = pct
+        }
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) { if (fromUser) setPct(p, fromBar = true) }
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {}
+        })
+        fun step(label: String, d: Int) = Button(context).apply {
+            text = label
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            background = GradientDrawable().apply { cornerRadius = dp(6f); setColor(Color.parseColor("#424242")) }
+            setOnClickListener { setPct(pct + d) }
+        }
+        setPct(pct)
         val pickerRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            // With the tyre row the popup would push SET / SKIP below the 800 px of the Karoo: a shorter wheel makes room
-            addView(picker, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
-                if (req.tyres.isEmpty()) LinearLayout.LayoutParams.WRAP_CONTENT else dp(96f).toInt()))
+            gravity = Gravity.CENTER_VERTICAL
+            val lpStep = LinearLayout.LayoutParams(dp(64f).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(step("−", -1), lpStep)
+            addView(value, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(step("+", 1), LinearLayout.LayoutParams(lpStep))
         }
 
         var chosen = req.condition
@@ -150,7 +170,7 @@ class BatteryPopupController(
                 text = req.reminder
                 setTextColor(Color.parseColor("#FFB74D"))
                 textSize = 14f
-                maxLines = 3
+                maxLines = 4
             }
             val btnDone = Button(context).apply {
                 text = context.getString(R.string.popup_done)
@@ -179,7 +199,6 @@ class BatteryPopupController(
             textSize = 16f
             background = GradientDrawable().apply { cornerRadius = dp(6f); setColor(Color.parseColor("#2E7D32")) }
             setOnClickListener {
-                val pct = picker.value
                 removeCurrent()
                 logger.log("POPUP", "${req.title} → $pct %" + (chosen?.let { ", $it" } ?: ""))
                 req.onSet(pct, chosen)
@@ -210,11 +229,12 @@ class BatteryPopupController(
             setPadding(pad, pad, pad, pad)
             background = GradientDrawable().apply {
                 cornerRadius = dp(10f)
-                setColor(Color.parseColor("#EE1A1A1A"))
+                setColor(Color.parseColor("#FF1A1A1A"))
                 setStroke(dp(2f).toInt(), Color.parseColor("#FF5823"))
             }
             addView(title)
             addView(pickerRow)
+            addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             conditionRow?.let { addView(it) }
             tyreRow?.let { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 .apply { setMargins(dp(4f).toInt(), dp(6f).toInt(), dp(4f).toInt(), 0) }) }
