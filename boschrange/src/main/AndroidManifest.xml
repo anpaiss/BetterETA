@@ -31,6 +31,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".TyrePairActivity"
+            android:exported="false"
+            android:label="New tyre pair" />
+
         <!-- Tap on a boschRange field or page: opens "Battery now?" (PendingIntent from our own RemoteViews) -->
         <receiver
             android:name=".BatteryTapReceiver"

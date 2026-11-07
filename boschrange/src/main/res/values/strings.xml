@@ -12,6 +12,7 @@
     <string name="condition_wet">WET</string>
     <string name="condition_mud">MUD</string>
     <string name="popup_done">FATTO</string>
+    <string name="popup_tyres">Tyres: %1$s  ▸</string>
     <string name="reminder_flow_start">Screenshot pagina navigazione Flow al via (Ricarica all\'arrivo)</string>
     <string name="reminder_flow_mid">Screenshot pagina navigazione Flow a metà (facoltativo)</string>
     <string name="reminder_flow_end">Screenshot riepilogo Flow</string>

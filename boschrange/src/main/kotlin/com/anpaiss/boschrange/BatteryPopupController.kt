@@ -22,7 +22,8 @@ import android.widget.TextView
 /**
  * Overlay popup "Battery at start? / now? / at arrival?": one wheel 0..100 in
  * steps of 1 %, an optional DRY / WET / MUD row (the condition, recorded only)
- * and SET / SKIP. Same mechanism as the MTA popup of BetterETA: upper band of
+ * and SET / SKIP; with the tyres on and more than one pair saved, a row with the
+ * mounted pair that a tap moves to the next one. Same mechanism as the MTA popup of BetterETA: upper band of
  * the screen, NOT_FOCUSABLE so touches outside go to the ride app; after
  * AUTO_DISMISS_MS the request's onTimeout runs (= onSkip unless given).
  */
@@ -39,6 +40,9 @@ class BatteryPopupController(
         val onTimeout: () -> Unit = onSkip,   // the start popup takes the timeout as a confirmation
         val reminder: String? = null,          // extra row "<reminder> [FATTO]"; FATTO does not close the popup
         val onReminderDone: () -> Unit = {},
+        val tyres: List<Pair<String, String>> = emptyList(),   // (pair id, label); empty = no tyre row
+        val tyreId: String? = null,
+        val onTyre: (String) -> Unit = {},                      // a tap on the row: the new mounted pair
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -84,7 +88,9 @@ class BatteryPopupController(
         val pickerRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            addView(picker, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            // With the tyre row the popup would push SET / SKIP below the 800 px of the Karoo: a shorter wheel makes room
+            addView(picker, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
+                if (req.tyres.isEmpty()) LinearLayout.LayoutParams.WRAP_CONTENT else dp(96f).toInt()))
         }
 
         var chosen = req.condition
@@ -116,6 +122,25 @@ class BatteryPopupController(
                 addView(b, LinearLayout.LayoutParams(lp))
             }
             paintConditions()
+        }
+
+        var tyreIdx = req.tyres.indexOfFirst { it.first == req.tyreId }.coerceAtLeast(0)
+        val tyreRow = if (req.tyres.isEmpty()) null else Button(context).apply {
+            fun paint() { text = context.getString(R.string.popup_tyres, req.tyres[tyreIdx].second) }
+            paint()
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            isAllCaps = false
+            maxLines = 1
+            minHeight = 0; minimumHeight = 0
+            setPadding(dp(8f).toInt(), dp(6f).toInt(), dp(8f).toInt(), dp(6f).toInt())
+            background = GradientDrawable().apply { cornerRadius = dp(6f); setColor(Color.parseColor("#424242")) }
+            setOnClickListener {
+                tyreIdx = (tyreIdx + 1) % req.tyres.size
+                paint()
+                logger.log("POPUP", "${req.title}: gomme → ${req.tyres[tyreIdx].second}")
+                req.onTyre(req.tyres[tyreIdx].first)
+            }
         }
 
         val reminderRow = if (req.reminder == null) null else LinearLayout(context).apply {
@@ -191,6 +216,8 @@ class BatteryPopupController(
             addView(title)
             addView(pickerRow)
             conditionRow?.let { addView(it) }
+            tyreRow?.let { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { setMargins(dp(4f).toInt(), dp(6f).toInt(), dp(4f).toInt(), 0) }) }
             reminderRow?.let { addView(it) }
             addView(buttons)
         }

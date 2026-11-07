@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -30,6 +31,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStorage: TextView
     private lateinit var tvRide: TextView
     private lateinit var tvHistory: TextView
+    private lateinit var tyreBox: LinearLayout
+    private lateinit var tyreList: LinearLayout
     private val thresholds = listOf(10, 15, 20, 25, 30)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,10 +91,32 @@ class MainActivity : AppCompatActivity() {
                 val popup = BatteryPopupController(applicationContext, BoschRangeLogger(applicationContext, announce = false))
                 window.decorView.postDelayed({
                     BoschRangeExtension.instance?.playPopupSound()
-                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, reminder = getString(R.string.reminder_flow_start)))
+                    // The tyre row as on the start popup: tyres on and two pairs at least; a tap here only previews
+                    val pairs = if (prefs.tyresEnabled) prefs.tyrePairs else emptyList()
+                    val labels = TyrePair.labels(pairs)
+                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, reminder = getString(R.string.reminder_flow_start),
+                        tyres = if (pairs.size < 2) emptyList() else pairs.map { it.id to labels.getValue(it.id) }, tyreId = prefs.mountedPairId))
                 }, 3_000L)
             }
         })
+
+        root.addView(label("Tyres").apply { setTypeface(typeface, Typeface.BOLD) })
+        root.addView(CheckBox(this).apply {
+            text = "Tyres ON: every ride records the mounted pair, stats per pair (off = no tyres anywhere)"
+            isChecked = prefs.tyresEnabled
+            setOnCheckedChangeListener { _, on -> prefs.tyresEnabled = on; refresh() }
+        })
+        tyreBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        tyreList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        tyreBox.addView(tyreList)
+        tyreBox.addView(Button(this).apply {
+            text = "ADD TYRE PAIR"
+            setOnClickListener { startActivity(Intent(this@MainActivity, TyrePairActivity::class.java)) }
+        })
+        tyreBox.addView(label("When the battery popup appears at the start (no BoschData) it shows the mounted pair: " +
+            "a tap on it moves to the next one. s = battery Wh / mechanical Wh: gradient, surface and speed are already " +
+            "out of it, what is left is mostly tyres, mode, cold and wet. A few rides are not enough to compare two pairs."))
+        root.addView(tyreBox)
 
         tvRide = label("")
         root.addView(tvRide)
@@ -117,6 +142,7 @@ class MainActivity : AppCompatActivity() {
         }
         val history = RideHistory(this)
         val rides = history.load().asReversed()
+        refreshTyres(rides)
         val fmt = SimpleDateFormat("dd/MM HH:mm", Locale.ITALY)
         tvHistory.text = if (rides.isEmpty()) "No rides yet.\n${history.historyFile.absolutePath}" else
             rides.take(12).joinToString("\n") { r ->
@@ -128,6 +154,52 @@ class MainActivity : AppCompatActivity() {
                     (if (r.routeUnclassifiedPct > 0.0) "  unk ${r.routeUnclassifiedPct.toInt()}%" else "") +
                     (if (r.validForRegression) "" else "  [excluded]")
             } + "\n${rides.size} rides, ${rides.count { it.validForRegression }} valid for the regression (start confirmed and arrival entered)\n${history.historyFile.absolutePath}"
+    }
+
+    private fun refreshTyres(rides: List<RideRecord>) {
+        tyreBox.visibility = if (prefs.tyresEnabled) View.VISIBLE else View.GONE
+        tyreList.removeAllViews()
+        if (!prefs.tyresEnabled) return
+        val pairs = prefs.tyrePairs
+        if (pairs.isEmpty()) { tyreList.addView(label("No tyre pair yet.")); return }
+        val labels = TyrePair.labels(pairs)
+        val stats = TyreStats.of(rides).associateBy { it.pairId }
+        for (p in pairs) {
+            val mounted = p.id == prefs.mountedPairId
+            val st = stats[p.id]
+            val line = buildString {
+                append(if (mounted) "● " else "○ "); append(labels.getValue(p.id)); if (mounted) append("  (mounted)")
+                append("\nFront: ${p.front.brand} ${p.front.full()}\nRear: ${p.rear.brand} ${p.rear.full()}\n")
+                append(when {
+                    st == null -> "No ride yet"
+                    !st.enough -> "${st.rides} rides, ${"%.0f".format(st.km)} km · ${st.measured} measured, not enough data yet (${TyreStats.MIN_RIDES} needed)"
+                    else -> "${st.rides} rides, ${"%.0f".format(st.km)} km · s ${"%.2f".format(st.s)}" +
+                        (st.sSpread?.let { " ± ${"%.2f".format(it)}" } ?: "") +
+                        (st.pctPer1000m?.let { " · ${"%.1f".format(it)} % per 1000 m" } ?: "") +
+                        (st.sDry?.let { " · dry ${"%.2f".format(it)}" } ?: "") + (st.sWet?.let { " · wet ${"%.2f".format(it)}" } ?: "")
+                })
+            }
+            tyreList.addView(label(line))
+            tyreList.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                if (!mounted) addView(Button(this@MainActivity).apply {
+                    text = "MOUNT"; setOnClickListener { prefs.mountedPairId = p.id; refresh() }
+                })
+                addView(Button(this@MainActivity).apply {
+                    text = "DELETE"
+                    setOnClickListener {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setMessage("Delete ${labels.getValue(p.id)}? The rides keep their tyres and stay in the history.")
+                            .setPositiveButton("DELETE") { _, _ ->
+                                prefs.tyrePairs = prefs.tyrePairs.filter { it.id != p.id }
+                                if (mounted) prefs.mountedPairId = null
+                                refresh()
+                            }
+                            .setNegativeButton("CANCEL", null).show()
+                    }
+                })
+            })
+        }
     }
 
     private fun label(text: String) = TextView(this).apply { this.text = text; textSize = 14f; setPadding(0, 8, 0, 8) }

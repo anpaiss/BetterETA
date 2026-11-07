@@ -40,8 +40,28 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat(KEY_RIDER_KG, 84f).toDouble()
         set(v) = sp.edit().putFloat(KEY_RIDER_KG, v.toFloat()).apply()
 
+    /** Tyres switch: off = no tyre row in the popup, no tyre section in the app, nothing recorded about tyres. */
+    var tyresEnabled: Boolean
+        get() = sp.getBoolean(KEY_TYRES, false)
+        set(v) = sp.edit().putBoolean(KEY_TYRES, v).apply()
+
+    /** The tyre pairs the rider saved. */
+    var tyrePairs: List<TyrePair>
+        get() = TyrePair.listFromJson(sp.getString(KEY_TYRE_PAIRS, null))
+        set(v) = sp.edit().putString(KEY_TYRE_PAIRS, TyrePair.listToJson(v)).apply()
+
+    /** The pair on the bike now: every ride records it. */
+    var mountedPairId: String?
+        get() = sp.getString(KEY_MOUNTED, null)
+        set(v) = sp.edit().putString(KEY_MOUNTED, v).apply()
+
+    val mountedPair: TyrePair? get() = mountedPairId?.let { id -> tyrePairs.firstOrNull { it.id == id } }
+
     companion object {
         private const val NAME = "bosch_range_prefs"
+        private const val KEY_TYRES      = "tyres_enabled"
+        private const val KEY_TYRE_PAIRS = "tyre_pairs"
+        private const val KEY_MOUNTED    = "tyre_mounted_pair"
         private const val KEY_ENABLED    = "enabled"
         private const val KEY_POWER_MORE = "power_more"
         private const val KEY_THRESHOLD  = "alert_threshold_pct"

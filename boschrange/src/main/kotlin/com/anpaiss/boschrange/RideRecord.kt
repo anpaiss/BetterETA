@@ -59,6 +59,8 @@ class RideRecord(
     var startAssumed: Boolean = true
     var arrivalPct: Int? = null
     var condition: Condition? = null
+    /** The tyre pair mounted at the start (a copy: the stats keep it when the pair is deleted); null = tyres off. */
+    var tyres: TyrePair? = null
     val manualUpdates = mutableListOf<ManualUpdate>()
 
     // Karoo streams at the last tick
@@ -172,6 +174,7 @@ class RideRecord(
         put("arrival_pct", arrivalPct ?: JSONObject.NULL)
         put("valid_for_regression", validForRegression)
         put("condition", condition?.name ?: JSONObject.NULL)
+        put("tyres", tyres?.toJson() ?: JSONObject.NULL)
         put("manual_updates", JSONArray().apply { manualUpdates.forEach { put(it.toJson()) } })
         put("distance_km", r1(distanceKm))
         put("moving_s", r0(movingS))
@@ -234,6 +237,7 @@ class RideRecord(
             r.startAssumed = o.optBoolean("start_assumed", true)
             r.arrivalPct = if (o.isNull("arrival_pct")) null else o.getInt("arrival_pct")
             r.condition = if (o.isNull("condition")) null else runCatching { Condition.valueOf(o.getString("condition")) }.getOrNull()
+            r.tyres = o.optJSONObject("tyres")?.let { runCatching { TyrePair.fromJson(it) }.getOrNull() }
             o.optJSONArray("manual_updates")?.let { a -> for (i in 0 until a.length()) r.manualUpdates += ManualUpdate.fromJson(a.getJSONObject(i)) }
             r.distanceM = o.optDouble("distance_km", 0.0) * 1000.0
             r.movingS = o.optDouble("moving_s", 0.0)

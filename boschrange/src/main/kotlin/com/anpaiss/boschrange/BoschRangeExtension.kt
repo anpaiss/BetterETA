@@ -315,10 +315,12 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         planningSetMs = 0L
         lowAlertShown = false
         r.setStart(plannedStart, assumed = !live)
+        if (prefs.tyresEnabled) r.tyres = prefs.mountedPair
         sampleLog.ride(r)
         saveCurrent()
         publishDebug()
-        logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %${if (live) " dalla bici" else ""}, route '${routeName}' D+ ${routeAscentM.toInt()} m")
+        logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %${if (live) " dalla bici" else ""}, route '${routeName}' D+ ${routeAscentM.toInt()} m" +
+            (if (prefs.tyresEnabled) ", gomme ${r.tyres?.name() ?: "non impostate"}" else ""))
         startPopupJob?.cancel()
         if (live) return
         startPopupJob = scope.launch {
@@ -326,7 +328,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             // Paused when the delay ran out (standing at the start, 24/10/2026): the popup used to be dropped
             // and the start stayed unconfirmed for the whole ride. Wait for the ride to move again instead.
             while (rideState !is RideState.Recording) delay(1_000L)
-            askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = true,
+            askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = true, withTyres = true,
                 reminder = getString(R.string.reminder_flow_start),
                 onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } },
                 onTimeout = {
@@ -472,7 +474,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
     }
 
-    private fun askBattery(title: String, initial: Int, withCondition: Boolean, reminder: String? = null, onReminderDone: () -> Unit = {},
+    private fun askBattery(title: String, initial: Int, withCondition: Boolean, withTyres: Boolean = false, reminder: String? = null, onReminderDone: () -> Unit = {},
                            onSkip: () -> Unit = {}, onTimeout: (() -> Unit)? = null, onSet: (Int, Condition?) -> Unit) {
         if (!popup.canShow()) {
             logger.log("POPUP", "Permesso overlay assente: '$title' non chiesto")
@@ -486,7 +488,16 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
         val cond = if (withCondition) (synchronized(lock) { ride?.condition } ?: Condition.DRY) else null
         playPopupSound()
-        popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, onTimeout ?: onSkip, reminder, onReminderDone))
+        // The tyre row only when there is a choice: tyres on and at least two pairs saved
+        val pairs = if (withTyres && prefs.tyresEnabled) prefs.tyrePairs else emptyList()
+        val labels = TyrePair.labels(pairs)
+        val tyres = if (pairs.size < 2) emptyList() else pairs.map { it.id to labels.getValue(it.id) }
+        popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, onTimeout ?: onSkip, reminder, onReminderDone,
+            tyres, prefs.mountedPairId) { id ->
+            prefs.mountedPairId = id
+            synchronized(lock) { ride?.tyres = prefs.mountedPair }
+            saveCurrent()
+        })
     }
 
     /**
