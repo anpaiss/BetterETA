@@ -25,7 +25,7 @@
         android:textStyle="bold"
         android:textColor="#9E9E9E"
         android:textAllCaps="true"
-        android:maxLines="2"
+        android:maxLines="1"
         android:includeFontPadding="false"
         android:autoSizeTextType="uniform"
         android:autoSizeMinTextSize="12sp"

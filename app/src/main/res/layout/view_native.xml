@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stile KAROO: tutto il campo è un bitmap disegnato da NativeField, grande
+     quanto la cella; il colore lo dà il filtro sulla ImageView. -->
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/iv_native"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scaleType="center"
+    android:contentDescription="@null" />

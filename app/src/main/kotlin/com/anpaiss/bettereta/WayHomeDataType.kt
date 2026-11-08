@@ -65,12 +65,14 @@ class WayHomeDataType(
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             combine(source, prefs.styleFlow()) { state, style ->
-                Triple(formatLabel(context, state), formatValue(state), style.colorsFor(null))
+                Triple(formatLabel(context, state), formatValue(state), style)
             }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { (label, value, c) ->
+                .collect { (label, value, style) ->
+                    if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, label, value)); return@collect }
+                    val c = style.colorsFor(null)
                     val views = RemoteViews(context.packageName, R.layout.view_way_home)
                     if (c.bgRes != null) views.setInt(R.id.root_way_home, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_way_home, "setBackgroundColor", c.bgColor ?: 0)

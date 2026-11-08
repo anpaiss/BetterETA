@@ -70,12 +70,14 @@ class EtaFarthestDataType(
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
             combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style ->
-                formatDistance(state) to style.colorsFor(null)
+                formatDistance(state) to style
             }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { (formattedText, c) ->
+                .collect { (formattedText, style) ->
+                    if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, "TO FAR POINT", formattedText)); return@collect }
+                    val c = style.colorsFor(null)
                     val views = RemoteViews(context.packageName, R.layout.view_eta_farthest)
                     if (c.bgRes != null) views.setInt(R.id.root_farthest, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_farthest, "setBackgroundColor", c.bgColor ?: 0)

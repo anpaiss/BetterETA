@@ -63,11 +63,12 @@ class EtaPaceDataType(
         val prefs = Prefs(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style -> render(state, style) }
+            combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style -> render(state, style) to style }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { view ->
+                .collect { (view, style) ->
+                    if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, "PACE VS PLAN", view.text)); return@collect }
                     val c = view.colors
                     val views = RemoteViews(context.packageName, R.layout.view_eta_pace)
                     if (c.bgRes != null) views.setInt(R.id.root_pace, "setBackgroundResource", c.bgRes)

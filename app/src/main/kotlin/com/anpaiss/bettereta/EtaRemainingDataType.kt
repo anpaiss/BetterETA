@@ -68,12 +68,14 @@ class EtaRemainingDataType(
 
             // Aggiorniamo la UI solo quando il testo visualizzato cambia effettivamente
             combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style ->
-                Triple(formatRemaining(state), formatLabel(state), style.colorsFor(null))
+                Triple(formatRemaining(state), formatLabel(state), style)
             }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { (formattedText, label, c) ->
+                .collect { (formattedText, label, style) ->
+                    if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, label.replace('\n', ' '), formattedText)); return@collect }
+                    val c = style.colorsFor(null)
                     val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
                     if (c.bgRes != null) views.setInt(R.id.root_remaining, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_remaining, "setBackgroundColor", c.bgColor ?: 0)

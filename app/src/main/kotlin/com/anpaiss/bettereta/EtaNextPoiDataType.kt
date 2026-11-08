@@ -67,12 +67,14 @@ class EtaNextPoiDataType(
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
 
             combine(etaState.orSample(config.preview), prefs.styleFlow()) { state, style ->
-                Triple(formatLabel(state), formatValue(context, state), style.colorsFor(null))
+                Triple(formatLabel(state), formatValue(context, state), style)
             }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
-                .collect { (label, value, c) ->
+                .collect { (label, value, style) ->
+                    if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, label, value)); return@collect }
+                    val c = style.colorsFor(null)
                     val views = RemoteViews(context.packageName, R.layout.view_eta_next_poi)
                     if (c.bgRes != null) views.setInt(R.id.root_next_poi, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_next_poi, "setBackgroundColor", c.bgColor ?: 0)

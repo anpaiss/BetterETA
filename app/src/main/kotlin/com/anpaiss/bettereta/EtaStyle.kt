@@ -18,16 +18,17 @@ data class FieldColors(
  * testo/sfondo garantisce contrasto WCAG >= 4.5:1 (rapporto documentato a
  * fianco). Ogni stile esprime lo stato pace nel canale che usa in AxsRatio
  * per le zone HR: VIVID e PASTEL col fondo, OUTLINE col bordo, INK col colore
- * del testo del delta. KAROO è l'eccezione: bianco su nero come i campi nativi
- * del Karoo, nessun colore di stato — il segno lo dicono le parole nelle
- * didascalie (AHEAD/LATE) e il "+"/"-" del valore.
+ * del testo del delta. KAROO è l'eccezione, nessun colore di stato — il segno lo
+ * dicono le parole nelle didascalie (AHEAD/LATE) e il "+"/"-" del valore: i campi
+ * singoli imitano quelli nativi (NativeField), la dashboard e l'MTA restano
+ * bianco su nero.
  */
 enum class EtaStyle(val label: String) {
     VIVID("Vivid"),
     OUTLINE("Outline"),
     PASTEL("Pastel"),
     INK("Ink"),
-    KAROO("Karoo standard"),
+    KAROO("Karoo native-like"),
     ;
 
     /** Colori del campo; [pace] null = campo singolo senza stato (ETA, REM, TO FAR POINT). */
