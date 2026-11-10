@@ -19,8 +19,13 @@ class SampleLog(context: Context) {
 
     companion object {
         private const val MAX_SIZE_BYTES = 4 * 1024 * 1024L
-        /** `arrival_pct` added on 19/10 (step 3): a file begun before carries a "# header" line from the next ride on. */
-        const val HEADER = "t_ms,speed_ms,grade_pct,surface,dist_m,dist_to_dest_m,asc_rem_karoo_m,temp_c,wh_mech,est_pct,anchor_pct,arrival_pct"
+        /**
+         * `arrival_pct` added on 19/10 (step 3); the bike columns from BoschData on 10/11 (rider power averaged over
+         * the tick, empty without the bike): rider W against the model's W gives the assist factor, the mode Bosch
+         * does not send. A file begun before carries a "# header" line from the next ride on.
+         */
+        const val HEADER = "t_ms,speed_ms,grade_pct,surface,dist_m,dist_to_dest_m,asc_rem_karoo_m,temp_c,wh_mech,est_pct,anchor_pct,arrival_pct," +
+            "rider_power_w,cadence_rpm,bike_soc"
     }
 
     @Synchronized
@@ -33,13 +38,20 @@ class SampleLog(context: Context) {
 
     @Synchronized
     fun record(tMs: Long, speedMs: Double, gradePct: Double, surface: Surface, distM: Double,
-               distToDestM: Double, ascRemM: Double, tempC: Double?, r: RideRecord, arrivalPct: Double?) {
+               distToDestM: Double, ascRemM: Double, tempC: Double?, r: RideRecord, arrivalPct: Double?,
+               riderPowerW: Double?, cadenceRpm: Double?, bikeSoc: Int?) {
         ensureHeader()
-        file.appendText(String.format(Locale.ROOT, "%d,%.2f,%.2f,%s,%.0f,%.0f,%.0f,%s,%.2f,%.2f,%.0f,%s\n",
+        file.appendText(String.format(Locale.ROOT, "%d,%.2f,%.2f,%s,%.0f,%.0f,%.0f,%s,%.2f,%.2f,%.0f,%s,%s,%s,%s\n",
             tMs, speedMs, gradePct, surface.name, distM, distToDestM, ascRemM,
             tempC?.let { String.format(Locale.ROOT, "%.1f", it) } ?: "", r.whMech, r.estimatedPct(), r.anchorPct,
-            arrivalPct?.let { String.format(Locale.ROOT, "%.1f", it) } ?: ""))
+            arrivalPct?.let { String.format(Locale.ROOT, "%.1f", it) } ?: "",
+            riderPowerW?.let { String.format(Locale.ROOT, "%.0f", it) } ?: "", cadenceRpm?.let { String.format(Locale.ROOT, "%.0f", it) } ?: "",
+            bikeSoc?.toString() ?: ""))
     }
+
+    /** A "# " line in the middle of a ride: what changed, at that time (the PowerMore from the popup). */
+    @Synchronized
+    fun note(tMs: Long, text: String) { ensureHeader(); file.appendText("# $tMs $text\n") }
 
     private fun ensureHeader() {
         if (file.length() > MAX_SIZE_BYTES) {

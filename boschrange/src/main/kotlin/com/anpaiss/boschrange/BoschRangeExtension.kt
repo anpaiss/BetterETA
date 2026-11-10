@@ -111,6 +111,14 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     @Volatile private var liveSoc = -1
     @Volatile private var liveSocMs = 0L
     @Volatile private var bikeConnected = false
+    // Rider power and cadence from BoschData, for the samples: the stream sends only changes, so the power
+    // is averaged over the tick by time (value x ms since the last change)
+    private val riderLock = Any()
+    private var riderW: Double? = null           // guarded by riderLock
+    private var riderSinceMs = 0L
+    private var riderWms = 0.0
+    private var riderMs = 0L
+    @Volatile private var cadenceRpm: Double? = null
 
     companion object {
         private const val TICK_MS              = 5_000L
@@ -132,6 +140,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         const val BOSCH_DATA_PACKAGE = "com.anpaiss.boschdata"
         /** The battery stream of the BoschData extension: Streaming = bike on and talking, NotAvailable = bike off. */
         val BIKE_BATTERY_STREAM = DataType.dataTypeId("bosch-data", "bike_battery")
+        val BIKE_POWER_STREAM   = DataType.dataTypeId("bosch-data", "bike_power")
+        val BIKE_CADENCE_STREAM = DataType.dataTypeId("bosch-data", "bike_cadence")
     }
 
     override val types: List<DataTypeImpl> by lazy { listOf(
@@ -216,6 +226,13 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
                 }
             }
 
+            consumerIds += karooSystem.addConsumer(OnStreamState.StartStreaming(BIKE_POWER_STREAM), { _ -> }, {}) { ev: OnStreamState ->
+                onRiderPower((ev.state as? StreamState.Streaming)?.dataPoint?.singleValue)
+            }
+            consumerIds += karooSystem.addConsumer(OnStreamState.StartStreaming(BIKE_CADENCE_STREAM), { _ -> }, {}) { ev: OnStreamState ->
+                cadenceRpm = (ev.state as? StreamState.Streaming)?.dataPoint?.singleValue
+            }
+
             tickerJob = scope.launch { ticker() }
             logger.log("SYS  ", "Consumer registrati, ticker ${TICK_MS / 1000} s")
         }
@@ -228,6 +245,22 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     }
 
     // ── Bike link (the bike_battery stream of BoschData) ──────────────────
+
+    private fun onRiderPower(w: Double?) = synchronized(riderLock) {
+        val now = System.currentTimeMillis()
+        riderW?.let { riderWms += it * (now - riderSinceMs); riderMs += now - riderSinceMs }
+        riderW = w; riderSinceMs = now
+    }
+
+    /** Rider power averaged since the last call, null when the bike sent none (BoschData absent, bike off). */
+    private fun riderPowerAverage(): Double? = synchronized(riderLock) {
+        val now = System.currentTimeMillis()
+        riderW?.let { riderWms += it * (now - riderSinceMs); riderMs += now - riderSinceMs }
+        riderSinceMs = now
+        val avg = if (riderMs > 0L) riderWms / riderMs else null
+        riderWms = 0.0; riderMs = 0L
+        avg
+    }
 
     private fun liveFresh(): Boolean = liveSoc >= 0 && System.currentTimeMillis() - liveSocMs < LIVE_FRESH_MS
 
@@ -509,6 +542,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             }, powerMore) { on ->
             synchronized(lock) { ride?.capacityWh = Prefs.capacityWh(on) }
             logger.log("RIDE ", "PowerMore ${if (on) "montato" else "non montato"}: capacità ${Prefs.capacityWh(on).toInt()} Wh")
+            sampleLog.note(System.currentTimeMillis(), "powermore=${if (on) "on" else "off"} capacity=${Prefs.capacityWh(on)}")
             saveCurrent()
             scope.launch { updateForecast(); publishDebug() }
         })
@@ -605,6 +639,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             val now = System.currentTimeMillis()
             val dt = ((now - lastMs) / 1000.0).coerceIn(1.0, 15.0)
             lastMs = now
+            val riderAvg = riderPowerAverage()   // every tick, so the first sample of a ride averages only its own 5 s
             val r = synchronized(lock) { ride }
             if (rideState is RideState.Recording && r != null) {
                 val v = speedMs; val g = gradePct
@@ -625,7 +660,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
                 val f = forecast
                 if (f != null && r.ourPredStartPct == null && r.distanceKm < 0.5) r.ourPredStartPct = f.arrivalPct
                 maybeLowAlert(r, f)
-                sampleLog.record(now, v, g, surface, distanceM, karooDistToDestM, karooAscentRemM, temperatureC, r, f?.arrivalPct)
+                sampleLog.record(now, v, g, surface, distanceM, karooDistToDestM, karooAscentRemM, temperatureC, r, f?.arrivalPct,
+                    riderAvg, cadenceRpm, if (liveFresh()) liveSoc else null)
                 if (now - lastSaveMs >= SAVE_EVERY_MS) { lastSaveMs = now; saveCurrent() }
             } else {
                 updateForecast()   // before the ride: the plan from the start %, as the Karoo moves the position on the route
