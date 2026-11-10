@@ -21,7 +21,7 @@ import android.widget.TextView
  * Overlay popup "Battery at start? / now? / at arrival?": one wheel 0..100 in
  * steps of 1 %, an optional DRY / WET / MUD row (the condition, recorded only)
  * and SET / SKIP; with the tyres on and more than one pair saved, a row with the
- * mounted pair that a tap moves to the next one. Same mechanism as the MTA popup of BetterETA: upper band of
+ * mounted pair that a tap moves to the next one; for a PowerMore owner a PowerMore ON / OFF row. Same mechanism as the MTA popup of BetterETA: upper band of
  * the screen, NOT_FOCUSABLE so touches outside go to the ride app; after
  * AUTO_DISMISS_MS the request's onTimeout runs (= onSkip unless given).
  */
@@ -31,7 +31,7 @@ class BatteryPopupController(
 ) {
     class Request(
         val title: String,
-        val initialPct: Int,
+        val initialPct: Int?,               // null = no % picker: the bike gives the %, only the choices below
         val condition: Condition?,          // null = no condition row
         val onSet: (pct: Int, condition: Condition?) -> Unit,
         val onSkip: () -> Unit,
@@ -41,6 +41,8 @@ class BatteryPopupController(
         val tyres: List<Pair<String, String>> = emptyList(),   // (pair id, label); empty = no tyre row
         val tyreId: String? = null,
         val onTyre: (String) -> Unit = {},                      // a tap on the row: the new mounted pair
+        val powerMore: Boolean? = null,                         // null = no PowerMore row
+        val onPowerMore: (Boolean) -> Unit = {},                // a tap on the row: mounted or not
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -74,7 +76,7 @@ class BatteryPopupController(
             setShadowLayer(dp(2f), 0f, dp(1f), 0xB3000000.toInt())
         }
         // A horizontal bar for the rough value, - / + for the exact one: two short rows instead of a tall wheel
-        var pct = req.initialPct.coerceIn(0, 100)
+        var pct = (req.initialPct ?: 0).coerceIn(0, 100)
         val value = TextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 28f
@@ -163,6 +165,27 @@ class BatteryPopupController(
             }
         }
 
+        var powerMore = req.powerMore ?: false
+        val powerMoreRow = if (req.powerMore == null) null else Button(context).apply {
+            fun paint() {
+                text = context.getString(if (powerMore) R.string.popup_powermore_on else R.string.popup_powermore_off)
+                background = GradientDrawable().apply { cornerRadius = dp(6f); setColor(Color.parseColor(if (powerMore) "#1565C0" else "#424242")) }
+            }
+            paint()
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            isAllCaps = false
+            maxLines = 1
+            minHeight = 0; minimumHeight = 0
+            setPadding(dp(8f).toInt(), dp(6f).toInt(), dp(8f).toInt(), dp(6f).toInt())
+            setOnClickListener {
+                powerMore = !powerMore
+                paint()
+                logger.log("POPUP", "${req.title}: PowerMore → ${if (powerMore) "ON" else "OFF"}")
+                req.onPowerMore(powerMore)
+            }
+        }
+
         val reminderRow = if (req.reminder == null) null else LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -200,7 +223,7 @@ class BatteryPopupController(
             background = GradientDrawable().apply { cornerRadius = dp(6f); setColor(Color.parseColor("#2E7D32")) }
             setOnClickListener {
                 removeCurrent()
-                logger.log("POPUP", "${req.title} → $pct %" + (chosen?.let { ", $it" } ?: ""))
+                logger.log("POPUP", "${req.title} → " + (if (req.initialPct == null) "OK" else "$pct %") + (chosen?.let { ", $it" } ?: ""))
                 req.onSet(pct, chosen)
             }
         }
@@ -233,11 +256,13 @@ class BatteryPopupController(
                 setStroke(dp(2f).toInt(), Color.parseColor("#FF5823"))
             }
             addView(title)
-            addView(pickerRow)
-            addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            if (req.initialPct != null) {
+                addView(pickerRow)
+                addView(bar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            }
             conditionRow?.let { addView(it) }
-            tyreRow?.let { addView(it, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                .apply { setMargins(dp(4f).toInt(), dp(6f).toInt(), dp(4f).toInt(), 0) }) }
+            for (row in listOfNotNull(tyreRow, powerMoreRow)) addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(4f).toInt(), dp(6f).toInt(), dp(4f).toInt(), 0) })
             reminderRow?.let { addView(it) }
             addView(buttons)
         }
@@ -258,7 +283,7 @@ class BatteryPopupController(
         runCatching { wm.addView(root, params) }
             .onSuccess {
                 currentView = root
-                logger.log("POPUP", "Mostrato: ${req.title} (default ${req.initialPct} %)")
+                logger.log("POPUP", "Mostrato: ${req.title}" + (req.initialPct?.let { " (default $it %)" } ?: ""))
                 handler.postDelayed({
                     if (currentView === root) {
                         removeCurrent()

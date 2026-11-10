@@ -57,9 +57,9 @@ class MainActivity : AppCompatActivity() {
         tvBike = label("")
         root.addView(tvBike)
         root.addView(CheckBox(this).apply {
-            text = "PowerMore 250 Wh mounted (1000 Wh instead of 750)"
-            isChecked = prefs.powerMore
-            setOnCheckedChangeListener { _, on -> prefs.powerMore = on }
+            text = "I own a PowerMore 250 Wh: the start popup asks whether it is on the bike today (OFF by default, ON = 1000 Wh instead of 750)"
+            isChecked = prefs.powerMoreOwned
+            setOnCheckedChangeListener { _, on -> prefs.powerMoreOwned = on }
         })
         root.addView(label("Alert when the arrival estimate drops below:"))
         root.addView(Spinner(this).apply {
@@ -95,7 +95,8 @@ class MainActivity : AppCompatActivity() {
                     val pairs = if (prefs.tyresEnabled) prefs.tyrePairs else emptyList()
                     val labels = TyrePair.labels(pairs)
                     popup.show(BatteryPopupController.Request("Battery now? (test)", 73, if (prefs.conditionEnabled) Condition.DRY else null, { _, _ -> }, {}, reminder = getString(R.string.reminder_flow_start),
-                        tyres = if (pairs.size < 2) emptyList() else pairs.map { it.id to labels.getValue(it.id) }, tyreId = prefs.mountedPairId))
+                        tyres = if (pairs.size < 2) emptyList() else pairs.map { it.id to labels.getValue(it.id) }, tyreId = prefs.mountedPairId,
+                        powerMore = if (prefs.powerMoreOwned) false else null))
                 }, 3_000L)
             }
         })
@@ -143,7 +144,7 @@ class MainActivity : AppCompatActivity() {
         val ext = BoschRangeExtension.instance
         tvRide.text = when {
             ext == null -> "Extension not running"
-            else -> ext.openRideSummary() ?: "No ride open. Capacity ${prefs.capacityWh.toInt()} Wh, s = ${prefs.sCoefficient}, rider ${prefs.riderKg.toInt()} kg"
+            else -> ext.openRideSummary() ?: "No ride open. Capacity ${Prefs.capacityWh(false).toInt()} Wh (PowerMore off until the start popup), s = ${prefs.sCoefficient}, rider ${prefs.riderKg.toInt()} kg"
         }
         val history = RideHistory(this)
         val rides = history.load().asReversed()

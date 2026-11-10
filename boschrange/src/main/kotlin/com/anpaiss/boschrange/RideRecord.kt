@@ -39,7 +39,7 @@ class ManualUpdate(val timeMs: Long, val distanceKm: Double, val estimatePct: Do
  */
 class RideRecord(
     val startMs: Long,
-    val capacityWh: Double,
+    var capacityWh: Double,
     val sUsed: Double,
 ) {
     var endMs: Long = 0L

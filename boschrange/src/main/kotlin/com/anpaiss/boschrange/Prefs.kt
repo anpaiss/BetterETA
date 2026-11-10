@@ -13,13 +13,10 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean(KEY_ENABLED, true)
         set(v) = sp.edit().putBoolean(KEY_ENABLED, v).apply()
 
-    /** PowerMore 250 Wh range extender mounted: capacity 1000 Wh instead of 750. */
-    var powerMore: Boolean
-        get() = sp.getBoolean(KEY_POWER_MORE, true)
+    /** The rider owns a PowerMore 250 Wh range extender: the start popup asks whether it is on the bike today (off by default). */
+    var powerMoreOwned: Boolean
+        get() = sp.getBoolean(KEY_POWER_MORE, false)
         set(v) = sp.edit().putBoolean(KEY_POWER_MORE, v).apply()
-
-    /** Nominal capacity the Bosch percentage refers to (the display shows the total). */
-    val capacityWh: Double get() = if (powerMore) MAIN_WH + POWERMORE_WH else MAIN_WH
 
     /** Alert when the predicted battery at arrival drops below this. */
     var alertThresholdPct: Int
@@ -69,12 +66,15 @@ class Prefs(ctx: Context) {
         private const val KEY_TYRE_PAIRS = "tyre_pairs"
         private const val KEY_MOUNTED    = "tyre_mounted_pair"
         private const val KEY_ENABLED    = "enabled"
-        private const val KEY_POWER_MORE = "power_more"
+        private const val KEY_POWER_MORE = "power_more_owned"
         private const val KEY_THRESHOLD  = "alert_threshold_pct"
         private const val KEY_S          = "s_coefficient"
         private const val KEY_RIDER_KG   = "rider_kg"
         const val MAIN_WH      = 750.0
         const val POWERMORE_WH = 250.0
+
+        /** Nominal capacity the Bosch percentage refers to (the display shows the total). */
+        fun capacityWh(powerMore: Boolean): Double = if (powerMore) MAIN_WH + POWERMORE_WH else MAIN_WH
         /** Backtest 13/10/2026 on the rides of 10/10 and 11/10 with the surface classes: 1.25 / 1.24. */
         const val S_INITIAL    = 1.25
     }

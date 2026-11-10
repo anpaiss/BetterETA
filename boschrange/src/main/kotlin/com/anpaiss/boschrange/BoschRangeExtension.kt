@@ -155,7 +155,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
 
         runCatching {
             val pi = packageManager.getPackageInfo(packageName, 0)
-            logger.log("SYS  ", "Versione: ${pi.versionName} (${pi.longVersionCode}); capacità ${prefs.capacityWh} Wh, s=${prefs.sCoefficient}, " +
+            logger.log("SYS  ", "Versione: ${pi.versionName} (${pi.longVersionCode}); PowerMore ${if (prefs.powerMoreOwned) "posseduto" else "no"}, s=${prefs.sCoefficient}, " +
                 "massa ${energy.totalMassKg} kg; storico ${history.historyFile.absolutePath}")
         }
         val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -249,8 +249,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             }
             r.startAssumed && r.whMech < LIVE_START_MAX_WH -> {
                 synchronized(lock) { r.setStart(pct, assumed = false) }
-                startPopupJob?.cancel()
-                logger.log("LDI  ", "Batteria dalla bici: $pct % = partenza misurata a ${"%.1f".format(r.distanceKm)} km, popup di partenza annullato")
+                if (!prefs.powerMoreOwned) startPopupJob?.cancel()   // a PowerMore owner still gets it, without the %
+                logger.log("LDI  ", "Batteria dalla bici: $pct % = partenza misurata a ${"%.1f".format(r.distanceKm)} km" +
+                    if (prefs.powerMoreOwned) "" else ", popup di partenza annullato")
             }
             else -> {
                 val before = r.estimatedPct()
@@ -303,7 +304,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
                 logger.log("RIDE ", "Recording con giro già aperto: continuo (${open.distanceKm} km)")
                 return
             }
-            RideRecord(now, prefs.capacityWh, prefs.sCoefficient).also { ride = it }
+            RideRecord(now, Prefs.capacityWh(false), prefs.sCoefficient).also { ride = it }   // PowerMore off until the popup says it is on
         }
         r.routeName = routeName; r.routeDistanceM = routeTotalDistM; r.routeAscentM = routeAscentM
         r.karooAscentRemainingAtStartM = karooAscentRemM
@@ -322,13 +323,19 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %${if (live) " dalla bici" else ""}, route '${routeName}' D+ ${routeAscentM.toInt()} m" +
             (if (prefs.tyresEnabled) ", gomme ${r.tyres?.name() ?: "non impostate"}" else ""))
         startPopupJob?.cancel()
-        if (live) return
+        if (live && !prefs.powerMoreOwned) return
         startPopupJob = scope.launch {
             delay(START_POPUP_DELAY_MS)
             // Paused when the delay ran out (standing at the start, 24/10/2026): the popup used to be dropped
             // and the start stayed unconfirmed for the whole ride. Wait for the ride to move again instead.
             while (rideState !is RideState.Recording) delay(1_000L)
+            // The bike gives the start %: only the PowerMore question is left
+            if (synchronized(lock) { ride?.startAssumed } == false) {
+                askBattery(getString(R.string.popup_title_powermore), null, withCondition = false, withPowerMore = true) { _, _ -> }
+                return@launch
+            }
             askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = prefs.tyresEnabled && prefs.conditionEnabled, withTyres = true,
+                withPowerMore = true,
                 reminder = getString(R.string.reminder_flow_start),
                 onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } },
                 onTimeout = {
@@ -474,7 +481,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         }
     }
 
-    private fun askBattery(title: String, initial: Int, withCondition: Boolean, withTyres: Boolean = false, reminder: String? = null, onReminderDone: () -> Unit = {},
+    private fun askBattery(title: String, initial: Int?, withCondition: Boolean, withTyres: Boolean = false, withPowerMore: Boolean = false,
+                           reminder: String? = null, onReminderDone: () -> Unit = {},
                            onSkip: () -> Unit = {}, onTimeout: (() -> Unit)? = null, onSet: (Int, Condition?) -> Unit) {
         if (!popup.canShow()) {
             logger.log("POPUP", "Permesso overlay assente: '$title' non chiesto")
@@ -492,11 +500,17 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val pairs = if (withTyres && prefs.tyresEnabled) prefs.tyrePairs else emptyList()
         val labels = TyrePair.labels(pairs)
         val tyres = if (pairs.size < 2) emptyList() else pairs.map { it.id to labels.getValue(it.id) }
+        val powerMore = if (withPowerMore && prefs.powerMoreOwned) synchronized(lock) { ride?.capacityWh }?.let { it > Prefs.MAIN_WH } else null
         popup.show(BatteryPopupController.Request(title, initial, cond, onSet, onSkip, onTimeout ?: onSkip, reminder, onReminderDone,
-            tyres, prefs.mountedPairId) { id ->
-            prefs.mountedPairId = id
-            synchronized(lock) { ride?.tyres = prefs.mountedPair }
+            tyres, prefs.mountedPairId, { id ->
+                prefs.mountedPairId = id
+                synchronized(lock) { ride?.tyres = prefs.mountedPair }
+                saveCurrent()
+            }, powerMore) { on ->
+            synchronized(lock) { ride?.capacityWh = Prefs.capacityWh(on) }
+            logger.log("RIDE ", "PowerMore ${if (on) "montato" else "non montato"}: capacità ${Prefs.capacityWh(on).toInt()} Wh")
             saveCurrent()
+            scope.launch { updateForecast(); publishDebug() }
         })
     }
 
@@ -632,7 +646,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val pos = if (total > 0.0 && karooDistToDestM >= 0.0) (total - karooDistToDestM).coerceIn(0.0, total) else 0.0
         val segments = pipeline.remainingSegmentsFrom(pos)
         val s = r?.sForecast() ?: prefs.sCoefficient
-        val capacity = r?.capacityWh ?: prefs.capacityWh
+        val capacity = r?.capacityWh ?: Prefs.capacityWh(false)
         val nowPct = r?.estimatedPct() ?: planningPct.toDouble()
         forecast = RangeForecast.forecast(segments, energy, nowPct, capacity, s, prefs.alertThresholdPct,
             historyRelError, RangeForecast.whPerClimbM(r, s))
@@ -670,7 +684,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         val r = synchronized(lock) { ride }
         val (nRides, nValid, nComparable) = historyCounts
         val f = forecast
-        val base = DebugState(enabled = prefs.enabled, sUsed = prefs.sCoefficient, capacityWh = prefs.capacityWh,
+        val base = DebugState(enabled = prefs.enabled, sUsed = prefs.sCoefficient, capacityWh = Prefs.capacityWh(false),
             hasRoute = hasRoute, routeKm = routeTotalDistM / 1000.0, routeAscentM = routeAscentM,
             karooDistToDestKm = if (karooDistToDestM >= 0) karooDistToDestM / 1000.0 else -1.0, karooAscentRemM = karooAscentRemM,
             routeUnclassifiedPct = routeUnclassifiedPct, surfaceComplete = surfaceComplete, routeSurfaceKm = routeSurfaceKm,
