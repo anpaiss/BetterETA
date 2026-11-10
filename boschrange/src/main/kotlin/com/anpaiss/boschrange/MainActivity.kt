@@ -94,7 +94,7 @@ class MainActivity : AppCompatActivity() {
                     // The tyre row as on the start popup: tyres on and two pairs at least; a tap here only previews
                     val pairs = if (prefs.tyresEnabled) prefs.tyrePairs else emptyList()
                     val labels = TyrePair.labels(pairs)
-                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, Condition.DRY, { _, _ -> }, {}, reminder = getString(R.string.reminder_flow_start),
+                    popup.show(BatteryPopupController.Request("Battery now? (test)", 73, if (prefs.conditionEnabled) Condition.DRY else null, { _, _ -> }, {}, reminder = getString(R.string.reminder_flow_start),
                         tyres = if (pairs.size < 2) emptyList() else pairs.map { it.id to labels.getValue(it.id) }, tyreId = prefs.mountedPairId))
                 }, 3_000L)
             }
@@ -112,6 +112,11 @@ class MainActivity : AppCompatActivity() {
         tyreBox.addView(Button(this).apply {
             text = "ADD TYRE PAIR"
             setOnClickListener { startActivity(Intent(this@MainActivity, TyrePairActivity::class.java)) }
+        })
+        tyreBox.addView(CheckBox(this).apply {
+            text = "Dry / wet ON: the start popup asks DRY / WET / MUD, stats per pair split by condition (off = simpler popup)"
+            isChecked = prefs.conditionEnabled
+            setOnCheckedChangeListener { _, on -> prefs.conditionEnabled = on; refresh() }
         })
         tyreBox.addView(label("When the battery popup appears at the start (no BoschData) it shows the mounted pair: " +
             "a tap on it moves to the next one. s = battery Wh / mechanical Wh: gradient, surface and speed are already " +
@@ -176,7 +181,8 @@ class MainActivity : AppCompatActivity() {
                     else -> "${st.rides} rides, ${"%.0f".format(st.km)} km · s ${"%.2f".format(st.s)}" +
                         (st.sSpread?.let { " ± ${"%.2f".format(it)}" } ?: "") +
                         (st.pctPer1000m?.let { " · ${"%.1f".format(it)} % per 1000 m" } ?: "") +
-                        (st.sDry?.let { " · dry ${"%.2f".format(it)}" } ?: "") + (st.sWet?.let { " · wet ${"%.2f".format(it)}" } ?: "")
+                        (if (!prefs.conditionEnabled) "" else
+                            (st.sDry?.let { " · dry ${"%.2f".format(it)}" } ?: "") + (st.sWet?.let { " · wet ${"%.2f".format(it)}" } ?: ""))
                 })
             }
             tyreList.addView(label(line))

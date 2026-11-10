@@ -45,6 +45,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean(KEY_TYRES, false)
         set(v) = sp.edit().putBoolean(KEY_TYRES, v).apply()
 
+    /** Dry / wet switch (with the tyres on): off = no DRY / WET / MUD row in the start popup, no dry / wet split in the stats. */
+    var conditionEnabled: Boolean
+        get() = sp.getBoolean(KEY_CONDITION, false)
+        set(v) = sp.edit().putBoolean(KEY_CONDITION, v).apply()
+
     /** The tyre pairs the rider saved. */
     var tyrePairs: List<TyrePair>
         get() = TyrePair.listFromJson(sp.getString(KEY_TYRE_PAIRS, null))
@@ -60,6 +65,7 @@ class Prefs(ctx: Context) {
     companion object {
         private const val NAME = "bosch_range_prefs"
         private const val KEY_TYRES      = "tyres_enabled"
+        private const val KEY_CONDITION  = "condition_enabled"
         private const val KEY_TYRE_PAIRS = "tyre_pairs"
         private const val KEY_MOUNTED    = "tyre_mounted_pair"
         private const val KEY_ENABLED    = "enabled"

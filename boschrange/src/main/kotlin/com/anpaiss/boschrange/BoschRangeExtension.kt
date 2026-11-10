@@ -328,7 +328,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             // Paused when the delay ran out (standing at the start, 24/10/2026): the popup used to be dropped
             // and the start stayed unconfirmed for the whole ride. Wait for the ride to move again instead.
             while (rideState !is RideState.Recording) delay(1_000L)
-            askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = true, withTyres = true,
+            askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = prefs.tyresEnabled && prefs.conditionEnabled, withTyres = true,
                 reminder = getString(R.string.reminder_flow_start),
                 onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } },
                 onTimeout = {
