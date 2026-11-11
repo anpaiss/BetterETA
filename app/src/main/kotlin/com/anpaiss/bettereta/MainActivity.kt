@@ -112,6 +112,24 @@ class MainActivity : AppCompatActivity() {
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             )
         }
+        findViewById<Button>(R.id.btn_field_preview).setOnClickListener {
+            startActivity(Intent(this, FieldPreviewActivity::class.java))
+        }
+        // The real popups with sample content and callbacks that do nothing: SET and DISMISS only close them
+        fun testPopup(buttonId: Int, show: (BetterEtaLogger) -> Unit) = findViewById<Button>(buttonId).setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                findViewById<TextView>(R.id.tv_overlay_status).text = "Overlay permission: NOT granted (tap the button above first)"
+                return@setOnClickListener
+            }
+            val logger = BetterEtaLogger.shared ?: BetterEtaLogger(this, announce = false)
+            window.decorView.postDelayed({ show(logger) }, 3_000L)
+        }
+        testPopup(R.id.btn_test_popup_mta) { logger ->
+            MtaPopupController(applicationContext, logger, onSet = { _, _ -> }, onDismiss = {}).show(17, 30)
+        }
+        testPopup(R.id.btn_test_popup_plan) { logger ->
+            PlanPopupController(applicationContext, logger).show("2:47", "Sample route (test)", listOf("33.5 km", "1235 m D+", "± 9 min"))
+        }
     }
 
     // Stesso pattern del selettore stile di AxsRatio: i campi si ridisegnano

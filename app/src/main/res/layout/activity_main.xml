@@ -69,6 +69,14 @@
         android:orientation="vertical"
         android:layout_marginTop="12dp" />
 
+    <!-- Every field at real size in the Karoo's smallest cells, drawn by the fields' own code -->
+    <Button
+        android:id="@+id/btn_field_preview"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="FIELD PREVIEW" />
+
     <!-- Popup MTA alla partenza: serve il permesso overlay (come PoiAhead) -->
     <TextView
         android:layout_width="match_parent"
@@ -110,6 +118,21 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Allow popup (overlay permission)" />
+
+    <!-- Same wording as PoiAhead and boschRange; two popups here, so two buttons -->
+    <Button
+        android:id="@+id/btn_test_popup_mta"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="TEST POPUP: ARRIVAL TIME (shows in 3 s)" />
+
+    <Button
+        android:id="@+id/btn_test_popup_plan"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="TEST POPUP: PLAN (shows in 3 s)" />
 
     <!-- Fondo dalle mappe offline del Karoo: serve la lettura dello storage -->
     <TextView
