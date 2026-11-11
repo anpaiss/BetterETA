@@ -35,6 +35,7 @@ object NativeField {
     private const val PAD_H_DP = 4f
     private const val TITLE_CAP_DP = 23f / 1.875f
     private const val TITLE_PITCH_DP = 26f / 1.875f
+    private const val TITLE_GAP_DP = 2f      // free space kept above the title and between it and the digits
     private const val STATUS_SP = 19f        // "No Route" nativo: maiuscole alte 24 px, largo 131 px
 
     private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
@@ -76,7 +77,10 @@ object NativeField {
         paint.textSize = 100f * TITLE_CAP_DP * dm.density / bounds.height()
         val capH = TITLE_CAP_DP * dm.density
         val pitch = TITLE_PITCH_DP * dm.density
-        val lines = titleLines(title.uppercase(), room)
+        // Two lines only if they fit above the digits: in a full-width row (126 px, 54sp digits) the
+        // second line ran into the digits (field preview, 11/11/2026); there the row is wide enough for one
+        val twoFit = capH + pitch + 2 * TITLE_GAP_DP * dm.density <= digitTop
+        val lines = titleLines(title.uppercase(), room, if (twoFit) 2 else 1)
         val blockH = capH + (lines.size - 1) * pitch
         var base = (digitTop - blockH) / 2f + capH
         for (line in lines) {
@@ -98,8 +102,12 @@ object NativeField {
         bmp
     }
 
-    /** Le righe del titolo: quelle date con "\n", oppure una riga lunga spezzata tra le parole. */
-    private fun titleLines(title: String, room: Float): List<String> {
+    /** Le righe del titolo: quelle date con "\n", oppure una riga lunga spezzata tra le parole; con [maxLines] 1 tutto su una riga. */
+    private fun titleLines(title: String, room: Float, maxLines: Int): List<String> {
+        if (maxLines == 1) {
+            val one = title.split('\n').joinToString("  ")
+            return listOf(TextUtils.ellipsize(one, paint, room, TextUtils.TruncateAt.END).toString())
+        }
         var lines = title.split('\n')
         if (lines.size == 1 && paint.measureText(title) > room && ' ' in title) {
             val words = title.split(' ')
