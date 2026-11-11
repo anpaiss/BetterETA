@@ -76,6 +76,7 @@ class EtaRemainingDataType(
                 .collect { (formattedText, label, style) ->
                     if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, label.replace('\n', ' '), formattedText)); return@collect }
                     val c = style.colorsFor(null)
+                    if (StackedField.narrow(config)) { emitter.updateView(StackedField.views(context, c, label.replace('\n', ' '), formattedText)); return@collect }
                     val views = RemoteViews(context.packageName, R.layout.view_eta_remaining)
                     if (c.bgRes != null) views.setInt(R.id.root_remaining, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_remaining, "setBackgroundColor", c.bgColor ?: 0)

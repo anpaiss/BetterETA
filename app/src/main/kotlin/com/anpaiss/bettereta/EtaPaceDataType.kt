@@ -70,6 +70,7 @@ class EtaPaceDataType(
                 .collect { (view, style) ->
                     if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, "PACE VS PLAN", view.text)); return@collect }
                     val c = view.colors
+                    if (StackedField.narrow(config)) { emitter.updateView(StackedField.views(context, c, "PACE VS PLAN", view.text, c.delta)); return@collect }
                     val views = RemoteViews(context.packageName, R.layout.view_eta_pace)
                     if (c.bgRes != null) views.setInt(R.id.root_pace, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_pace, "setBackgroundColor", c.bgColor ?: 0)

@@ -78,6 +78,7 @@ class EtaAbsoluteDataType(
                 .collect { (formattedText, style) ->
                     if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, "ETA", formattedText)); return@collect }
                     val c = style.colorsFor(null)
+                    if (StackedField.narrow(config)) { emitter.updateView(StackedField.views(context, c, "ETA", formattedText)); return@collect }
                     val views = RemoteViews(context.packageName, R.layout.view_eta_absolute)
                     if (c.bgRes != null) views.setInt(R.id.root_eta, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_eta, "setBackgroundColor", c.bgColor ?: 0)

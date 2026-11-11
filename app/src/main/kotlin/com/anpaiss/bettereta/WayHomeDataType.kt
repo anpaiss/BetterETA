@@ -73,6 +73,7 @@ class WayHomeDataType(
                 .collect { (label, value, style) ->
                     if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, label, value)); return@collect }
                     val c = style.colorsFor(null)
+                    if (StackedField.narrow(config)) { emitter.updateView(StackedField.views(context, c, label, value)); return@collect }
                     val views = RemoteViews(context.packageName, R.layout.view_way_home)
                     if (c.bgRes != null) views.setInt(R.id.root_way_home, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_way_home, "setBackgroundColor", c.bgColor ?: 0)

@@ -49,6 +49,9 @@ class EtaMasterDataType(
         // Larghezze tipiche dei due numeri: fissano il corpo delle cifre
         private const val ETA_TEMPLATE = "88:88"
         private const val TOGO_TEMPLATE = "8:88"
+        private const val NO_ETA = "--:--"
+        // Below this height of the number area the two-row dashboard gives way to one line
+        private const val MIN_NUMBER_PX = 60
     }
 
     /**
@@ -109,6 +112,13 @@ class EtaMasterDataType(
                     val rowH = (cellH - (if (view.band) bandPx else 0) - gap) / 2
                     val w = cellW - 2 * padH
                     val h = rowH - padV - labelRow
+                    if (h < MIN_NUMBER_PX) {
+                        // A cell too low for two rows of big numbers (a third of the page or less):
+                        // arrival and time to go on one line, or the status alone when there is no estimate
+                        val value = if (view.eta == NO_ETA) view.togo else "${view.eta} · ${view.togo}"
+                        emitter.updateView(StackedField.views(context, view.colors, "ETA · TO GO", value))
+                        return@collect
+                    }
                     val digitH = minOf(BigNumber.maxDigitHeight(ETA_TEMPLATE, w, h),
                         BigNumber.maxDigitHeight(TOGO_TEMPLATE, w, h))
                     val c = view.colors
@@ -156,7 +166,7 @@ class EtaMasterDataType(
             togoLabel = if (state.uncertaintySeconds >= 0)
                 "$what  ±${(state.uncertaintySeconds + 30) / 60}m" else what
         } else {
-            eta       = "--:--"
+            eta       = NO_ETA
             togo      = state.status
             togoLabel = "TO GO"
         }

@@ -78,6 +78,11 @@ class EtaMarginDataType(
                 .throttle(REDRAW_THROTTLE_MS)
                 .collect { view ->
                     val c = view.colors
+                    if (StackedField.narrow(config)) {
+                        // One caption line, "MTA 17:30 AHEAD", and the margin below in the colour of the state
+                        emitter.updateView(StackedField.views(context, c, "MTA ${view.time} ${view.tag}".trim(), view.value, c.delta))
+                        return@collect
+                    }
                     val views = RemoteViews(context.packageName, R.layout.view_eta_margin)
                     if (c.bgRes != null) views.setInt(R.id.root_margin, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_margin, "setBackgroundColor", c.bgColor ?: 0)

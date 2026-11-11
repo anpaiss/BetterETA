@@ -78,6 +78,7 @@ class EtaFarthestDataType(
                 .collect { (formattedText, style) ->
                     if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, "TO FAR POINT", formattedText)); return@collect }
                     val c = style.colorsFor(null)
+                    if (StackedField.narrow(config)) { emitter.updateView(StackedField.views(context, c, "TO FAR POINT", formattedText)); return@collect }
                     val views = RemoteViews(context.packageName, R.layout.view_eta_farthest)
                     if (c.bgRes != null) views.setInt(R.id.root_farthest, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_farthest, "setBackgroundColor", c.bgColor ?: 0)

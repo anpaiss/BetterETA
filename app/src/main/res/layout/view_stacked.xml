@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Narrow cells (half the page width, 238 px on a ten-field page): caption on top,
+     value below across the whole cell. Side by side the value had 135 px and
+     "~11h 48m" was cut to "~11h" (field preview, 11/11/2026). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_stacked"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="3dp"
+    android:paddingBottom="2dp"
+    android:background="@android:color/transparent">
+
+    <TextView
+        android:id="@+id/tv_stacked_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textStyle="bold"
+        android:textColor="#9E9E9E"
+        android:textAllCaps="true"
+        android:textSize="12sp"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:includeFontPadding="false" />
+
+    <TextView
+        android:id="@+id/tv_stacked_value"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:textStyle="bold"
+        android:textColor="#FF5823"
+        android:maxLines="1"
+        android:includeFontPadding="false"
+        android:autoSizeTextType="uniform"
+        android:autoSizeMinTextSize="10sp"
+        android:autoSizeMaxTextSize="110sp"
+        android:autoSizeStepGranularity="1sp" />
+
+</LinearLayout>

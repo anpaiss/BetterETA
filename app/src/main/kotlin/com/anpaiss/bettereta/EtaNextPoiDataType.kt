@@ -75,6 +75,7 @@ class EtaNextPoiDataType(
                 .collect { (label, value, style) ->
                     if (style == EtaStyle.KAROO) { emitter.updateView(NativeField.views(context, config, label, value)); return@collect }
                     val c = style.colorsFor(null)
+                    if (StackedField.narrow(config)) { emitter.updateView(StackedField.views(context, c, label, value)); return@collect }
                     val views = RemoteViews(context.packageName, R.layout.view_eta_next_poi)
                     if (c.bgRes != null) views.setInt(R.id.root_next_poi, "setBackgroundResource", c.bgRes)
                     else views.setInt(R.id.root_next_poi, "setBackgroundColor", c.bgColor ?: 0)
