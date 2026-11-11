@@ -104,6 +104,7 @@ class FieldPreviewActivity : AppCompatActivity() {
             WayHomeDataType("preview", MutableStateFlow(wayHomeState(now))),
             EtaPaceDataType("preview", eta),
             EtaMarginDataType("preview", eta),
+            com.anpaiss.karooswitches.SwitchesDataType("preview"),
         )
         // The same context the fields get on the Karoo, with the theme forced: NativeField reads it
         val ctx = applicationContext.createConfigurationContext(Configuration(resources.configuration).apply {
