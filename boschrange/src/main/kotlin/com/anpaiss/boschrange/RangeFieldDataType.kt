@@ -50,6 +50,11 @@ class RangeFieldDataType(
         private const val REDRAW_THROTTLE_MS = 2_000L
         /** Bold digits are about 0.62 em wide; the value must fit the cell on one line. */
         private const val CHAR_EM = 0.62f
+        /**
+         * Half the page (238 px, 111 dp of text) on a ten-field page: the longest caption and
+         * sub-caption do not fit on one line there and get a shorter wording (field preview, 11/11/2026).
+         */
+        private const val NARROW_BELOW_DP = 150f
     }
 
     override fun startStream(emitter: Emitter<StreamState>) {
@@ -77,7 +82,7 @@ class RangeFieldDataType(
         val tap = if (config.preview) null else BatteryTapReceiver.pendingIntent(context)
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
-            state.map { render(it) }
+            state.map { render(it, narrow = widthDp < NARROW_BELOW_DP) }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, config.preview)
                 .throttle(REDRAW_THROTTLE_MS)
@@ -110,8 +115,11 @@ class RangeFieldDataType(
     private fun band(s: DebugState): String = "±%.0f".format(s.halfBandPct) +
         if (s.historyValid < RangeForecast.CALIBRATION_RIDES) " · CAL ${s.historyValid}/${RangeForecast.CALIBRATION_RIDES}" else ""
 
-    private fun render(s: DebugState): Face {
-        val caption = when (kind) { Kind.COMPACT -> "NOW → ARRIVAL"; Kind.MARGIN -> "MARGIN"; Kind.EXTRA_CLIMB -> "EXTRA CLIMB POSSIBLE" }
+    private fun render(s: DebugState, narrow: Boolean): Face {
+        val caption = when (kind) {
+            Kind.COMPACT -> "NOW → ARRIVAL"; Kind.MARGIN -> "MARGIN"
+            Kind.EXTRA_CLIMB -> if (narrow) "EXTRA CLIMB" else "EXTRA CLIMB POSSIBLE"
+        }
         if (!s.enabled && !s.rideOpen) return Face(caption, "OFF", "boschRange off", Tone.NEUTRAL)
         val now = if (s.rideOpen) s.estimatedPct else s.planningPct.toDouble()
         val arrival = s.arrivalPct
@@ -119,7 +127,8 @@ class RangeFieldDataType(
             Kind.COMPACT -> when {
                 arrival == null -> Face(caption, "%.0f %%".format(now), "no route", Tone.NEUTRAL)
                 // The route costs more than the battery holds: say by how much instead of a negative % (Andrea, 19/10)
-                arrival < -0.5 -> Face("OUT OF RANGE BY", "%.0f %%".format(-arrival), "now %.0f %%  ·  ".format(now) + band(s), Tone.BAD)
+                arrival < -0.5 -> Face("OUT OF RANGE BY", "%.0f %%".format(-arrival), 
+                    if (narrow) "now %.0f %% · ±%.0f".format(now, s.halfBandPct) else "now %.0f %%  ·  ".format(now) + band(s), Tone.BAD)
                 else -> Face(caption, "%.0f → %.0f %%".format(now, arrival), band(s), Tone.NEUTRAL)
             }
             Kind.MARGIN -> when {

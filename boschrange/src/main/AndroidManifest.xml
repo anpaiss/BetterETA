@@ -36,6 +36,10 @@
             android:exported="false"
             android:label="New tyre pair" />
 
+        <activity
+            android:name=".FieldPreviewActivity"
+            android:exported="false" />
+
         <!-- Tap on a boschRange field or page: opens "Battery now?" (PendingIntent from our own RemoteViews) -->
         <receiver
             android:name=".BatteryTapReceiver"

@@ -101,6 +101,11 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        root.addView(Button(this).apply {
+            text = "FIELD PREVIEW"
+            setOnClickListener { startActivity(Intent(this@MainActivity, FieldPreviewActivity::class.java)) }
+        })
+
         root.addView(label("Tyres").apply { setTypeface(typeface, Typeface.BOLD) })
         root.addView(CheckBox(this).apply {
             text = "Tyres ON: every ride records the mounted pair, stats per pair (off = no tyres anywhere)"
