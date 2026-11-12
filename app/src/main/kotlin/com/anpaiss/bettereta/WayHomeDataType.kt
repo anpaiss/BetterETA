@@ -44,14 +44,20 @@ class WayHomeDataType(
     companion object {
         private const val REDRAW_THROTTLE_MS = 15_000L
         private const val IDLE_LABEL = "WAY\nHOME"
+        /** Key of the allowance in the published data point; BigFields reads it under this name. */
+        const val ALLOWANCE_FIELD = "allowance"
     }
 
-    // Numeric fallback: seconds of the way back (-1 without a track)
+    // Numeric values: SINGLE = seconds of the way back (-1 without a track); "allowance" = seconds of
+    // further outbound riding the daylight limit allows (absent without a limit or on the way back),
+    // read by BigFields to show Way Home in large digits (12/11/2026)
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
-            wayHomeState.map { it.returnSec }.distinctUntilChanged().collect { sec ->
-                emitter.onNext(StreamState.Streaming(DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to sec.toDouble()))))
+            wayHomeState.map { it.returnSec to it.allowanceSec }.distinctUntilChanged().collect { (sec, allowance) ->
+                val values = mutableMapOf(DataType.Field.SINGLE to sec.toDouble())
+                if (allowance != null) values[ALLOWANCE_FIELD] = allowance.toDouble()
+                emitter.onNext(StreamState.Streaming(DataPoint(dataTypeId, values)))
             }
         }
         emitter.setCancellable { scope.cancel() }
