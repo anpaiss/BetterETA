@@ -1647,6 +1647,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         return "Ride of $when_ excluded: model, way memory and history restored"
     }
 
+    // ── Backup in RideStats (BackupProvider) ──────────────────────────────
+
+    /** Why a restore cannot run now, or null if it can. */
+    fun restoreRefusal(): String? = when {
+        rideState is RideState.Recording -> "Not now: a ride is being recorded"
+        historyImportRunning -> "Not now: the history import is running"
+        else -> null
+    }
+
+    /** After BackupProvider has written the backup: memory back in line with the disk. */
+    fun reloadAfterRestore() {
+        loadWayMemory()
+        speedModel.reset(); physicsModel.reset()
+        loadModel()
+        logger.log("RIDE ", "Backup da RideStats ripristinato: modello, memoria tratti, storico ed elenco FIT")
+    }
+
     private fun restorePrefs(name: String, values: Map<String, Any>) {
         getSharedPreferences(name, Context.MODE_PRIVATE).edit().apply {
             clear()

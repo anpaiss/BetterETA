@@ -13,6 +13,11 @@
     <!-- Popup "mandatory arrival time?" alla partenza (overlay sopra il ride-app) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Backup of the model in RideStats (Google Drive): only our own extensions, same signature -->
+    <permission
+        android:name="com.anpaiss.permission.EXTENSION_BACKUP"
+        android:protectionLevel="signature" />
+
     <application
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true"
@@ -69,6 +74,12 @@
                 android:name="com.anpaiss.karooswitches.kind"
                 android:value="time" />
         </receiver>
+
+        <provider
+            android:name=".BackupProvider"
+            android:authorities="com.anpaiss.bettereta.backup"
+            android:exported="true"
+            android:permission="com.anpaiss.permission.EXTENSION_BACKUP" />
 
     </application>
 </manifest>
