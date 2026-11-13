@@ -29,7 +29,7 @@
         android:includeFontPadding="false"
         android:autoSizeTextType="uniform"
         android:autoSizeMinTextSize="12sp"
-        android:autoSizeMaxTextSize="40sp"
+        android:autoSizeMaxTextSize="24sp"
         android:autoSizeStepGranularity="1sp" />
 
     <TextView
