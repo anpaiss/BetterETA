@@ -4,9 +4,9 @@ package com.anpaiss.bettereta
 data class RouteClimb(val startM: Double, val endM: Double, val gainM: Double)
 
 /**
- * The route's climbs, for "Time to top" and "At the top" (14/11/2026). The Karoo sends none for
- * imported routes (our logs, September to November 2026: always 0), so they are found on the route's
- * own elevation, with the same detector as RouteProfile (ClimbDetector there, checked on the seven
+ * The route's climbs found on its own elevation, for "Time to top" and "At the top" (14/11/2026) until
+ * the Karoo sends its own: it does during the ride, not before the start nor indoors without GPS.
+ * Same detector as RouteProfile (ClimbDetector there, checked on the seven
  * lagorai.bike routes): from the lowest point to the top, ended by a real drop, split at long false
  * flats, flat ends trimmed. Here the elevation is rebuilt from the segments' grades, every [STEP_M].
  */

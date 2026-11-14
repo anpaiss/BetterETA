@@ -26,7 +26,7 @@ import java.util.Calendar
 /**
  * The next climb's top (14/11/2026, Andrea): [AT] the time of day you get there, [TIME] how long it
  * takes, with the same model as the finish (way memory, speed by grade, the Bosch). The climbs are
- * found on the route's elevation ([RouteClimbs]): the Karoo sends none for imported routes. "no climb"
+ * the Karoo's when it sends them, else found on the route's elevation ([RouteClimbs]). "no climb"
  * when no top is left ahead; before the start ("Plan") the time from the start.
  *
  * The stream publishes the seconds to the top (-1 = none) and, under [TOP_M_FIELD], the metres to it,

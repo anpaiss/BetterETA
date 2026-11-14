@@ -2014,17 +2014,25 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private data class NextTop(val sec: Long, val distM: Double)
 
-    /** The route's climbs, found once per route on its elevation (the Karoo sends none for imported routes). */
+    /**
+     * The route's climbs: the Karoo's own when it sends them (it does during the ride, the same ones
+     * as its upcoming-climb popup; none yet before the start or indoors without GPS), otherwise the
+     * ones found on the route's elevation ([RouteClimbs]), so the top is there from the start.
+     */
     @Volatile private var routeClimbsFound: List<RouteClimb> = emptyList()
     @Volatile private var routeClimbsKey: Long = 0L
 
     private suspend fun climbsOfRoute(): List<RouteClimb> {
-        val all = pipeline.remainingSegmentsFrom(0.0)
-        val key = all.size * 1_000_003L + all.sumOf { it.distanceM }.toLong()
+        val karoo = routeClimbs
+        val all = if (karoo.isEmpty()) pipeline.remainingSegmentsFrom(0.0) else emptyList()
+        val key = if (karoo.isNotEmpty()) -karoo.hashCode().toLong() - 1
+                  else all.size * 1_000_003L + all.sumOf { it.distanceM }.toLong()
         if (key != routeClimbsKey) {
             routeClimbsKey = key
-            routeClimbsFound = RouteClimbs.find(all)
-            logger.log("TOP  ", "Salite della route: " + routeClimbsFound.joinToString {
+            val fromKaroo = karoo.isNotEmpty()
+            routeClimbsFound = if (fromKaroo) karoo.map { RouteClimb(it.startDistance, it.startDistance + it.length, it.totalElevation) }
+                               else RouteClimbs.find(all)
+            logger.log("TOP  ", "Salite della route (" + (if (fromKaroo) "Karoo" else "dal profilo") + "): " + routeClimbsFound.joinToString {
                 "km %.1f-%.1f +%.0f m".format(it.startM / 1000.0, it.endM / 1000.0, it.gainM) }.ifEmpty { "nessuna" })
         }
         return routeClimbsFound
