@@ -259,6 +259,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         // Popup della stima a tavolino: aspetta il fondo dalle mappe fino a tanto così,
         // poi esce con i soli bucket (mappe offline assenti, Overpass senza rete)
         private const val PLAN_ALERT_WAIT_MS  = 10_000L
+        // Stessa route riemessa o ricalcolata: popup del piano di nuovo solo dopo tanto così
+        private const val PLAN_REOPEN_QUIET_MS = 30 * 60_000L
         // Sosta almeno così lunga → alla ripresa il popup ripropone l'MTA attuale
         // (giro 12/09: soste di 8 e 9,5 min, arrivo cambiato, nessuna domanda).
         // Le auto-pause ai semafori (secondi) non contano.
@@ -459,8 +461,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     logger.log("ROUTE", "[$source] stesso percorso — posizione preservata")
                     // Giro non ancora partito: la route riaperta è una nuova scelta,
                     // il popup del piano esce di nuovo (27/10: la stessa route del
-                    // giorno prima, stesso processo, non lo mostrava più)
-                    if (initialRemainingSec < 0) {
+                    // giorno prima, stesso processo, non lo mostrava più). Non se
+                    // mostrato da poco: il Karoo riemette la stessa route ogni minuto
+                    // o due e il popup chiuso tornava da solo (14/11, KarooSim)
+                    if (initialRemainingSec < 0 && !planShownRecently(routeName)) {
                         planAlerted   = false
                         planLoggedSec = -1L
                         routeLoadedMs = System.currentTimeMillis()
@@ -559,7 +563,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 progressGate.reset()
                 closeWayPass()
                 planLoggedSec = -1L
-                planAlerted   = false
+                // Ricalcolo della stessa route (stesso nome, stessa meta) a popup appena
+                // mostrato: non lo ripropone
+                if (!(endDist <= SAME_DEST_THRESHOLD_M && planShownRecently(routeName))) planAlerted = false
                 routeLoadedMs = System.currentTimeMillis()
                 planPopup.hide()
                 // Subito, non nella coroutine: il ticker passa prima e col flag della
@@ -2016,6 +2022,12 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     @Volatile private var planLoggedSec = -1L
     @Volatile private var planAlerted   = false
     @Volatile private var routeLoadedMs = 0L
+    // Ultimo popup del piano: route e orario (si ripropone per la stessa route solo dopo PLAN_REOPEN_QUIET_MS)
+    @Volatile private var planShownName = ""
+    @Volatile private var planShownAtMs = 0L
+
+    private fun planShownRecently(name: String): Boolean =
+        planShownAtMs > 0L && name == planShownName && System.currentTimeMillis() - planShownAtMs < PLAN_REOPEN_QUIET_MS
 
     /**
      * Stima a tavolino: route aperta sul Karoo, giro non avviato (26/10, chiesta su
@@ -2142,6 +2154,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             "± %d min".format((p.uncSec + 30) / 60),
         )
         planPopup.show(time, routeName, lines)
+        planShownName = routeName
+        planShownAtMs = System.currentTimeMillis()
         logger.log("PLAN ", "Popup: ~$time, ${lines.joinToString(", ")} (fondo ${if (surfacesApplied) "applicato" else "in attesa"})")
     }
 
