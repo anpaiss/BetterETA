@@ -31,6 +31,10 @@ import kotlinx.coroutines.flow.flowOf
  * @param nextPoiSeconds    secondi al prossimo POI, con lo stesso modello dell'arrivo
  *                          (in "Plan" dalla partenza); -1 = non disponibile
  * @param nextPoiDistanceM  metri al prossimo POI lungo la route; -1 = non disponibile
+ * @param topSeconds        secondi alla cima della prossima salita (quella sotto le ruote o la
+ *                          successiva, salite trovate sulla quota della route), stesso modello;
+ *                          -1 = nessuna cima davanti
+ * @param topDistanceM      metri a quella cima lungo la route; -1 = nessuna
  */
 data class EtaState(
     val remainingSeconds: Long = -1L,
@@ -50,6 +54,8 @@ data class EtaState(
     val nextPoiName: String? = null,
     val nextPoiSeconds: Long = -1L,
     val nextPoiDistanceM: Double = -1.0,
+    val topSeconds: Long = -1L,
+    val topDistanceM: Double = -1.0,
 ) {
     companion object {
         /**
@@ -74,6 +80,8 @@ data class EtaState(
                 nextPoiName = "Meeting point",
                 nextPoiSeconds = 22 * 60L,
                 nextPoiDistanceM = 5_100.0,
+                topSeconds = 24 * 60L,
+                topDistanceM = 3_700.0,
             )
         }
     }

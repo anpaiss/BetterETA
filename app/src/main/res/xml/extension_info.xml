@@ -53,6 +53,20 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <DataType
+        typeId="eta-top-at"
+        displayName="@string/eta_top_at_name"
+        description="@string/eta_top_at_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
+    <DataType
+        typeId="eta-time-to-top"
+        displayName="@string/eta_time_to_top_name"
+        description="@string/eta_time_to_top_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
     <!-- Mandatory time of arrival and the margin against it -->
     <DataType
         typeId="eta-margin"

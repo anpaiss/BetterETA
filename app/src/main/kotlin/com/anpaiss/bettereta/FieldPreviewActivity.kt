@@ -101,6 +101,8 @@ class FieldPreviewActivity : AppCompatActivity() {
             EtaRemainingDataType("preview", eta),
             EtaFarthestDataType("preview", eta),
             EtaNextPoiDataType("preview", eta),
+            EtaTopDataType("preview", EtaTopDataType.Mode.AT, eta),
+            EtaTopDataType("preview", EtaTopDataType.Mode.TIME, eta),
             WayHomeDataType("preview", MutableStateFlow(wayHomeState(now))),
             EtaPaceDataType("preview", eta),
             EtaMarginDataType("preview", eta),

@@ -302,6 +302,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaMasterDataType(extension, etaState, visibleDataTypeIds),
             EtaFarthestDataType(extension, etaState, visibleDataTypeIds),
             EtaNextPoiDataType(extension, etaState, visibleDataTypeIds),
+            EtaTopDataType(extension, EtaTopDataType.Mode.AT, etaState, visibleDataTypeIds),
+            EtaTopDataType(extension, EtaTopDataType.Mode.TIME, etaState, visibleDataTypeIds),
             WayHomeDataType(extension, wayHomeState, visibleDataTypeIds),
             EtaMarginDataType(extension, etaState, visibleDataTypeIds),
             EtaPaceDataType(extension, etaState, visibleDataTypeIds),
@@ -1082,6 +1084,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val uncertaintySec = EtaUncertainty.seconds(remainingSec,
                         primary.memoryDistanceShare, primary.fallbackDistanceShare, approx = !locatedNow)
                     val nextPoi = nextPoiFrom(remainingSegs, pipeline.distanceAlongRouteM())
+                    val nextTop = nextTopFrom(remainingSegs, pipeline.distanceAlongRouteM())
                     etaState.value = EtaState(
                         remainingSeconds       = remainingSec,
                         hasRoute               = true,
@@ -1101,6 +1104,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         nextPoiName            = nextPoi?.name,
                         nextPoiSeconds         = nextPoi?.sec ?: -1L,
                         nextPoiDistanceM       = nextPoi?.distM ?: -1.0,
+                        topSeconds             = nextTop?.sec ?: -1L,
+                        topDistanceM           = nextTop?.distM ?: -1.0,
                     )
 
                     // 5. Riga di campionamento per l'analisi post-uscita
@@ -2007,6 +2012,35 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         return NextPoi(poi.name, sec, distM)
     }
 
+    private data class NextTop(val sec: Long, val distM: Double)
+
+    /** The route's climbs, found once per route on its elevation (the Karoo sends none for imported routes). */
+    @Volatile private var routeClimbsFound: List<RouteClimb> = emptyList()
+    @Volatile private var routeClimbsKey: Long = 0L
+
+    private suspend fun climbsOfRoute(): List<RouteClimb> {
+        val all = pipeline.remainingSegmentsFrom(0.0)
+        val key = all.size * 1_000_003L + all.sumOf { it.distanceM }.toLong()
+        if (key != routeClimbsKey) {
+            routeClimbsKey = key
+            routeClimbsFound = RouteClimbs.find(all)
+            logger.log("TOP  ", "Salite della route: " + routeClimbsFound.joinToString {
+                "km %.1f-%.1f +%.0f m".format(it.startM / 1000.0, it.endM / 1000.0, it.gainM) }.ifEmpty { "nessuna" })
+        }
+        return routeClimbsFound
+    }
+
+    /**
+     * The next climb's top ahead of [traveledM] and the time to it over [segs] (the remaining route
+     * from [traveledM]), with the same model as the finish, as [nextPoiFrom] does for a POI.
+     */
+    private suspend fun nextTopFrom(segs: List<RouteSegment>, traveledM: Double, baseOnly: Boolean = false): NextTop? {
+        val top = RouteClimbs.nextTop(climbsOfRoute(), traveledM) ?: return null
+        val distM = top.endM - traveledM
+        val sec = etaEngine.computeBreakdown(PoiEta.segmentsUpTo(segs, distM), baseOnly).seconds
+        return NextTop(sec, distM)
+    }
+
     /** Stima a tavolino dell'intera route, base pura (senza fattore di giornata); null senza segmenti. */
     private suspend fun planNumbers(): Plan? {
         val segs = pipeline.remainingSegmentsFrom(0.0)
@@ -2025,6 +2059,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             return
         }
         val poi = nextPoiFrom(pipeline.remainingSegmentsFrom(0.0), 0.0, baseOnly = true)
+        val top = nextTopFrom(pipeline.remainingSegmentsFrom(0.0), 0.0, baseOnly = true)
         etaState.value = EtaState(
             remainingSeconds       = p.sec,
             hasRoute               = true,
@@ -2037,6 +2072,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             nextPoiName            = poi?.name,
             nextPoiSeconds         = poi?.sec ?: -1L,
             nextPoiDistanceM       = poi?.distM ?: -1.0,
+            topSeconds             = top?.sec ?: -1L,
+            topDistanceM           = top?.distM ?: -1.0,
         )
         maybePlanPopup(p)
         // Una riga quando la stima appare e quando si sposta di più di un minuto

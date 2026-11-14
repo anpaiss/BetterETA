@@ -17,6 +17,10 @@
 
     <string name="eta_next_poi_name">ETA at Next Point</string>
     <string name="eta_next_poi_desc">Arrival time at the next POI placed on the route (a meeting point, a hut), with the same model as the finish; moves on to the following POI once passed</string>
+    <string name="eta_top_at_name">ETA at the Top</string>
+    <string name="eta_top_at_desc">Time of day at the top of the climb you are on, or of the next one, with the same model as the finish; the climbs are found on the route\'s elevation</string>
+    <string name="eta_time_to_top_name">Time to Top</string>
+    <string name="eta_time_to_top_desc">How long to the top of the climb you are on, or of the next one, with the same model as the finish</string>
 
     <string name="eta_way_home_name">Way Home</string>
     <string name="eta_way_home_desc">How much longer you can keep going before the way back, retraced along your own track, lands after dusk: minutes left to turn around, arrival home if you turned now. Works without a route.</string>
