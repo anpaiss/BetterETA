@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <!-- Battery popups: overlay windows over the ride app -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- KarooSwitches is here only for PopupTurn (open broadcasts): its signature permissions are not
+         needed, and declaring them would refuse the debug-signed boschRange next to the release-signed
+         BetterETA and PoiAhead (INSTALL_FAILED_DUPLICATE_PERMISSION); a new key would mean a reinstall
+         and the ride history lost -->
+    <permission android:name="com.anpaiss.karooswitches.CONTROL" tools:node="remove" />
+    <uses-permission android:name="com.anpaiss.karooswitches.CONTROL" tools:node="remove" />
+    <permission android:name="com.anpaiss.permission.EXTENSION_BACKUP" tools:node="remove" />
 
     <!-- KarooSim "simulation active" state (KarooSimState): simulated rides stay out of the history.
          Provider visibility, needed from targetSdk 30 -->

@@ -53,12 +53,6 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
-        debug {
-            // Release key when the environment gives it, as in BetterETA: KarooSwitches
-            // (for PopupTurn) brings its signature permission, and Android refuses a
-            // second declarer with another signature (INSTALL_FAILED_DUPLICATE_PERMISSION)
-            signingConfigs.findByName("release")?.let { signingConfig = it }
-        }
     }
 }
 
