@@ -35,7 +35,7 @@ class PlanPopupController(
     private var currentView: View? = null
 
     companion object {
-        private const val AUTO_DISMISS_MS = 90_000L
+        private const val AUTO_DISMISS_MS = 45_000L
     }
 
     fun canShow(): Boolean = Settings.canDrawOverlays(context)

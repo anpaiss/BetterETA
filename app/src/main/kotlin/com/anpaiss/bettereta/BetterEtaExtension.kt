@@ -373,9 +373,13 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 // the values we compute ourselves (position, remaining ascent).
                 when (nav) {
                     is OnNavigationState.NavigationState.NavigatingRoute -> {
+                        // The Karoo re-emits the route every few seconds, sometimes without its climbs:
+                        // for the same route an empty list keeps the climbs it already sent (else the top
+                        // fields flip between its climbs and ours, Scurelle - 5 Croci 14/11/2026)
+                        val sameRoute = nav.name == routeName && nav.routeDistance == routeTotalDistM
+                        if (nav.climbs.isNotEmpty() || !sameRoute) routeClimbs = nav.climbs
                         routeName       = nav.name
                         routeTotalDistM = nav.routeDistance
-                        routeClimbs     = nav.climbs
                         rejoinActive    = nav.rejoinDistance != null || nav.rejoinPolyline != null
                         karooRejoinDistM = nav.rejoinDistance
                         // The POIs the rider put on the route, one entry per pass,
@@ -2023,11 +2027,20 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     @Volatile private var planAlerted   = false
     @Volatile private var routeLoadedMs = 0L
     // Ultimo popup del piano: route e orario (si ripropone per la stessa route solo dopo PLAN_REOPEN_QUIET_MS)
+    // Saved to a file too: a restart of the extension (update, crash) must not bring the popup back (14/11)
+    private val planShownPrefs by lazy { getSharedPreferences("plan_popup", Context.MODE_PRIVATE) }
     @Volatile private var planShownName = ""
     @Volatile private var planShownAtMs = 0L
+    @Volatile private var planShownLoaded = false
 
-    private fun planShownRecently(name: String): Boolean =
-        planShownAtMs > 0L && name == planShownName && System.currentTimeMillis() - planShownAtMs < PLAN_REOPEN_QUIET_MS
+    private fun planShownRecently(name: String): Boolean {
+        if (!planShownLoaded) {
+            planShownLoaded = true
+            planShownName = planShownPrefs.getString("name", "").orEmpty()
+            planShownAtMs = planShownPrefs.getLong("at_ms", 0L)
+        }
+        return planShownAtMs > 0L && name == planShownName && System.currentTimeMillis() - planShownAtMs < PLAN_REOPEN_QUIET_MS
+    }
 
     /**
      * Stima a tavolino: route aperta sul Karoo, giro non avviato (26/10, chiesta su
@@ -2151,6 +2164,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         if (planAlerted || p.sec <= 0) return
         if (!surfacesApplied && System.currentTimeMillis() - routeLoadedMs <= PLAN_ALERT_WAIT_MS) return
         planAlerted = true
+        if (planShownRecently(routeName)) {
+            logger.log("PLAN ", "Popup non riproposto: '$routeName' mostrato meno di 30 min fa")
+            return
+        }
         val time  = "%d:%02d".format(p.sec / 3600, p.sec % 3600 / 60)
         val lines = listOfNotNull(
             "%.1f km".format(p.distM / 1000.0),
@@ -2160,6 +2177,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         planPopup.show(time, routeName, lines)
         planShownName = routeName
         planShownAtMs = System.currentTimeMillis()
+        planShownPrefs.edit().putString("name", planShownName).putLong("at_ms", planShownAtMs).apply()
         logger.log("PLAN ", "Popup: ~$time, ${lines.joinToString(", ")} (fondo ${if (surfacesApplied) "applicato" else "in attesa"})")
     }
 
