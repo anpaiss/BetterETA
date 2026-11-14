@@ -1,9 +1,12 @@
 package com.anpaiss.boschrange
 
+import com.anpaiss.bettereta.KarooSimState
 import com.anpaiss.bettereta.MapsforgeSurfaceSource
 import com.anpaiss.bettereta.PolylineDecoder
 import com.anpaiss.bettereta.RouteWaypoint
 import com.anpaiss.bettereta.SegmentPipeline
+import com.anpaiss.bettereta.SimRideGuard
+import com.anpaiss.bettereta.SimState
 import com.anpaiss.bettereta.Surface
 import com.anpaiss.bettereta.SurfaceClassifier
 import com.anpaiss.bettereta.interpolateElevations
@@ -63,6 +66,9 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private lateinit var surfaceClassifier: SurfaceClassifier
     private lateinit var energy: EnergyModel
     private val pipeline = SegmentPipeline()
+    // KarooSim (fake GPS for tests at home): forecast as usual, the ride stays out of the history
+    private lateinit var simState: KarooSimState
+    private val simGuard = SimRideGuard()
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val consumerIds = mutableListOf<String>()
@@ -161,6 +167,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         popup   = BatteryPopupController(applicationContext, logger)
         energy  = EnergyModel(prefs.riderKg)
         surfaceClassifier = SurfaceClassifier(applicationContext, logger, MapsforgeSurfaceSource(applicationContext, logger))
+        simState = KarooSimState(applicationContext, scope)
+        simState.start()
         instance = this
 
         runCatching {
@@ -339,6 +347,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             }
             RideRecord(now, Prefs.capacityWh(false), prefs.sCoefficient).also { ride = it }   // PowerMore off until the popup says it is on
         }
+        if (simGuard.newRide(simState.active())) onSimRide()
         r.routeName = routeName; r.routeDistanceM = routeTotalDistM; r.routeAscentM = routeAscentM
         r.karooAscentRemainingAtStartM = karooAscentRemM
         r.routeUnclassifiedPct = routeUnclassifiedPct; r.surfaceComplete = surfaceComplete
@@ -452,6 +461,12 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
     private fun finish(r: RideRecord, arrivalPct: Int?) {
         synchronized(lock) { if (ride !== r) return; ride = null }
         r.arrivalPct = arrivalPct
+        if (!simGuard.learning) {
+            history.clearCurrent()
+            publishDebug()
+            logger.log("RIDE ", "Simulated ride (KarooSim): not saved in the history, arrival ${arrivalPct?.toString() ?: "not entered"}")
+            return
+        }
         history.append(r)
         publishDebug()
         val real = r.whReal
@@ -640,8 +655,10 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             val dt = ((now - lastMs) / 1000.0).coerceIn(1.0, 15.0)
             lastMs = now
             val riderAvg = riderPowerAverage()   // every tick, so the first sample of a ride averages only its own 5 s
+            val simActive = simState.active()    // cached, re-read in the background
             val r = synchronized(lock) { ride }
             if (rideState is RideState.Recording && r != null) {
+                if (simGuard.observe(simActive)) onSimRide()
                 val v = speedMs; val g = gradePct
                 // Long standstill seen from the speed, for riders with the auto-pause off
                 if (v < RideRecord.MOVING_MS) {
@@ -710,7 +727,18 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         if (descentM >= 0.0) r.descentM = descentM
     }
 
+    /**
+     * The ride is simulated (at the start or as soon as KarooSim turns on): one log line, the
+     * open-ride file deleted and no longer written, so neither [finish] nor a restart puts it in the history.
+     */
+    private fun onSimRide() {
+        logger.log("SIM  ", SimState.LOG_LINE)
+        sampleLog.note(System.currentTimeMillis(), "sim=1 ${SimState.LOG_LINE}")
+        runCatching { history.clearCurrent() }
+    }
+
     private fun saveCurrent() {
+        if (!simGuard.learning) return
         val r = synchronized(lock) { ride } ?: return
         runCatching { history.saveCurrent(r) }.onFailure { logger.logError("RIDE ", "Salvataggio giro aperto fallito", it) }
     }
@@ -756,6 +784,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         consumerIds.forEach { karooSystem.removeConsumer(it) }
         popup.hide()
         saveCurrent()
+        simState.stop()
         scope.cancel()
         karooSystem.disconnect()
         instance = null

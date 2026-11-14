@@ -13,6 +13,12 @@
     <!-- Popup "mandatory arrival time?" alla partenza (overlay sopra il ride-app) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Stato "simulazione attiva" di KarooSim (KarooSimState): i giri simulati non insegnano niente.
+         Visibilità del provider, necessaria da targetSdk 30 -->
+    <queries>
+        <provider android:authorities="com.anpaiss.karoosim.state" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true"

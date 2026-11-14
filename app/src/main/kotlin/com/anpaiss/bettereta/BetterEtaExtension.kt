@@ -195,6 +195,11 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
     private val progressGate = ProgressGate()
     @Volatile private var learningPaused = false
 
+    // Simulazione KarooSim (GPS finto, prove in casa): l'ETA gira come sempre, ma
+    // il giro non insegna niente (modello, memoria tratti, confronti, FIT)
+    private lateinit var simState: KarooSimState
+    private val simGuard = SimRideGuard()
+
     // Giro libero (registrazione senza route): il modello impara lo stesso, con la
     // guardia GPS (spostamento netto plausibile nell'ultimo minuto) al posto di
     // quella sulla route. Niente CSV e niente memoria tratti senza route.
@@ -321,6 +326,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         surfaceClassifier = SurfaceClassifier(applicationContext, logger,
             MapsforgeSurfaceSource(applicationContext, logger))
         prefs = Prefs(applicationContext)
+        simState = KarooSimState(applicationContext, extensionScope)
+        simState.start()
         loadWayMemory()
         mtaPopup = MtaPopupController(applicationContext, logger,
             onSet = { h, m -> mtaAskPendingSinceMs = 0L; setMta(h, m) },
@@ -709,10 +716,14 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                         gpsGate.reset()
                         freeRideSamples = 0
                         liveRideStartMs = System.currentTimeMillis()
-                        // Subito nelle prefs, non al primo salvataggio: se il Karoo riavvia
-                        // l'estensione nei primi minuti, il FIT di questo giro non va reimportato
-                        prefs.rideStartsMs = prefs.rideStartsMs + liveRideStartMs
-                        snapshotForNewRide(liveRideStartMs)
+                        if (simGuard.newRide(simState.active())) {
+                            onSimRide()   // niente foto per "non contarlo": resta quella dell'ultimo giro vero
+                        } else {
+                            // Subito nelle prefs, non al primo salvataggio: se il Karoo riavvia
+                            // l'estensione nei primi minuti, il FIT di questo giro non va reimportato
+                            prefs.rideStartsMs = prefs.rideStartsMs + liveRideStartMs
+                            snapshotForNewRide(liveRideStartMs)
+                        }
                         clearMta()   // l'MTA vale per un giro: il prossimo lo chiede da capo
                         wayHome.reset()
                         wayHomeState.value = WayHomeState()
@@ -726,9 +737,9 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     maybeAskMta()
                 }
                 if (rideState is RideState.Recording && state !is RideState.Recording) {
-                    logger.log("RIDE ", "Sospesa — model salvato")
+                    logger.log("RIDE ", if (simGuard.learning) "Sospesa — model salvato" else "Sospesa — giro simulato, niente salvato")
                     closeWayPass()
-                    saveModel()
+                    simGuard.learn { saveModel() }
                 }
                 // Giro chiuso con la navigazione ancora aperta: stessa rete di
                 // sicurezza della chiusura navigazione
@@ -755,6 +766,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val tickNowMs = System.currentTimeMillis()
                     val tickSec   = ((tickNowMs - lastTickMs) / 1000.0).coerceIn(0.5, 2.0)
                     lastTickMs    = tickNowMs
+
+                    // Stato KarooSim dalla cache (rilettura in background, mai bloccante)
+                    val simActive = simState.active()
+                    if (rideState is RideState.Recording && simGuard.observe(simActive)) onSimRide()
 
                     // Way Home runs on every recorded tick, route or not
                     if (rideState is RideState.Recording) wayHomeTick(tickSec)
@@ -874,7 +889,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                     val currentSurface  = pipeline.currentSurface()
                     val progressing     = progressGate.onTick(pipeline.distanceAlongRouteM())
                     val moving          = currentSpeedMs >= 0.5 && progressing && !offRoute
-                    if (moving) {
+                    if (moving) simGuard.learn {
                         speedModel.update(currentSpeedMs, currentGradePct, currentSurface)
                         physicsModel.update(currentSpeedMs, currentGradePct, currentSurface)
                     }
@@ -1147,7 +1162,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         mtaPopup.hide()
         planPopup.hide()
         closeWayPass()
-        saveModel()
+        simGuard.learn { saveModel() }
+        simState.stop()
         sampleLog.close()
         tickerJob?.cancel()
         tickerJob = null
@@ -1386,6 +1402,10 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             errKarooPct   = (errK * 100).roundToInt(),
             errPhysicsPct = errPhys?.let { (it * 100).roundToInt() },
         )
+        if (!simGuard.learning) {
+            logger.log("STATS", "ETA vs Karoo: diff=${result.diffPct}% su ${valid.size} campioni — giro simulato, non salvato nello storico")
+            return
+        }
         val prefs   = getSharedPreferences(RESULTS_PREFS, Context.MODE_PRIVATE)
         val history = EtaResult.parseHistory(prefs.getString(RESULTS_KEY, "").orEmpty())
         val updated = (listOf(result) + history).take(RESULTS_MAX)
@@ -1528,6 +1548,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
      * balla da fermo né un salto del fix passano).
      */
     private fun freeRideLearn() {
+        if (!simGuard.learning) return
         val speed = speedMsFlow.value
         val grade = gradePctFlow.value
         val now   = System.currentTimeMillis()
@@ -1566,7 +1587,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private fun closeWayPass() {
         val key = passKey
-        if (key != 0L && passDistM >= WAY_PASS_MIN_M && passSec >= WAY_PASS_MIN_SEC) {
+        if (key != 0L && simGuard.learning && passDistM >= WAY_PASS_MIN_M && passSec >= WAY_PASS_MIN_SEC) {
             val speed  = passDistM / passSec
             // Fattore della classe di fondo del tratto: è quello con cui la memoria verrà riletta
             val factor = speedModel.dayFactorForSurface(passSurface).coerceIn(0.3, 3.0)
@@ -1581,6 +1602,18 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
         passKey   = 0L
         passDistM = 0.0
         passSec   = 0.0
+    }
+
+    /**
+     * Giro marcato simulato (all'avvio o appena KarooSim si accende): una riga nel
+     * log, il FIT del giro escluso per sempre dall'import storico, il passaggio way
+     * in corso buttato. Il resto lo ferma [simGuard] dove si impara o si salva.
+     */
+    private fun onSimRide() {
+        logger.log("SIM  ", SimState.LOG_LINE)
+        sampleLog.note("sim=1 ${SimState.LOG_LINE}")
+        if (liveRideStartMs > 0L) prefs.excludedRideStartsMs = prefs.excludedRideStartsMs + liveRideStartMs
+        discardWayPass()
     }
 
     /** Butta il passaggio in corso senza registrarlo: la posizione era sbagliata. */

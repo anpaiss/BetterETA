@@ -10,6 +10,12 @@
     <!-- Battery popups: overlay windows over the ride app -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- KarooSim "simulation active" state (KarooSimState): simulated rides stay out of the history.
+         Provider visibility, needed from targetSdk 30 -->
+    <queries>
+        <provider android:authorities="com.anpaiss.karoosim.state" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:requestLegacyExternalStorage="true"
