@@ -16,6 +16,7 @@
     <string name="popup_powermore_off">PowerMore: OFF  ▸</string>
     <string name="popup_powermore_on">PowerMore: ON  ▸</string>
     <string name="popup_title_powermore">PowerMore today?</string>
+    <string name="popup_title_flow">Bosch Flow screenshot</string>
     <string name="reminder_flow_start">Flow: screenshot the navigation page (charge at arrival)</string>
     <string name="reminder_flow_mid">Flow: screenshot the navigation page halfway (optional)</string>
     <string name="reminder_flow_end">Flow: screenshot the ride summary</string>

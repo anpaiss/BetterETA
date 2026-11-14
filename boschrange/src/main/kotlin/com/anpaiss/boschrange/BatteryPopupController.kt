@@ -41,7 +41,7 @@ class BatteryPopupController(
         val onSet: (pct: Int, condition: Condition?) -> Unit,
         val onSkip: () -> Unit,
         val onTimeout: () -> Unit = onSkip,   // the start popup takes the timeout as a confirmation
-        val reminder: String? = null,          // extra row "<reminder> [DONE]"; DONE does not close the popup
+        val reminder: String? = null,          // extra row "<reminder> [DONE]"; DONE closes the popup only when it asks nothing else
         val onReminderDone: () -> Unit = {},
         val tyres: List<Pair<String, String>> = emptyList(),   // (pair id, label); empty = no tyre row
         val tyreId: String? = null,
@@ -212,6 +212,11 @@ class BatteryPopupController(
                     label.setTextColor(Color.parseColor("#81C784"))
                     logger.log("POPUP", "${req.title}: ${req.reminder} → FATTO")
                     req.onReminderDone()
+                    // A Flow reminder alone (battery from the bike): nothing else to answer, DONE closes it
+                    if (req.initialPct == null && req.condition == null && req.tyres.isEmpty() && req.powerMore == null) {
+                        removeCurrent()
+                        req.onSet(0, null)
+                    }
                 }
             }
             val lpLabel = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)

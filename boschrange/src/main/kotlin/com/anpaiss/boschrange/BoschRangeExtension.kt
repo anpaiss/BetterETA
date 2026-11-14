@@ -290,7 +290,8 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             }
             r.startAssumed && r.whMech < LIVE_START_MAX_WH -> {
                 synchronized(lock) { r.setStart(pct, assumed = false) }
-                if (!prefs.powerMoreOwned) startPopupJob?.cancel()   // a PowerMore owner still gets it, without the %
+                // a PowerMore owner still gets it, without the %; during the Flow study it keeps the Flow reminder only
+                if (!prefs.powerMoreOwned && !flowStudyOpen()) startPopupJob?.cancel()
                 logger.log("LDI  ", "Batteria dalla bici: $pct % = partenza misurata a ${"%.1f".format(r.distanceKm)} km" +
                     if (prefs.powerMoreOwned) "" else ", popup di partenza annullato")
             }
@@ -365,7 +366,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         logger.log("RIDE ", "Nuovo giro: capacità ${r.capacityWh} Wh, s=${r.sUsed}, partenza $plannedStart %${if (live) " dalla bici" else ""}, route '${routeName}' D+ ${routeAscentM.toInt()} m" +
             (if (prefs.tyresEnabled) ", gomme ${r.tyres?.name() ?: "non impostate"}" else ""))
         startPopupJob?.cancel()
-        if (live && !prefs.powerMoreOwned) return
+        if (live && !prefs.powerMoreOwned && !flowStudyOpen()) return
         startPopupJob = scope.launch {
             delay(START_POPUP_DELAY_MS)
             // Paused when the delay ran out (standing at the start, 24/10/2026): the popup used to be dropped
@@ -373,7 +374,12 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             while (rideState !is RideState.Recording) delay(1_000L)
             // The bike gives the start %: only the PowerMore question is left
             if (synchronized(lock) { ride?.startAssumed } == false) {
-                askBattery(getString(R.string.popup_title_powermore), null, withCondition = false, withPowerMore = true) { _, _ -> }
+                val flow = flowStudyOpen() && r.flowShotStartMs == 0L
+                if (!prefs.powerMoreOwned && !flow) return@launch
+                askBattery(getString(if (prefs.powerMoreOwned) R.string.popup_title_powermore else R.string.popup_title_flow), null,
+                    withCondition = false, withPowerMore = true,
+                    reminder = if (flow) getString(R.string.reminder_flow_start) else null,
+                    onReminderDone = { flowShot(r) { it.flowShotStartMs = System.currentTimeMillis(); it.flowShotStartKm = it.distanceKm } }) { _, _ -> }
                 return@launch
             }
             askBattery(getString(R.string.popup_title_start), plannedStart, withCondition = prefs.tyresEnabled && prefs.conditionEnabled, withTyres = true,
@@ -410,7 +416,19 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         if (now - lastStopPopupMs < STOP_POPUP_DEDUP_MS) return
         val r = synchronized(lock) { ride } ?: return
         if (startPopupJob?.isActive == true) return   // the start popup is still to come and asks first
-        if (liveFresh()) return                        // the bike says it itself
+        if (liveFresh()) {                             // the bike says it itself: only the Flow reminder, while the study is open
+            if (!flowStudyOpen() || r.flowShotMidMs != 0L) return
+            lastStopPopupMs = now
+            scope.launch {
+                delay(STOP_POPUP_DELAY_MS)
+                if (rideState !is RideState.Recording || synchronized(lock) { ride } !== r) return@launch
+                askBattery(getString(R.string.popup_title_flow), null, withCondition = false,
+                    reminder = getString(R.string.reminder_flow_mid),
+                    onReminderDone = { flowShot(r) { it.flowShotMidMs = System.currentTimeMillis(); it.flowShotMidKm = it.distanceKm
+                        it.ourPredMidPct = forecast?.arrivalPct } }) { _, _ -> }
+            }
+            return
+        }
         lastStopPopupMs = now
         logger.log("RIDE ", "Ripresa ($reason): chiedo la % attuale fra ${STOP_POPUP_DELAY_MS / 1000} s")
         scope.launch {
@@ -435,20 +453,41 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         logger.log("RIDE ", "Fine giro: ${"%.1f".format(r.distanceKm)} km, D+ Karoo ${r.ascentM.toInt()} m (integrato ${r.ascentIntegratedM.toInt()}), " +
             "Wh meccanici ${"%.0f".format(r.whMech)} → stimati ${"%.0f".format(r.whEstimated)}, stima arrivo $est %")
         if (liveFresh()) {
-            logger.log("LDI  ", "Arrivo $liveSoc % dalla bici, nessun popup")
-            finish(r, liveSoc)
+            val soc = liveSoc
+            if (!flowStudyOpen()) {
+                logger.log("LDI  ", "Arrivo $soc % dalla bici, nessun popup")
+                finish(r, soc)
+                return
+            }
+            logger.log("LDI  ", "Arrivo $soc % dalla bici: solo il promemoria Flow")
+            askBattery(getString(R.string.popup_title_flow), null, withCondition = false,
+                reminder = flowEndReminder(r),
+                onReminderDone = { flowShot(r) { it.flowShotEndMs = System.currentTimeMillis() } },
+                onSkip = { finish(r, soc) }) { _, _ -> finish(r, soc) }
             return
         }
-        val missing = listOfNotNull(
-            if (r.flowShotStartMs == 0L) getString(R.string.reminder_flow_start) else null,
-            if (r.flowShotMidMs == 0L) getString(R.string.reminder_flow_mid) else null)
-        val reminder = getString(R.string.reminder_flow_end) +
-            if (missing.isEmpty()) "" else "\n" + getString(R.string.reminder_missing, missing.joinToString("; "))
+        val reminder = flowEndReminder(r)
         askBattery(getString(R.string.popup_title_end), est, withCondition = false,
             reminder = reminder,
             onReminderDone = { flowShot(r) { it.flowShotEndMs = System.currentTimeMillis() } },
             onSkip = { finish(r, null) }) { pct, _ -> finish(r, pct) }
     }
+
+    /** The arrival reminder: the ride summary, plus the screenshots still missing. */
+    private fun flowEndReminder(r: RideRecord): String {
+        val missing = listOfNotNull(
+            if (r.flowShotStartMs == 0L) getString(R.string.reminder_flow_start) else null,
+            if (r.flowShotMidMs == 0L) getString(R.string.reminder_flow_mid) else null)
+        return getString(R.string.reminder_flow_end) +
+            if (missing.isEmpty()) "" else "\n" + getString(R.string.reminder_missing, missing.joinToString("; "))
+    }
+
+    /**
+     * The Flow comparison is still collecting rides: fewer than [FlowComparison.MIN_RIDES] comparable
+     * ones. Only then the Flow reminders show when the battery comes from the bike (14/11/2026).
+     * Research tooling for Andrea only: never in a release for users (remove or hide it first).
+     */
+    private fun flowStudyOpen(): Boolean = historyCounts.third < FlowComparison.MIN_RIDES
 
     /** FATTO on a popup: marks when/where a Flow screenshot was taken. */
     private fun flowShot(r: RideRecord, mark: (RideRecord) -> Unit) {
