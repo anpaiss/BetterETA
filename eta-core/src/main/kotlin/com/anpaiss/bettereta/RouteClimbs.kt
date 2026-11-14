@@ -28,6 +28,34 @@ object RouteClimbs {
     private const val MIN_LENGTH_M = 300.0
     private const val MIN_GRADE = 3.0
 
+    private const val ALIGN_TOLERANCE = 0.15
+    private const val ALIGN_TOLERANCE_MIN_M = 15.0
+
+    /**
+     * The Karoo's climbs placed on the route, or null when they cannot be trusted (same rule as RouteProfile):
+     * when navigation starts part-way the Karoo counts from there (KarooSim, 14/11/2026). Try no shift, then the
+     * shifts that line a start or top up with one of [own]; keep the smallest under which every climb rises on
+     * the route's elevation [ele] (every [stepM]) as much as the Karoo says.
+     */
+    fun align(karoo: List<RouteClimb>, own: List<RouteClimb>, ele: DoubleArray, stepM: Double): List<RouteClimb>? {
+        if (karoo.isEmpty() || ele.size < 2) return null
+        val totalM = (ele.size - 1) * stepM
+        fun at(m: Double): Double {
+            val x = (m / stepM).coerceIn(0.0, (ele.size - 1).toDouble())
+            val i = x.toInt().coerceAtMost(ele.size - 2)
+            return ele[i] + (ele[i + 1] - ele[i]) * (x - i)
+        }
+        val shifts = (listOf(0.0) + own.flatMap { o -> karoo.flatMap { k -> listOf(o.startM - k.startM, o.endM - k.endM) } })
+            .distinct().sortedBy { kotlin.math.abs(it) }
+        for (d in shifts) {
+            val moved = karoo.map { RouteClimb(it.startM + d, it.endM + d, it.gainM) }
+            if (moved.any { it.startM < -50.0 || it.endM > totalM + 50.0 }) continue
+            if (moved.all { c -> kotlin.math.abs(at(c.endM) - at(c.startM) - c.gainM) <= maxOf(ALIGN_TOLERANCE_MIN_M, ALIGN_TOLERANCE * c.gainM) })
+                return moved
+        }
+        return null
+    }
+
     /** The climbs of the whole route given as its [segments] from the start. */
     fun find(segments: List<RouteSegment>): List<RouteClimb> {
         val ele = elevation(segments)

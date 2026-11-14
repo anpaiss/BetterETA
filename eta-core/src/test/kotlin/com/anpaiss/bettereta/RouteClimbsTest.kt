@@ -33,6 +33,16 @@ class RouteClimbsTest {
         assertNull(RouteClimbs.nextTop(c, 35_000.0))
     }
 
+    @Test fun `Karoo climbs kept, shifted back in place, or refused`() {
+        val e = ele("menador-drago-vaia-passo-vezzena")
+        val own = RouteClimbs.find(e, 50.0)
+        val big = own[0]
+        assertEquals(big.startM, RouteClimbs.align(listOf(big), own, e, 50.0)!![0].startM, 1.0)
+        val fromKm10 = listOf(RouteClimb(big.startM - 10_000.0, big.endM - 10_000.0, big.gainM))
+        assertEquals(big.startM, RouteClimbs.align(fromKm10, own, e, 50.0)!![0].startM, 1.0)
+        assertNull(RouteClimbs.align(listOf(RouteClimb(2_200.0, 7_800.0, 780.0)), own, e, 50.0))
+    }
+
     @Test fun `elevation rebuilt from segments`() {
         // 2 km flat, 2 km at 10 %, 1 km flat: one climb of 200 m from km 2 to km 4
         val segs = listOf(RouteSegment(2_000.0, 0.0), RouteSegment(2_000.0, 10.0), RouteSegment(1_000.0, 0.0))

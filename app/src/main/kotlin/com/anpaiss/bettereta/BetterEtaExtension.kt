@@ -2069,15 +2069,19 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
 
     private suspend fun climbsOfRoute(): List<RouteClimb> {
         val karoo = routeClimbs
-        val all = if (karoo.isEmpty()) pipeline.remainingSegmentsFrom(0.0) else emptyList()
-        val key = if (karoo.isNotEmpty()) -karoo.hashCode().toLong() - 1
-                  else all.size * 1_000_003L + all.sumOf { it.distanceM }.toLong()
+        val all = pipeline.remainingSegmentsFrom(0.0)
+        val key = karoo.hashCode() * 1_000_003L + all.size * 31L + all.sumOf { it.distanceM }.toLong()
         if (key != routeClimbsKey) {
             routeClimbsKey = key
-            val fromKaroo = karoo.isNotEmpty()
-            routeClimbsFound = if (fromKaroo) karoo.map { RouteClimb(it.startDistance, it.startDistance + it.length, it.totalElevation) }
-                               else RouteClimbs.find(all)
-            logger.log("TOP  ", "Salite della route (" + (if (fromKaroo) "Karoo" else "dal profilo") + "): " + routeClimbsFound.joinToString {
+            // the Karoo's climbs when they check out against the route's elevation (placed right even when
+            // navigation started part-way), otherwise ours
+            val ele = RouteClimbs.elevation(all)
+            val own = RouteClimbs.find(ele, RouteClimbs.STEP_M)
+            val placed = RouteClimbs.align(karoo.map { RouteClimb(it.startDistance, it.startDistance + it.length, it.totalElevation) },
+                own, ele, RouteClimbs.STEP_M)
+            val fromKaroo = placed != null
+            routeClimbsFound = placed ?: own
+            logger.log("TOP  ", "Salite della route (" + (if (fromKaroo) "Karoo" else if (karoo.isNotEmpty()) "dal profilo, quelle del Karoo non tornano" else "dal profilo") + "): " + routeClimbsFound.joinToString {
                 "km %.1f-%.1f +%.0f m".format(it.startM / 1000.0, it.endM / 1000.0, it.gainM) }.ifEmpty { "nessuna" })
         }
         return routeClimbsFound
