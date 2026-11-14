@@ -53,7 +53,9 @@ class EtaTopDataType(
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope.launch {
             etaState
-                .map { it.topSeconds to it.topDistanceM }
+                // before the start ("Plan") the time is from the route start, not from here: no value for
+                // other extensions (RouteProfile adds it to its CLIMB line from the rider's position)
+                .map { if (it.status == "Plan") -1L to -1.0 else it.topSeconds to it.topDistanceM }
                 .distinctUntilChanged()
                 .collect { (sec, m) ->
                     emitter.onNext(StreamState.Streaming(DataPoint(dataTypeId,
