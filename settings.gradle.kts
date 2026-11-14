@@ -14,6 +14,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // KarooSwitches published with :lib:publishToMavenLocal, before it goes to GitHub Packages
+        mavenLocal { content { includeGroup("com.github.anpaiss") } }
         maven {
             // KarooSwitches: GitHub Packages del repo privato anpaiss/KarooSwitches, stesse credenziali
             url = uri("https://maven.pkg.github.com/anpaiss/KarooSwitches")

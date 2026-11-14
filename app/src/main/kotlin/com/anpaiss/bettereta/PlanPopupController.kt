@@ -15,6 +15,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.anpaiss.karooswitches.popupturn.PopupTurn
 
 /**
  * Popup overlay della stima a tavolino: route aperta, giro non partito.
@@ -24,6 +25,9 @@ import android.widget.TextView
  * Stessa tecnica di [MtaPopupController]: overlay NOT_FOCUSABLE, i tocchi
  * fuori dal popup passano al ride-app. Si chiude da solo dopo AUTO_DISMISS_MS,
  * alla partenza del giro e al cambio di route.
+ *
+ * Un popup alla volta fra le estensioni ([PopupTurn]): se un altro è a schermo
+ * aspetta, e non esce più se intanto il giro parte (stillWanted di [show]).
  */
 class PlanPopupController(
     private val context: Context,
@@ -33,6 +37,7 @@ class PlanPopupController(
     private val handler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var currentView: View? = null
+    private val turn = PopupTurn(context, "bettereta.plan") { logger.log("PLAN ", it) }
 
     companion object {
         private const val AUTO_DISMISS_MS = 45_000L
@@ -41,8 +46,8 @@ class PlanPopupController(
     fun canShow(): Boolean = Settings.canDrawOverlays(context)
 
     /** [time] "1:03", [routeName] della route, [lines] righe di dettaglio. Chiamabile da qualsiasi thread. */
-    fun show(time: String, routeName: String, lines: List<String>) {
-        handler.post { showOnMain(time, routeName, lines) }
+    fun show(time: String, routeName: String, lines: List<String>, stillWanted: () -> Boolean = { true }) {
+        turn.request(PopupTurn.PRIORITY_PLAN, AUTO_DISMISS_MS, stillWanted = stillWanted) { showOnMain(time, routeName, lines) }
     }
 
     fun hide() {
@@ -50,8 +55,8 @@ class PlanPopupController(
     }
 
     private fun showOnMain(time: String, routeName: String, lines: List<String>) {
-        if (!canShow()) return
-        removeCurrent()
+        if (!canShow()) { turn.done(); return }
+        removeView()
 
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
@@ -122,7 +127,7 @@ class PlanPopupController(
                 currentView = root
                 handler.postDelayed({ autoDismiss(root) }, AUTO_DISMISS_MS)
             }
-            .onFailure { e -> logger.logError("PLAN ", "addView popup fallita", e) }
+            .onFailure { e -> logger.logError("PLAN ", "addView popup fallita", e); turn.done() }
     }
 
     private fun autoDismiss(view: View) {
@@ -133,6 +138,11 @@ class PlanPopupController(
     }
 
     private fun removeCurrent() {
+        removeView()
+        turn.done()
+    }
+
+    private fun removeView() {
         currentView?.let { v -> runCatching { windowManager?.removeView(v) } }
         currentView = null
     }

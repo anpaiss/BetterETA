@@ -18,6 +18,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.NumberPicker
 import android.widget.TextView
+import com.anpaiss.karooswitches.popupturn.PopupTurn
 
 /**
  * Popup overlay "Mandatory arrival time?" alla partenza: due rotelle (ora,
@@ -27,17 +28,22 @@ import android.widget.TextView
  * k24): fascia alta perché la bassa è coperta dal banner "next cue";
  * NOT_FOCUSABLE così i tocchi fuori dal popup passano al ride-app.
  * Auto-dismiss dopo AUTO_DISMISS_MS = nessun MTA.
+ *
+ * Un popup alla volta fra le estensioni ([PopupTurn]): se un altro è a schermo
+ * aspetta quanto serve; [onShown] (il bip) e il timeout partono quando si vede.
  */
 class MtaPopupController(
     private val context: Context,
     private val logger: BetterEtaLogger,
     private val onSet: (hour: Int, minute: Int) -> Unit,
     private val onDismiss: () -> Unit,
+    private val onShown: () -> Unit = {},
 ) {
 
     private val handler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var currentView: View? = null
+    private val turn = PopupTurn(context, "bettereta.mta") { logger.log("MTA  ", it) }
 
     companion object {
         // Le rotelle richiedono più tempo dei due bottoni di PoiAhead (25 s)
@@ -49,7 +55,7 @@ class MtaPopupController(
 
     /** Mostra il popup con le rotelle preimpostate su [hour]:[minute]. Chiamabile da qualsiasi thread. */
     fun show(hour: Int, minute: Int) {
-        handler.post { showOnMain(hour, minute) }
+        turn.request(PopupTurn.PRIORITY_MTA, AUTO_DISMISS_MS) { showOnMain(hour, minute) }
     }
 
     fun hide() {
@@ -57,8 +63,8 @@ class MtaPopupController(
     }
 
     private fun showOnMain(hour: Int, minute: Int) {
-        if (!canShow()) return
-        removeCurrent()
+        if (!canShow()) { turn.done(); return }
+        removeView()
 
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
@@ -179,9 +185,11 @@ class MtaPopupController(
                 currentView = root
                 logger.log("MTA  ", "Popup mostrato: default %02d:%02d".format(hour, minute))
                 handler.postDelayed({ autoDismiss(root) }, AUTO_DISMISS_MS)
+                onShown()
             }
             .onFailure { e ->
                 logger.logError("MTA  ", "addView popup fallita", e)
+                turn.done()
                 onDismiss()
             }
     }
@@ -195,6 +203,11 @@ class MtaPopupController(
     }
 
     private fun removeCurrent() {
+        removeView()
+        turn.done()
+    }
+
+    private fun removeView() {
         currentView?.let { v -> runCatching { windowManager?.removeView(v) } }
         currentView = null
     }

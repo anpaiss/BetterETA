@@ -336,7 +336,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             onDismiss = {
                 mtaAskPendingSinceMs = 0L
                 logger.log("MTA  ", if (mtaEpochMs > 0L) "Popup chiuso: MTA invariato" else "Nessun MTA impostato")
-            })
+            },
+            onShown = { mtaBeep() })
         planPopup = PlanPopupController(applicationContext, logger)
 
         // Versione installata: correla il log al build effettivamente sul dispositivo
@@ -1922,19 +1923,23 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
                 cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
             } else ArrivalMargin.defaultPickerTime(System.currentTimeMillis(), remaining)
             mtaPopup.show(h, m)
-            // Il popup è un overlay muto e si chiude da solo in 45 s: il 10/10 Andrea
-            // l'ha visto tardi. Tre note ascendenti, diverse dai bip del Karoo (e dal
-            // doppio 800 Hz di PoiAhead), per dire "guarda lo schermo".
-            karooSystem.dispatch(
-                PlayBeepPattern(listOf(
-                    PlayBeepPattern.Tone(600, 150),
-                    PlayBeepPattern.Tone(null, 80),
-                    PlayBeepPattern.Tone(800, 150),
-                    PlayBeepPattern.Tone(null, 80),
-                    PlayBeepPattern.Tone(1000, 250),
-                ))
-            )
         }
+    }
+
+    // Il popup è un overlay muto e si chiude da solo in 45 s: il 10/10 Andrea
+    // l'ha visto tardi. Tre note ascendenti, diverse dai bip del Karoo (e dal
+    // doppio 800 Hz di PoiAhead), per dire "guarda lo schermo". Quando il popup
+    // si vede davvero: può aspettare il popup di un'altra estensione.
+    private fun mtaBeep() {
+        karooSystem.dispatch(
+            PlayBeepPattern(listOf(
+                PlayBeepPattern.Tone(600, 150),
+                PlayBeepPattern.Tone(null, 80),
+                PlayBeepPattern.Tone(800, 150),
+                PlayBeepPattern.Tone(null, 80),
+                PlayBeepPattern.Tone(1000, 250),
+            ))
+        )
     }
 
     private fun setMta(hour: Int, minute: Int) {
@@ -2174,7 +2179,8 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             if (p.elevM >= 0) "%.0f m D+".format(p.elevM) else null,
             "± %d min".format((p.uncSec + 30) / 60),
         )
-        planPopup.show(time, routeName, lines)
+        // In attesa del popup di un'altra estensione: non esce più a giro partito
+        planPopup.show(time, routeName, lines, stillWanted = { rideState !is RideState.Recording })
         planShownName = routeName
         planShownAtMs = System.currentTimeMillis()
         planShownPrefs.edit().putString("name", planShownName).putLong("at_ms", planShownAtMs).apply()

@@ -16,6 +16,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import com.anpaiss.karooswitches.popupturn.PopupTurn
 
 /**
  * Overlay popup "Battery at start? / now? / at arrival?": one wheel 0..100 in
@@ -24,10 +25,14 @@ import android.widget.TextView
  * mounted pair that a tap moves to the next one; for a PowerMore owner a PowerMore ON / OFF row. Same mechanism as the MTA popup of BetterETA: upper band of
  * the screen, NOT_FOCUSABLE so touches outside go to the ride app; after
  * AUTO_DISMISS_MS the request's onTimeout runs (= onSkip unless given).
+ * One popup at a time with the other extensions ([PopupTurn]): while another one
+ * is on screen it waits as long as needed; [onShown] (the sound) and the timeout
+ * start when it is really shown.
  */
 class BatteryPopupController(
     private val context: Context,
     private val logger: BoschRangeLogger,
+    private val onShown: () -> Unit = {},
 ) {
     class Request(
         val title: String,
@@ -48,6 +53,7 @@ class BatteryPopupController(
     private val handler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var currentView: View? = null
+    private val turn = PopupTurn(context, "boschrange.battery") { logger.log("POPUP", it) }
 
     companion object {
         private const val AUTO_DISMISS_MS = 45_000L
@@ -56,13 +62,13 @@ class BatteryPopupController(
     fun canShow(): Boolean = Settings.canDrawOverlays(context)
 
     /** Shows the popup; any thread. A popup already on screen is replaced (its request is skipped). */
-    fun show(req: Request) { handler.post { showOnMain(req) } }
+    fun show(req: Request) { turn.request(PopupTurn.PRIORITY_BATTERY, AUTO_DISMISS_MS) { showOnMain(req) } }
 
     fun hide() { handler.post { removeCurrent() } }
 
     private fun showOnMain(req: Request) {
-        if (!canShow()) { req.onSkip(); return }
-        removeCurrent()
+        if (!canShow()) { turn.done(); req.onSkip(); return }
+        removeView()
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
@@ -291,14 +297,21 @@ class BatteryPopupController(
                         req.onTimeout()
                     }
                 }, AUTO_DISMISS_MS)
+                onShown()
             }
             .onFailure { e ->
                 logger.logError("POPUP", "addView fallita", e)
+                turn.done()
                 req.onSkip()
             }
     }
 
     private fun removeCurrent() {
+        removeView()
+        turn.done()
+    }
+
+    private fun removeView() {
         currentView?.let { v -> runCatching { windowManager?.removeView(v) } }
         currentView = null
     }

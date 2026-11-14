@@ -53,6 +53,12 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
+        debug {
+            // Release key when the environment gives it, as in BetterETA: KarooSwitches
+            // (for PopupTurn) brings its signature permission, and Android refuses a
+            // second declarer with another signature (INSTALL_FAILED_DUPLICATE_PERMISSION)
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
     }
 }
 
@@ -63,6 +69,7 @@ kotlin {
 dependencies {
     implementation(project(":eta-core"))
     implementation(libs.hammerhead.karoo.ext)
+    implementation("com.github.anpaiss:karooswitches:0.4.0")   // PopupTurn: one popup at a time with the other extensions
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.kotlinx.coroutines.android)

@@ -164,7 +164,7 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
         prefs   = Prefs(applicationContext)
         history = RideHistory(applicationContext)
         sampleLog = SampleLog(applicationContext)
-        popup   = BatteryPopupController(applicationContext, logger)
+        popup   = BatteryPopupController(applicationContext, logger, onShown = ::playPopupSound)
         energy  = EnergyModel(prefs.riderKg)
         surfaceClassifier = SurfaceClassifier(applicationContext, logger, MapsforgeSurfaceSource(applicationContext, logger))
         simState = KarooSimState(applicationContext, scope)
@@ -543,7 +543,6 @@ class BoschRangeExtension : KarooExtension("bosch-range", BuildConfig.VERSION_NA
             onSkip(); return
         }
         val cond = if (withCondition) (synchronized(lock) { ride?.condition } ?: Condition.DRY) else null
-        playPopupSound()
         // The tyre row only when there is a choice: tyres on and at least two pairs saved
         val pairs = if (withTyres && prefs.tyresEnabled) prefs.tyrePairs else emptyList()
         val labels = TyrePair.labels(pairs)
