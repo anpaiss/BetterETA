@@ -77,7 +77,9 @@ val generateManifest by tasks.registering {
     val repo = "https://github.com/anpaiss/BetterETA"
     val version = releaseVersion
     val code = appVersionCode
-    val notes = System.getenv("RELEASE_NOTES").orEmpty()
+    // What's new, shown by the Karoo's extension library: the env wins, else app/release-notes.txt
+    val notes = System.getenv("RELEASE_NOTES")?.takeIf { it.isNotBlank() }
+        ?: layout.projectDirectory.file("release-notes.txt").asFile.takeIf { it.exists() }?.readText()?.trim().orEmpty()
     // Declared as inputs so a change of version/notes (they come from the
     // environment) re-runs the task; with outputs alone Gradle would keep a
     // stale manifest.json as up-to-date.
@@ -87,7 +89,7 @@ val generateManifest by tasks.registering {
     outputs.file(out)
     doLast {
         fun q(v: String) = "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
-        val screenshots = listOf("app-home.png", "app-model.png", "switches_mta_set.png")
+        val screenshots = listOf("top-and-way-home.png", "plan-popup.png", "app-home.png", "app-model.png", "switches_mta_set.png")
             .joinToString(", ") { q("https://raw.githubusercontent.com/anpaiss/BetterETA/v$version/docs/$it") }
         out.asFile.writeText(
             """

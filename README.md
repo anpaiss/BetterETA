@@ -5,11 +5,23 @@
 
 # BetterETA
 
-> **Version 1.0** — install the APK from the [latest release](../../releases/latest/download/BetterETA.apk). Built and ridden by one rider on one Karoo 3 for three months; read [What to expect on a fresh install](#what-to-expect-on-a-fresh-install) and [What has been tested](#what-has-been-tested) before trusting it on a ride that matters.
+> **Version 1.1** — install the APK from the [latest release](../../releases/latest/download/BetterETA.apk). Built and ridden by one rider on one Karoo 3 for three months; read [What to expect on a fresh install](#what-to-expect-on-a-fresh-install) and [What has been tested](#what-has-been-tested) before trusting it on a ride that matters.
 
 ![BetterETA: an arrival time that learns how you ride, gradient by gradient](docs/banner.png)
 
 An arrival time for the Hammerhead Karoo that learns how **you** ride. Instead of dividing the distance left by an average speed, BetterETA looks at every stretch of the route still ahead, asks "how fast do I usually ride a climb like this, on a surface like this?" and adds up the answers. It learns from the rides already stored on your Karoo, keeps learning on every ride, and adapts to the shape you are in today.
+
+## What's new in 1.1
+
+- **The plan, before you start.** Open a route and a popup says how long it should take you, with distance, climbing and the uncertainty; until the ride starts the fields show the same number as "PLAN". See [Data fields](#data-fields).
+- **The next climb's top.** Two new fields, **ETA at the Top** and **Time to Top**: when you will be at the top of the climb you are on, or of the next one, and how long it takes, with the same model as the finish.
+- **Way Home.** For rides without a plan: how much longer you can keep going out before the way back, retraced along your own track, lands after dusk. A second field, **Way Home: minutes left**, shows the same number alone, and the [BigFields](https://github.com/anpaiss/BigFields) extension can show it in large digits. See [Way home](#way-home).
+- **ETA at Next Point.** The arrival time at the next POI you placed on the route: a meeting point, a hut, a fountain.
+- **One popup at a time.** BetterETA's popups wait while a popup of another extension by the same author is on screen, and show when it is gone. See [One popup at a time](#one-popup-at-a-time).
+- **Fields that fit.** The fields read in the small cells of a ten-field page, and a new look draws them like the Karoo's own fields.
+- **Field preview and test popups** in the app, to see every field and popup without a ride.
+
+Updating from 1.0.x keeps the learned table, the memory of places and the settings.
 
 ## Why
 
@@ -48,7 +60,7 @@ BetterETA was closer on every one of those rides. On a route ridden before, the 
 
 ## Data fields
 
-Eight fields can be added to any ride page from the Karoo profile editor:
+Twelve fields can be added to any ride page from the Karoo profile editor:
 
 | Field | Shows |
 |---|---|
@@ -59,7 +71,10 @@ Eight fields can be added to any ride page from the Karoo profile editor:
 | **Arrival Margin (MTA)** | The mandatory arrival time and the minutes of slack against it: `+12m` AHEAD in green, `-5m` LATE in red |
 | **Distance to Farthest Point** | Distance left to the point of the route farthest from the start, the turnaround of an out-and-back |
 | **ETA at Next Point** | The arrival time at the next POI you placed on the route when planning it (a meeting point, a hut, a fountain), predicted with the same model as the finish. Once you pass it, the field moves on to the following POI; `no POI` if the route has none ahead |
+| **ETA at the Top** | The time of day you will be at the top of the climb you are on, or of the next one, with the same model as the finish; `no climb` when no top is left ahead |
+| **Time to Top** | How long it takes to get to that top |
 | **Way Home** | How much longer you can keep going before the ride back, retraced along your own track, lands after dusk: the minutes left to turn around, with the arrival home if you turned now. Works without a route, see below |
+| **Way Home: minutes left** | The same minutes alone, in a larger number (on the way back, the minutes to spare). Other extensions can read it, BigFields for one |
 | **Switches** | The mandatory arrival time; a tap opens the Switches popup, see below |
 
 <table>
@@ -73,11 +88,15 @@ Eight fields can be added to any ride page from the Karoo profile editor:
   </tr>
 </table>
 
-Both pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. Open a route on the Karoo and, a few seconds later, a popup says how long the whole route should take you, with distance, climbing and the uncertainty; DISMISS closes it, or it goes away by itself after a minute and a half.
+<img width="240" alt="A data page with the new fields: At the Top 10:21, Way Home minutes left 38m, Way Home 38m with home at 10:45 and turn by 10:35, Meeting point 10:19, Time to Top 0:24" src="docs/top-and-way-home.png" />
+
+The new fields of 1.1 on one page: At the Top, Way Home: minutes left, Way Home, ETA at Next Point (captioned with the POI's name, here "Meeting point") and Time to Top.
+
+All the pictures are the Karoo profile editor's preview, where the fields show example numbers; on the road the numbers are yours. Open a route on the Karoo and, a few seconds later, a popup says how long the whole route should take you, with distance, climbing and the uncertainty; DISMISS closes it, or it goes away by itself after 45 seconds.
 
 <img width="240" alt="The plan popup on the Karoo: BetterETA plan, Gravel Montagna Granda, 2:02, 33.5 km, 1235 m D+, ± 29 min, DISMISS" src="docs/plan-popup.png" />
 
-It is the time from your speed table alone, with no day factor because the day has not started. Read it, keep the route or go back and try another: every time a route is opened before the ride starts the popup comes back, even if the recording was started first and is waiting at the start. Until the ride starts the fields show the same number, labelled "PLAN"; once you are moving they switch to the live estimate from where you are, and the popup closes. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
+It is the time from your speed table alone, with no day factor because the day has not started. Read it, keep the route or go back and try another: every other route opened before the ride starts brings the popup back, even if the recording was started first and is waiting at the start. The same route opened again within half an hour does not, and the Karoo sending the route again on its own does not either. Until the ride starts the fields show the same number, labelled "PLAN"; once you are moving they switch to the live estimate from where you are, and the popup closes. The dashboard draws its numbers as large as the page allows, in the same condensed font as the BigFields extension. The Karoo draws its turn-by-turn banner over the bottom of the screen, so while a route is loaded the dashboard leaves that band free. Fields redraw only when their text changes and at most every few seconds: on the Karoo's screen every redraw costs battery.
 
 Five looks are available in the app, from the plain Karoo style to coloured tiles; the app shows a preview of each.
 
@@ -85,12 +104,18 @@ Five looks are available in the app, from the plain Karoo style to coloured tile
 
 For the rides without a plan: out along a valley, up a trail you do not know, with the only certainty that the way back is the way you came. The **Way Home** field keeps the track you have ridden and, every 30 seconds, asks the speed model how long it would take to ride it backwards to the start, with the climbs turned into descents and the surfaces as they are. Against the daylight limit the Karoo publishes (civil dusk by default, sunset if you prefer, minus a margin of your choice, 20 minutes by default), it then says how much longer you can keep going out: every minute of outbound riding costs itself plus the extra way back it adds, and that growth is measured on the last ten minutes rather than assumed, so a slow climb that will be a fast descent is not charged twice.
 
-- Outbound the big number is the minutes of further riding the limit allows; the label gives the arrival home if you turned now and the time by which to turn.
+- Outbound the big number is the minutes of further riding the limit allows; the label gives the arrival home if you turned now and the time by which to turn. The **Way Home: minutes left** field shows that number alone, larger, for a small cell or for a glance.
 - Fifteen minutes before the allowance runs out the Karoo shows "Turn back soon" with a beep, and "Turn back now" when it hits zero. If the ride home as estimated already lands after dusk, "Home after dusk" says so. Each alert fires once and comes back only after five minutes of regained slack.
 - Once you ride back over your own track the field switches to BACK with the arrival home and the slack against the limit; a loop that closes on the track, or a return to the start from another direction, shortens the way home accordingly, and leaving the track again extends it from there.
 - Without a route the surface of the way home is unknown and the speed comes from the gradient alone; with a route loaded and the rider on it, surfaces and per-way memory are used as for the finish. Without the sun times the big number is simply the time of the way back.
 
 On the 74 recorded rides that end where they started, the way-home time predicted during the ride is within 11 % of the time the return then took, on average (median 8 %), on the stretches actually ridden back along the same track; the file-based replay that produced this number is in the tests (`ReturnReplayTest`). Two things it does not do yet: compare "finish the loaded route" with "turn back", and survive a restart of the extension mid-ride, after which the track starts again from where you are.
+
+## One popup at a time
+
+BetterETA shows popups for the plan and for the mandatory arrival time; PoiAhead shows one for the next fountain. Two popups at the same moment would cover each other. From 1.1 they take turns: a popup that wants the screen while another one is showing waits, and appears as soon as the first one is closed or times out; its beep and its timeout start only then. When two want the screen at the same moment the more urgent goes first (the mandatory arrival time before a fountain, a fountain before the plan). A plan popup still waiting when the ride starts is dropped, and a fountain popup is dropped once the fountain is behind you.
+
+It works between the extensions by the same author that have it: BetterETA 1.1 and PoiAhead 1.2.3 or later. Popups of other extensions and of the Karoo itself do not take part.
 
 ## Mandatory arrival time
 
@@ -144,6 +169,7 @@ Besides the field style and the permissions, the app page has:
 - **Last ride: don't count it**: undoes the learning of the last recording. The table, the segment memory and the comparison history go back to the state before that ride; the recording itself stays on the Karoo. Use it for the day the Karoo was left recording in the car, or for a ride at a pace that is not yours: a ride with a child or a slower friend is lovely, but if it stayed in the table it would nudge the estimate of your solo rides.
 - **Learned speed by grade**: the table itself, km/h per gradient band and surface, with the amount of riding behind each value.
 - **ETA vs Karoo**: for the last twenty routed rides, how far each estimate was from the truth, judged at the end of the ride as described above.
+- **FIELD PREVIEW** and **TEST POPUP**: every field drawn at its real size, down to the half cell of a ten-field page, with sample, longest and no-route values, in dark and light; and the plan and arrival-time popups shown on demand, three seconds after the tap.
 
 ![The learned speed table in the app](docs/app-model.png)
 
@@ -182,7 +208,7 @@ The repository holds two modules: `app`, the BetterETA extension, and `eta-core`
 - The code is all here, open source.
 - `BetterETA.apk` 1.0.1 on [VirusTotal](https://www.virustotal.com/gui/file/56d9bd81087aa47729523c41274eb2b6fc9bbbac835b2df545f6d219cf647672): none of the 66 antivirus engines flag it.
 - Its SHA-256 is `56d9bd81087aa47729523c41274eb2b6fc9bbbac835b2df545f6d219cf647672`; compare it with the file you downloaded (`certutil -hashfile BetterETA.apk SHA256` on Windows, `sha256sum BetterETA.apk` elsewhere).
-- The APK is built by GitHub Actions from the tagged source. From the next release it also carries a signed provenance, and the release notes link its VirusTotal report. Check the provenance with `gh attestation verify BetterETA.apk -R anpaiss/BetterETA`.
+- The APK is built by GitHub Actions from the tagged source, with a signed provenance, and the release notes link its VirusTotal report. Check the provenance with `gh attestation verify BetterETA.apk -R anpaiss/BetterETA`.
 
 ## Support
 
