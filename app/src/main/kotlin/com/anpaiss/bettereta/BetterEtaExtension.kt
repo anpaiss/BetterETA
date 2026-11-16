@@ -658,16 +658,44 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             // Published as time-to-event. Taken as milliseconds like the other
             // duration streams (TIME_TO_DESTINATION), as seconds when the raw value
             // fits in a day: the first raw value is logged so a ride can confirm it.
-            fun sunConsumer(type: String, field: String, label: String, store: (Long) -> Unit) =
+            // 15/11 ride: no value ever arrived ("limite n/d" for 40 min), so every state and the
+            // keys of the first data point are logged once per stream, to see what the Karoo sends.
+            fun sunConsumer(type: String, field: String, label: String, toEpochMs: (Double) -> Long, store: (Long) -> Unit) =
                 karooSystem.addConsumer(OnStreamState.StartStreaming(type), { _ -> }, {}) { event: OnStreamState ->
-                    (event.state as? StreamState.Streaming)?.dataPoint?.values?.get(field)?.let { raw ->
-                        val ms = if (raw <= 86_400.0) (raw * 1000).toLong() else raw.toLong()
-                        if (sunLogged.add(label)) logger.log("HOME ", "$label: primo valore raw=$raw → tra ${ms / 60_000} min")
-                        store(System.currentTimeMillis() + ms)
+                    val st = event.state
+                    if (st !is StreamState.Streaming) {
+                        if (sunLogged.add("$label/${st::class.simpleName}")) logger.log("HOME ", "$label: stato ${st::class.simpleName}")
+                        return@addConsumer
+                    }
+                    val values = st.dataPoint.values
+                    val raw = values[field] ?: st.dataPoint.singleValue
+                    if (raw == null) {
+                        if (sunLogged.add("$label/keys")) logger.log("HOME ", "$label: nessun $field, chiavi=${values.keys}")
+                        return@addConsumer
+                    }
+                    val at = toEpochMs(raw)
+                    if (sunLogged.add(label)) logger.log("HOME ", "$label: primo valore raw=$raw → tra ${(at - System.currentTimeMillis()) / 60_000} min")
+                    store(at)
+                }
+            // time-to-event: milliseconds like TIME_TO_DESTINATION, seconds when it fits in a day
+            val fromNow = { raw: Double -> System.currentTimeMillis() + if (raw <= 86_400.0) (raw * 1000).toLong() else raw.toLong() }
+            // time of the event: epoch ms, or ms / s since local midnight
+            val atTime = { raw: Double ->
+                when {
+                    raw > 1e11 -> raw.toLong()
+                    else -> {
+                        val midnight = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        midnight + if (raw <= 86_400.0) (raw * 1000).toLong() else raw.toLong()
                     }
                 }
-            consumerIds += sunConsumer(DataType.Type.TIME_TO_CIVIL_DUSK, DataType.Field.TIME_TO_CIVIL_DUSK, "TIME_TO_CIVIL_DUSK") { civilDuskAtMs = it }
-            consumerIds += sunConsumer(DataType.Type.TIME_TO_SUNSET, DataType.Field.TIME_TO_SUNSET, "TIME_TO_SUNSET") { sunsetAtMs = it }
+            }
+            var duskFromTimeTo = false
+            var sunsetFromTimeTo = false
+            consumerIds += sunConsumer(DataType.Type.TIME_TO_CIVIL_DUSK, DataType.Field.TIME_TO_CIVIL_DUSK, "TIME_TO_CIVIL_DUSK", fromNow) { duskFromTimeTo = true; civilDuskAtMs = it }
+            consumerIds += sunConsumer(DataType.Type.TIME_TO_SUNSET, DataType.Field.TIME_TO_SUNSET, "TIME_TO_SUNSET", fromNow) { sunsetFromTimeTo = true; sunsetAtMs = it }
+            // fallback: the time of the event itself, used only while the time-to stream is silent
+            consumerIds += sunConsumer(DataType.Type.CIVIL_DUSK, DataType.Field.CIVIL_DUSK, "CIVIL_DUSK", atTime) { if (!duskFromTimeTo) civilDuskAtMs = it }
+            consumerIds += sunConsumer(DataType.Type.SUNSET, DataType.Field.SUNSET, "SUNSET", atTime) { if (!sunsetFromTimeTo) sunsetAtMs = it }
 
             // ── Pagina attiva: gate di visibilità per i redraw ────────────────────
             consumerIds += karooSystem.addConsumer(
