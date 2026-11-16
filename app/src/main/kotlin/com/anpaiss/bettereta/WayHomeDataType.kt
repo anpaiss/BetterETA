@@ -34,16 +34,30 @@ import java.util.Date
  * turned now and the time by which to turn. On the way back the big number is
  * the slack against the limit. Without sun times the big number is the time
  * of the way back itself.
+ *
+ * [minutesLeft] = the "Way Home: minutes left" field (16/11/2026): the same big number, the
+ * minutes you can keep going (on the way back the slack against the limit), published as the
+ * main value of its own stream, because the Karoo passes another extension only the main value
+ * of a stream and BigFields could not read the "allowance" key of the Way Home stream.
  */
 class WayHomeDataType(
     extension: String,
     private val wayHomeState: StateFlow<WayHomeState>,
     private val visibleDataTypeIds: StateFlow<Set<String>?> = MutableStateFlow(null),
-) : DataTypeImpl(extension, "eta-way-home") {
+    private val minutesLeft: Boolean = false,
+) : DataTypeImpl(extension, if (minutesLeft) "eta-way-home-left" else "eta-way-home") {
 
     companion object {
         private const val REDRAW_THROTTLE_MS = 15_000L
         private const val IDLE_LABEL = "WAY\nHOME"
+        private const val MINUTES_LABEL = "WAY HOME\nMINUTES LEFT"
+
+        /** Seconds you can keep going before the way back lands after the limit; on the way back the slack. */
+        fun leftSec(s: WayHomeState): Long? = when {
+            s.returnSec < 0 -> null
+            s.following && s.limitEpochMs > 0L -> (s.limitEpochMs - s.arrivalEpochMs) / 1000L
+            else -> s.allowanceSec
+        }
         /** Key of the allowance in the published data point; BigFields reads it under this name. */
         const val ALLOWANCE_FIELD = "allowance"
     }
@@ -53,6 +67,17 @@ class WayHomeDataType(
     // read by BigFields to show Way Home in large digits (12/11/2026)
     override fun startStream(emitter: Emitter<StreamState>) {
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        if (minutesLeft) {
+            // SINGLE = seconds left to keep going (negative = late); no value without a daylight limit
+            scope.launch {
+                wayHomeState.map { leftSec(it) }.distinctUntilChanged().collect { sec ->
+                    emitter.onNext(if (sec == null) StreamState.NotAvailable
+                        else StreamState.Streaming(DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to sec.toDouble()))))
+                }
+            }
+            emitter.setCancellable { scope.cancel() }
+            return
+        }
         scope.launch {
             wayHomeState.map { it.returnSec to it.allowanceSec }.distinctUntilChanged().collect { (sec, allowance) ->
                 val values = mutableMapOf(DataType.Field.SINGLE to sec.toDouble())
@@ -71,7 +96,8 @@ class WayHomeDataType(
         scope.launch {
             emitter.onNext(UpdateGraphicConfig(showHeader = false))
             combine(source, prefs.styleFlow()) { state, style ->
-                Triple(formatLabel(context, state), formatValue(state), style)
+                Triple(if (minutesLeft) MINUTES_LABEL else formatLabel(context, state),
+                    if (minutesLeft) leftSec(state)?.let { signedMinutes(it) } ?: "--" else formatValue(state), style)
             }
                 .distinctUntilChanged()
                 .whileVisible(visibleDataTypeIds, dataTypeId, preview = config.preview)
@@ -112,8 +138,7 @@ class WayHomeDataType(
         if (s.returnSec < 0) return "--"
         val a = s.allowanceSec
         return when {
-            s.following && s.limitEpochMs > 0L -> signedMinutes((s.limitEpochMs - s.arrivalEpochMs) / 1000L)
-            a != null -> signedMinutes(a)
+            s.following && s.limitEpochMs > 0L || a != null -> signedMinutes(leftSec(s)!!)
             else -> hoursMinutes(s.returnSec)
         }
     }

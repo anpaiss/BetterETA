@@ -104,6 +104,7 @@ class FieldPreviewActivity : AppCompatActivity() {
             EtaTopDataType("preview", EtaTopDataType.Mode.AT, eta),
             EtaTopDataType("preview", EtaTopDataType.Mode.TIME, eta),
             WayHomeDataType("preview", MutableStateFlow(wayHomeState(now))),
+            WayHomeDataType("preview", MutableStateFlow(wayHomeState(now)), minutesLeft = true),
             EtaPaceDataType("preview", eta),
             EtaMarginDataType("preview", eta),
             com.anpaiss.karooswitches.SwitchesDataType("preview"),

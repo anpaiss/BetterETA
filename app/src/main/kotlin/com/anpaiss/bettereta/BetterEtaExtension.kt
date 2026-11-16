@@ -312,6 +312,7 @@ class BetterEtaExtension : KarooExtension("better-eta", "1") {
             EtaTopDataType(extension, EtaTopDataType.Mode.AT, etaState, visibleDataTypeIds),
             EtaTopDataType(extension, EtaTopDataType.Mode.TIME, etaState, visibleDataTypeIds),
             WayHomeDataType(extension, wayHomeState, visibleDataTypeIds),
+            WayHomeDataType(extension, wayHomeState, visibleDataTypeIds, minutesLeft = true),
             EtaMarginDataType(extension, etaState, visibleDataTypeIds),
             EtaPaceDataType(extension, etaState, visibleDataTypeIds),
             SwitchesDataType(extension),

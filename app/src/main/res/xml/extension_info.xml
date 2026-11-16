@@ -45,6 +45,14 @@
         graphical="true"
         icon="@drawable/ic_launcher_foreground" />
 
+    <!-- Way home, the minutes left only: the main value other extensions (BigFields) can read -->
+    <DataType
+        typeId="eta-way-home-left"
+        displayName="@string/eta_way_home_left_name"
+        description="@string/eta_way_home_left_desc"
+        graphical="true"
+        icon="@drawable/ic_launcher_foreground" />
+
     <!-- Arrival time at the next POI placed on the route (meeting point) -->
     <DataType
         typeId="eta-next-poi"
