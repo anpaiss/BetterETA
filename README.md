@@ -206,8 +206,8 @@ The repository holds two modules: `app`, the BetterETA extension, and `eta-core`
 ## Is it safe?
 
 - The code is all here, open source.
-- `BetterETA.apk` 1.0.1 on [VirusTotal](https://www.virustotal.com/gui/file/56d9bd81087aa47729523c41274eb2b6fc9bbbac835b2df545f6d219cf647672): none of the 66 antivirus engines flag it.
-- Its SHA-256 is `56d9bd81087aa47729523c41274eb2b6fc9bbbac835b2df545f6d219cf647672`; compare it with the file you downloaded (`certutil -hashfile BetterETA.apk SHA256` on Windows, `sha256sum BetterETA.apk` elsewhere).
+- `BetterETA.apk` 1.1 on [VirusTotal](https://www.virustotal.com/gui/file/287c129a4890b23dc9392c952ca409e00cc27db1d1781d4789bcda263dc6b615): none of the 64 antivirus engines flag it.
+- Its SHA-256 is `287c129a4890b23dc9392c952ca409e00cc27db1d1781d4789bcda263dc6b615`; compare it with the file you downloaded (`certutil -hashfile BetterETA.apk SHA256` on Windows, `sha256sum BetterETA.apk` elsewhere).
 - The APK is built by GitHub Actions from the tagged source, with a signed provenance, and the release notes link its VirusTotal report. Check the provenance with `gh attestation verify BetterETA.apk -R anpaiss/BetterETA`.
 
 ## Support
